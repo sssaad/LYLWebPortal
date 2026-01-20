@@ -18,6 +18,9 @@ const RUN_SP_URL =
 const UPDATE_DYNAMIC_URL =
   "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=update_dynamic_data";
 
+const SEND_PROGRESS_EMAIL_URL =
+  "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=send_progress_report_email";
+
 // ✅ helpers (moment formatting)
 const formatDate = (d) => {
   if (!d) return "";
@@ -36,7 +39,6 @@ const detectIsDark = () => {
   try {
     const body = document.body;
 
-    // common theme flags
     const byAttr =
       body?.dataset?.theme?.toLowerCase() === "dark" ||
       body?.getAttribute("data-theme")?.toLowerCase() === "dark";
@@ -49,11 +51,9 @@ const detectIsDark = () => {
 
     if (byAttr || byClass) return true;
 
-    // prefers-color-scheme
     if (window.matchMedia?.("(prefers-color-scheme: dark)")?.matches) return true;
 
-    // fallback: check body background brightness
-    const bg = window.getComputedStyle(body).backgroundColor; // "rgb(r,g,b)"
+    const bg = window.getComputedStyle(body).backgroundColor;
     const m = bg.match(/\d+/g);
     if (m?.length >= 3) {
       const r = Number(m[0]);
@@ -95,11 +95,12 @@ const FeedbackLayer = () => {
     const updateTheme = () => setIsDarkTheme(detectIsDark());
     updateTheme();
 
-    // observe class/attr changes on body (theme switches)
     const obs = new MutationObserver(updateTheme);
-    obs.observe(document.body, { attributes: true, attributeFilter: ["class", "data-theme"] });
+    obs.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["class", "data-theme"],
+    });
 
-    // prefers-color-scheme change
     const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
     const onMq = () => updateTheme();
     mq?.addEventListener?.("change", onMq);
@@ -110,13 +111,13 @@ const FeedbackLayer = () => {
     };
   }, []);
 
+  // ✅ fetch performance rows
   useEffect(() => {
     const fetchRows = async () => {
       try {
         const token = await getToken();
         if (!token) throw new Error("Token not found");
 
-        // ✅ runStoredProcedure: token header mein
         const headers = { ...BASE_HEADERS, token };
         const body = { procedureName: "get_performance" };
 
@@ -125,7 +126,8 @@ const FeedbackLayer = () => {
 
         if (Array.isArray(data) && data.length > 0) {
           const mapped = data.map((item) => {
-            const rawBookDate = item.booking_date ?? item.book_date ?? item.bookDate ?? "";
+            const rawBookDate =
+              item.booking_date ?? item.book_date ?? item.bookDate ?? "";
             const rawStart =
               item.booking_start_time ??
               item.slot_start ??
@@ -160,14 +162,18 @@ const FeedbackLayer = () => {
                 item.student?.name ??
                 item.studentName ??
                 item.username ??
-                `${item.student_firstname ?? ""} ${item.student_lastname ?? ""}`.trim() ??
+                `${item.student_firstname ?? ""} ${
+                  item.student_lastname ?? ""
+                }`.trim() ??
                 "",
               teacherName:
                 item.teacher_fullname ??
                 item.teacher_name ??
                 item.teacher?.name ??
                 item.teacherName ??
-                `${item.teacher_firstname ?? ""} ${item.teacher_lastname ?? ""}`.trim() ??
+                `${item.teacher_firstname ?? ""} ${
+                  item.teacher_lastname ?? ""
+                }`.trim() ??
                 "",
 
               punctuality: item.punctuality ?? "",
@@ -210,7 +216,7 @@ const FeedbackLayer = () => {
     else if (currentPage > totalPages) setCurrentPage(totalPages);
   }, [rows, totalPages, currentPage]);
 
-  // ✅ Modal always opens (even if sent). Editing disabled inside modal
+  // ✅ open modal (always)
   const openFeedbackModal = (row) => {
     setCurrentRow({
       ...row,
@@ -228,13 +234,15 @@ const FeedbackLayer = () => {
     setCurrentRow((prev) => ({ ...prev, [field]: value }));
   };
 
+  // ✅ save feedback (update_dynamic_data)
   const handleSaveFeedback = async () => {
     if (!currentRow?.sessionid) {
       return Swal.fire("Error", "sessionid missing. Update nahi ho sakta.", "error");
     }
 
     const isSent =
-      (currentRow.email_status || "").toLowerCase() === "sent" || currentRow.isEmailSent;
+      (currentRow.email_status || "").toLowerCase() === "sent" ||
+      currentRow.isEmailSent;
 
     if (isSent) {
       return Swal.fire("Locked", "Email already sent. Editing disabled.", "info");
@@ -279,7 +287,10 @@ const FeedbackLayer = () => {
         ],
       };
 
-      const res = await axios.post(UPDATE_DYNAMIC_URL, payload, { headers: BASE_HEADERS });
+      const res = await axios.post(UPDATE_DYNAMIC_URL, payload, {
+        headers: BASE_HEADERS,
+      });
+
       const ok = res?.data?.statusCode === 200;
 
       if (ok) {
@@ -302,7 +313,11 @@ const FeedbackLayer = () => {
         Swal.fire("Updated!", "Performance feedback updated successfully.", "success");
         setShowModal(false);
       } else {
-        Swal.fire("Error", res?.data?.message || "Failed to update feedback.", "error");
+        Swal.fire(
+          "Error",
+          res?.data?.message || "Failed to update feedback.",
+          "error"
+        );
       }
     } catch (e) {
       console.error(e);
@@ -312,16 +327,17 @@ const FeedbackLayer = () => {
     }
   };
 
-  // ✅ Send button: only clicked row shows "Sending..."
+  // ✅ send email (send_progress_report_email endpoint)
   const handleSendEmail = async (row) => {
     if (!row?.sessionid) return Swal.fire("Error", "sessionid missing.", "error");
 
-    const isSent = (row.email_status || "").toLowerCase() === "sent" || row.isEmailSent;
+    const isSent =
+      (row.email_status || "").toLowerCase() === "sent" || row.isEmailSent;
     if (isSent) return Swal.fire("Info", "Already sent.", "info");
 
     const result = await Swal.fire({
-      title: "Send Email?",
-      text: `Do you want to mark email as SENT for ${row.studentName}?`,
+      title: "Send Progress Report Email?",
+      text: `Session ID: ${row.sessionid}`,
       icon: "question",
       showCancelButton: true,
       confirmButtonText: "Yes, Send",
@@ -331,52 +347,63 @@ const FeedbackLayer = () => {
     if (!result.isConfirmed) return;
 
     try {
-      setSendingSessionId(row.sessionid); // ✅ only this row
+      setSendingSessionId(row.sessionid);
 
       const token = await getToken();
       if (!token) throw new Error("Token not found");
 
-      const payload = {
-        token,
-        tablename: "performance",
-        conditions: [{ sessionid: Number(row.sessionid) }],
-        updatedata: [{ email_status: "sent" }],
-      };
+      const headers = { ...BASE_HEADERS, token };
+      const body = { sessionid: Number(row.sessionid) };
 
-      const res = await axios.post(UPDATE_DYNAMIC_URL, payload, { headers: BASE_HEADERS });
-      const ok = res?.data?.statusCode === 200;
+      const res = await axios.post(SEND_PROGRESS_EMAIL_URL, body, { headers });
 
-      if (ok) {
-        setRows((prev) =>
-          prev.map((r) =>
-            r.sessionid === row.sessionid
-              ? { ...r, email_status: "sent", isEmailSent: true }
-              : r
-          )
+      // ✅ success check (handles {statusCode:200} or {status:true} style)
+      const ok =
+        res?.data?.statusCode === 200 ||
+        res?.data?.status === true ||
+        res?.data?.success === true;
+
+      if (!ok) {
+        return Swal.fire(
+          "Error",
+          res?.data?.message || "Email send failed.",
+          "error"
         );
-
-        // if modal open on same row -> lock it
-        setCurrentRow((prev) =>
-          prev?.sessionid === row.sessionid
-            ? { ...prev, email_status: "sent", isEmailSent: true }
-            : prev
-        );
-
-        Swal.fire({
-          icon: "success",
-          title: "Sent!",
-          text: "Status updated to SENT. Now editing is disabled.",
-          timer: 1600,
-          showConfirmButton: false,
-        });
-      } else {
-        Swal.fire("Error", res?.data?.message || "Status update failed.", "error");
       }
+
+      // ✅ response me sessionid ho to use, warna row.sessionid
+      const returnedSessionId =
+        res?.data?.data?.[0]?.sessionid != null
+          ? Number(res.data.data[0].sessionid)
+          : Number(row.sessionid);
+
+      // ✅ update UI -> sent + lock
+      setRows((prev) =>
+        prev.map((r) =>
+          Number(r.sessionid) === returnedSessionId
+            ? { ...r, email_status: "sent", isEmailSent: true }
+            : r
+        )
+      );
+
+      setCurrentRow((prev) =>
+        prev?.sessionid && Number(prev.sessionid) === returnedSessionId
+          ? { ...prev, email_status: "sent", isEmailSent: true }
+          : prev
+      );
+
+      Swal.fire({
+        icon: "success",
+        title: "Sent!",
+        text: "Progress report email sent. Now editing is disabled.",
+        timer: 1700,
+        showConfirmButton: false,
+      });
     } catch (e) {
       console.error(e);
-      Swal.fire("Error", "Something went wrong while updating sent status.", "error");
+      Swal.fire("Error", "Something went wrong while sending email.", "error");
     } finally {
-      setSendingSessionId(null); // ✅ reset
+      setSendingSessionId(null);
     }
   };
 
@@ -387,7 +414,10 @@ const FeedbackLayer = () => {
 
   if (initialLoading) {
     return (
-      <div className="d-flex justify-content-center align-items-center" style={{ height: "300px" }}>
+      <div
+        className="d-flex justify-content-center align-items-center"
+        style={{ height: "300px" }}
+      >
         <div
           style={{
             width: "48px",
@@ -468,7 +498,7 @@ const FeedbackLayer = () => {
           border-color: rgba(0,0,0,.12);
         }
 
-        /* disabled (LIGHT) -> grey background + dark text */
+        /* disabled (LIGHT) */
         .pf-modal-card.pf-light .pf-box .form-select:disabled,
         .pf-modal-card.pf-light .pf-box .form-control:disabled,
         .pf-modal-card.pf-light .pf-box textarea:disabled,
@@ -479,10 +509,6 @@ const FeedbackLayer = () => {
           opacity: 1 !important;
           cursor: not-allowed;
           -webkit-text-fill-color: rgba(0,0,0,.70) !important;
-        }
-        .pf-modal-card.pf-light .pf-box .form-control:disabled::placeholder,
-        .pf-modal-card.pf-light .pf-box textarea:disabled::placeholder{
-          color: rgba(0,0,0,.40) !important;
         }
 
         /* ------------------ DARK THEME ------------------ */
@@ -517,7 +543,7 @@ const FeedbackLayer = () => {
           border-color: rgba(255,255,255,.12);
         }
 
-        /* disabled (DARK) -> dark background + light text */
+        /* disabled (DARK) */
         .pf-modal-card.pf-dark .pf-box .form-select:disabled,
         .pf-modal-card.pf-dark .pf-box .form-control:disabled,
         .pf-modal-card.pf-dark .pf-box textarea:disabled,
@@ -528,10 +554,6 @@ const FeedbackLayer = () => {
           opacity: 1 !important;
           cursor: not-allowed;
           -webkit-text-fill-color: rgba(255,255,255,.85) !important;
-        }
-        .pf-modal-card.pf-dark .pf-box .form-control:disabled::placeholder,
-        .pf-modal-card.pf-dark .pf-box textarea:disabled::placeholder{
-          color: rgba(255,255,255,.45) !important;
         }
       `}</style>
 
@@ -563,12 +585,13 @@ const FeedbackLayer = () => {
                   ) : (
                     currentRows.map((row, idx) => {
                       const isSent =
-                        (row.email_status || "").toLowerCase() === "sent" || row.isEmailSent;
+                        (row.email_status || "").toLowerCase() === "sent" ||
+                        row.isEmailSent;
 
                       const isSendingThisRow = sendingSessionId === row.sessionid;
 
                       return (
-                        <tr key={row.id ?? `${row.studentName}-${row.bookDate}-${idx}`}>
+                        <tr key={row.id ?? `${row.sessionid}-${idx}`}>
                           <td className="text-center">{indexOfFirst + idx + 1}</td>
                           <td className="text-center">{row.bookDate}</td>
                           <td className="text-center">{row.studentName}</td>
@@ -617,7 +640,10 @@ const FeedbackLayer = () => {
                     key={i}
                     className={`page-item ${currentPage === i + 1 ? "active" : ""}`}
                   >
-                    <button onClick={() => handlePageChange(i + 1)} className="page-link">
+                    <button
+                      onClick={() => handlePageChange(i + 1)}
+                      className="page-link"
+                    >
                       {i + 1}
                     </button>
                   </li>
@@ -642,141 +668,183 @@ const FeedbackLayer = () => {
             <div className={`modal-content pf-modal-card ${modalThemeClass}`}>
               <div className="modal-header">
                 <h5 className="modal-title">Performance Feedback</h5>
-                <button type="button" className="btn-close" onClick={() => setShowModal(false)} />
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={() => setShowModal(false)}
+                />
               </div>
 
               <div className="modal-body">
-                {currentRow && (() => {
-                  const isSent =
-                    (currentRow.email_status || "").toLowerCase() === "sent" || currentRow.isEmailSent;
+                {currentRow &&
+                  (() => {
+                    const isSent =
+                      (currentRow.email_status || "").toLowerCase() === "sent" ||
+                      currentRow.isEmailSent;
 
-                  return (
-                    <>
-                      <div className="pf-meta">
-                        <div className="row g-2">
+                    return (
+                      <>
+                        <div className="pf-meta">
+                          <div className="row g-2">
+                            <div className="col-md-6">
+                              <small>Student</small>
+                              <div className="fw-semibold">
+                                {currentRow.studentName || "-"}
+                              </div>
+                            </div>
+                            <div className="col-md-6">
+                              <small>Teacher</small>
+                              <div className="fw-semibold">
+                                {currentRow.teacherName || "-"}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mt-2">
+                            <small>Status</small>{" "}
+                            <span
+                              className={`badge ${
+                                isSent ? "bg-success" : "bg-warning text-dark"
+                              }`}
+                            >
+                              {isSent ? "Sent" : "Pending"}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="pf-divider" />
+
+                        <div className="row g-3">
+                          <div className="col-md-4">
+                            <div className="pf-box">
+                              <label className="form-label">Punctuality</label>
+                              <select
+                                className="form-select"
+                                value={currentRow.punctuality}
+                                onChange={(e) =>
+                                  handleFeedbackChange("punctuality", e.target.value)
+                                }
+                                disabled={isSent}
+                              >
+                                <option value="">Select</option>
+                                {ENUM_OPTIONS.map((op) => (
+                                  <option key={op} value={op}>
+                                    {op}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+
+                          <div className="col-md-4">
+                            <div className="pf-box">
+                              <label className="form-label">Engagement</label>
+                              <select
+                                className="form-select"
+                                value={currentRow.engagement}
+                                onChange={(e) =>
+                                  handleFeedbackChange("engagement", e.target.value)
+                                }
+                                disabled={isSent}
+                              >
+                                <option value="">Select</option>
+                                {ENUM_OPTIONS.map((op) => (
+                                  <option key={op} value={op}>
+                                    {op}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+
+                          <div className="col-md-4">
+                            <div className="pf-box">
+                              <label className="form-label">Behaviour</label>
+                              <select
+                                className="form-select"
+                                value={currentRow.behaviour}
+                                onChange={(e) =>
+                                  handleFeedbackChange("behaviour", e.target.value)
+                                }
+                                disabled={isSent}
+                              >
+                                <option value="">Select</option>
+                                {ENUM_OPTIONS.map((op) => (
+                                  <option key={op} value={op}>
+                                    {op}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+
                           <div className="col-md-6">
-                            <small>Student</small>
-                            <div className="fw-semibold">{currentRow.studentName || "-"}</div>
+                            <div className="pf-box">
+                              <label className="form-label">Understanding</label>
+                              <select
+                                className="form-select"
+                                value={currentRow.understanding}
+                                onChange={(e) =>
+                                  handleFeedbackChange("understanding", e.target.value)
+                                }
+                                disabled={isSent}
+                              >
+                                <option value="">Select</option>
+                                {ENUM_OPTIONS.map((op) => (
+                                  <option key={op} value={op}>
+                                    {op}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
                           </div>
+
                           <div className="col-md-6">
-                            <small>Teacher</small>
-                            <div className="fw-semibold">{currentRow.teacherName || "-"}</div>
+                            <div className="pf-box">
+                              <label className="form-label">Final Class Grade</label>
+                              <select
+                                className="form-select"
+                                value={currentRow.final_class_grade}
+                                onChange={(e) =>
+                                  handleFeedbackChange(
+                                    "final_class_grade",
+                                    e.target.value
+                                  )
+                                }
+                                disabled={isSent}
+                              >
+                                <option value="">Select</option>
+                                {ENUM_OPTIONS.map((op) => (
+                                  <option key={op} value={op}>
+                                    {op}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+
+                          <div className="col-12">
+                            <div className="pf-box">
+                              <label className="form-label">Teacher Feedback</label>
+                              <textarea
+                                className="form-control"
+                                rows="5"
+                                value={currentRow.teacher_feedback}
+                                onChange={(e) =>
+                                  handleFeedbackChange(
+                                    "teacher_feedback",
+                                    e.target.value
+                                  )
+                                }
+                                placeholder="Write teacher feedback..."
+                                disabled={isSent}
+                              />
+                            </div>
                           </div>
                         </div>
-
-                        <div className="mt-2">
-                          <small>Status</small>{" "}
-                          <span className={`badge ${isSent ? "bg-success" : "bg-warning text-dark"}`}>
-                            {isSent ? "Sent" : "Pending"}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="pf-divider" />
-
-                      <div className="row g-3">
-                        <div className="col-md-4">
-                          <div className="pf-box">
-                            <label className="form-label">Punctuality</label>
-                            <select
-                              className="form-select"
-                              value={currentRow.punctuality}
-                              onChange={(e) => handleFeedbackChange("punctuality", e.target.value)}
-                              disabled={isSent}
-                            >
-                              <option value="">Select</option>
-                              {ENUM_OPTIONS.map((op) => (
-                                <option key={op} value={op}>{op}</option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-
-                        <div className="col-md-4">
-                          <div className="pf-box">
-                            <label className="form-label">Engagement</label>
-                            <select
-                              className="form-select"
-                              value={currentRow.engagement}
-                              onChange={(e) => handleFeedbackChange("engagement", e.target.value)}
-                              disabled={isSent}
-                            >
-                              <option value="">Select</option>
-                              {ENUM_OPTIONS.map((op) => (
-                                <option key={op} value={op}>{op}</option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-
-                        <div className="col-md-4">
-                          <div className="pf-box">
-                            <label className="form-label">Behaviour</label>
-                            <select
-                              className="form-select"
-                              value={currentRow.behaviour}
-                              onChange={(e) => handleFeedbackChange("behaviour", e.target.value)}
-                              disabled={isSent}
-                            >
-                              <option value="">Select</option>
-                              {ENUM_OPTIONS.map((op) => (
-                                <option key={op} value={op}>{op}</option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-
-                        <div className="col-md-6">
-                          <div className="pf-box">
-                            <label className="form-label">Understanding</label>
-                            <select
-                              className="form-select"
-                              value={currentRow.understanding}
-                              onChange={(e) => handleFeedbackChange("understanding", e.target.value)}
-                              disabled={isSent}
-                            >
-                              <option value="">Select</option>
-                              {ENUM_OPTIONS.map((op) => (
-                                <option key={op} value={op}>{op}</option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-
-                        <div className="col-md-6">
-                          <div className="pf-box">
-                            <label className="form-label">Final Class Grade</label>
-                            <select
-                              className="form-select"
-                              value={currentRow.final_class_grade}
-                              onChange={(e) => handleFeedbackChange("final_class_grade", e.target.value)}
-                              disabled={isSent}
-                            >
-                              <option value="">Select</option>
-                              {ENUM_OPTIONS.map((op) => (
-                                <option key={op} value={op}>{op}</option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-
-                        <div className="col-12">
-                          <div className="pf-box">
-                            <label className="form-label">Teacher Feedback</label>
-                            <textarea
-                              className="form-control"
-                              rows="5"
-                              value={currentRow.teacher_feedback}
-                              onChange={(e) => handleFeedbackChange("teacher_feedback", e.target.value)}
-                              placeholder="Write teacher feedback..."
-                              disabled={isSent}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </>
-                  );
-                })()}
+                      </>
+                    );
+                  })()}
               </div>
 
               <div className="modal-footer">
@@ -795,7 +863,8 @@ const FeedbackLayer = () => {
                   disabled={
                     savingFeedback ||
                     (currentRow &&
-                      (((currentRow.email_status || "").toLowerCase() === "sent") || currentRow.isEmailSent))
+                      (((currentRow.email_status || "").toLowerCase() === "sent") ||
+                        currentRow.isEmailSent))
                   }
                 >
                   {savingFeedback ? "Saving..." : "Save Feedback"}

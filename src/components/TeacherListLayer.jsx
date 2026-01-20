@@ -517,7 +517,7 @@ const TeacherListLayer = () => {
               setCurrentPage(1);
             }}
           >
-            <option value="">All</option>
+            <option value="">Status:All</option>
             <option value="Active">Active</option>
             <option value="Inactive">Inactive</option>
           </select>
