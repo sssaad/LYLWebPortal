@@ -2950,8 +2950,8 @@ const useReactApexChart = () => {
 
   let userOverviewDonutChartSeries = [500, 500, 500];
   let userOverviewDonutChartOptions = {
-    colors: ["#FF9F29", "#487FFF", "#E4F1FF"],
-    labels: ["Active", "New", "Total"],
+    colors: ["#FF9F29", "#16a34a", "#487fff"],
+    labels: ["Teachers", "Student", "Parents"],
     legend: {
       show: false,
     },

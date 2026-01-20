@@ -12484,7 +12484,7 @@ div.dt-container .dt-paging .dt-paging-button {
 
 div.dt-container
   .dt-paging
-  .dt-paging-button:not(.first, .previous, .next, .last) {
+div.dt-container .dt-paging .dt-paging-button:not(.first, .previous, .next, .last) {
   color: var(--text-secondary-light) !important;
   border-radius: 4px !important;
   -webkit-border-radius: 4px !important;
@@ -15652,6 +15652,7 @@ td.fc-header-center {
     padding-inline-start: 2.75rem;
   }
 }
+
 .sidebar-menu .sidebar-submenu li.active-page a {
   background-color: var(--button-secondary);
   color: var(--text-primary-light);
@@ -15673,6 +15674,7 @@ td.fc-header-center {
     font-size: 1rem;
   }
 }
+
 /* === sidebar css end === */
 /* === breadcrumb css start === */
 /* === breadcrumb css end === */
@@ -15691,6 +15693,7 @@ td.fc-header-center {
     margin-inline-start: 13.75rem;
   }
 }
+
 @media (min-width: 1400px) {
   .dashboard-main {
     margin-inline-start: 17.1875rem;

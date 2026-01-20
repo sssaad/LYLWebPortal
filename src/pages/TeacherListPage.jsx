@@ -1,12 +1,12 @@
 import React from "react";
 import MasterLayout from "../masterLayout/MasterLayout";
 import Breadcrumb from "../components/Breadcrumb";
-import LanguageLayer from "../components/LanguageLayer";
+import TeacherListLayer from "../components/TeacherListLayer";
 
 
 
 
-const LanguagePage = () => {
+const TeacherListPage = () => {
   return (
     <>
 
@@ -14,10 +14,10 @@ const LanguagePage = () => {
       <MasterLayout>
 
         {/* Breadcrumb */}
-        <Breadcrumb title="Courses" />
+        <Breadcrumb title="Teachers" />
 
-        {/* LanguageLayer */}
-        <LanguageLayer />
+        {/* InvoiceListLayer */}
+        <TeacherListLayer />
 
       </MasterLayout>
 
@@ -25,4 +25,4 @@ const LanguagePage = () => {
   );
 };
 
-export default LanguagePage; 
+export default TeacherListPage;

@@ -1,0 +1,32 @@
+/* sweetalert2 custom compact styles */
+.swal2-popup.custom-alert {
+  width: 320px !important;
+  padding: 1.5rem !important;
+  border-radius: 0.75rem !important;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1) !important;
+  font-family: 'Inter', sans-serif;
+}
+
+.swal2-title {
+  font-size: 1.125rem !important; /* text-lg */
+  font-weight: 600 !important;
+  color: #1f2937 !important; /* text-gray-800 */
+}
+
+.swal2-html-container {
+  font-size: 0.875rem !important; /* text-sm */
+  color: #4b5563 !important; /* text-gray-600 */
+}
+
+.swal2-confirm {
+  background-color: #2563eb !important; /* blue-600 */
+  color: #ffffff !important;
+  padding: 0.5rem 1rem !important;
+  border-radius: 0.375rem !important;
+  font-size: 0.875rem !important;
+  transition: background-color 0.2s ease-in-out;
+}
+
+.swal2-confirm:hover {
+  background-color: #1d4ed8 !important; /* blue-700 */
+}

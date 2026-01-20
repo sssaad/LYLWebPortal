@@ -12,7 +12,7 @@ HomePageSix = () => {
       <MasterLayout>
 
         {/* Breadcrumb */}
-        <Breadcrumb title="Learn Your Language" />
+        <Breadcrumb title="Gostudy.ae" />
 
         {/* DashBoardLayerSix */}
         <DashBoardLayerSix />

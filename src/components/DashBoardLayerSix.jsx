@@ -1,6 +1,8 @@
 import React from 'react'
 import UnitCountFive from './child/UnitCountFive'
 import TrafficSourcesOne from './child/TrafficSourcesOne'
+import EarningStaticOne from './child/EarningStaticOne'
+import TopPerformanceOne from './child/TopperformanceOne'
 import TopCategoriesOne from './child/TopCategoriesOne'
 import TopInstructorsOne from './child/TopInstructorsOne'
 import StudentProgressOne from './child/StudentProgressOne'
@@ -17,7 +19,13 @@ const DashBoardLayerSix = () => {
                 {/* TrafficSourcesOne */}
                 <TrafficSourcesOne />
 
-                {/* TopCategoriesOne */}
+                {/* EarningStaticOne */}
+                <EarningStaticOne />
+                  
+                {/* TopPerformanceOne */}  
+                <TopPerformanceOne />
+                
+               {/* <LatestPerformanceOne /> */}
                 <TopCategoriesOne />
 
                 {/* TopInstructorsOne */}

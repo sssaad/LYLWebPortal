@@ -36,7 +36,7 @@ const NumberingWizardWithLabel = () => {
                       <span className='count'>1</span>
                     </div>
                     <span className='text text-xs fw-semibold'>
-                      Create Account{" "}
+                      Personal Details{" "}
                     </span>
                   </li>
                   <li
@@ -48,7 +48,7 @@ const NumberingWizardWithLabel = () => {
                       <span className='count'>2</span>
                     </div>
                     <span className='text text-xs fw-semibold'>
-                      Import Data
+                      Educational Details
                     </span>
                   </li>
                   <li
@@ -60,7 +60,7 @@ const NumberingWizardWithLabel = () => {
                       <span className='count'>3</span>
                     </div>
                     <span className='text text-xs fw-semibold'>
-                      Setup Privacy
+                      Teaching Profile
                     </span>
                   </li>
                   <li
@@ -72,7 +72,7 @@ const NumberingWizardWithLabel = () => {
                       <span className='count'>4</span>
                     </div>
                     <span className='text text-xs fw-semibold'>
-                      Add Location
+                      Video Introduction
                     </span>
                   </li>
                   <li
@@ -83,7 +83,7 @@ const NumberingWizardWithLabel = () => {
                     <div className='form-wizard-list__line'>
                       <span className='count'>5</span>
                     </div>
-                    <span className='text text-xs fw-semibold'>Completed</span>
+                    <span className='text text-xs fw-semibold'>Availability</span>
                   </li>
                 </ul>
               </div>

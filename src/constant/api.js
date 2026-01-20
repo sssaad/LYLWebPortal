@@ -1,0 +1,1 @@
+export const API_URL = "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=";

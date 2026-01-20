@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 
 const ThemeToggleButton = () => {
     // 1. Initialize state for the current theme
-    const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
+    const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark');
 
     // 2. Function to update the theme on the HTML element
     const updateThemeOnHtmlEl = (theme) => {

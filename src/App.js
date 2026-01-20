@@ -1,11 +1,21 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
-import HomePageTwo from "./pages/HomePageTwo";
-import HomePageThree from "./pages/HomePageThree";
-import HomePageFour from "./pages/HomePageFour";
-import HomePageFive from "./pages/HomePageFive";
+import "./assets/css/alert.css";
+import ProtectedRoute from "./components/ProtectedRoute";
+import GuestRoute from "./components/GuestRoute";
+import RouteScrollToTop from "./helper/RouteScrollToTop";
+import "antd/dist/reset.css";
+
+// Public Pages
+import SignInPage from "./pages/SignInPage";
+import SignUpPage from "./pages/SignUpPage";
+import ErrorPage from "./pages/ErrorPage";
+
+// Dashboard/Home Page
 import HomePageSix from "./pages/HomePageSix";
-import HomePageSeven from "./pages/HomePageSeven";
+
+// All Other Pages
 import EmailPage from "./pages/EmailPage";
+import FeedbackPage from "./pages/FeedbackPage";
 import AddUserPage from "./pages/AddUserPage";
 import AlertPage from "./pages/AlertPage";
 import AssignRolePage from "./pages/AssignRolePage";
@@ -25,21 +35,34 @@ import ColumnChartPage from "./pages/ColumnChartPage";
 import CompanyPage from "./pages/CompanyPage";
 import CurrenciesPage from "./pages/CurrenciesPage";
 import DropdownPage from "./pages/DropdownPage";
-import ErrorPage from "./pages/ErrorPage";
 import FaqPage from "./pages/FaqPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import FormLayoutPage from "./pages/FormLayoutPage";
 import FormValidationPage from "./pages/FormValidationPage";
 import FormPage from "./pages/FormPage";
 import GalleryPage from "./pages/GalleryPage";
+import GalleryGridPage from "./pages/GalleryGridPage";
+import GalleryMasonryPage from "./pages/GalleryMasonryPage";
+import GalleryHoverPage from "./pages/GalleryHoverPage";
+import BlogPage from "./pages/BlogPage";
+import BlogDetailsPage from "./pages/BlogDetailsPage";
+import AddBlogPage from "./pages/AddBlogPage";
+import TestimonialsPage from "./pages/TestimonialsPage";
+import ComingSoonPage from "./pages/ComingSoonPage";
+import AccessDeniedPage from "./pages/AccessDeniedPage";
+import MaintenancePage from "./pages/MaintenancePage";
+import BlankPagePage from "./pages/BlankPagePage";
 import ImageGeneratorPage from "./pages/ImageGeneratorPage";
 import ImageUploadPage from "./pages/ImageUploadPage";
 import InvoiceAddPage from "./pages/InvoiceAddPage";
 import InvoiceEditPage from "./pages/InvoiceEditPage";
-import InvoiceListPage from "./pages/InvoiceListPage";
+import TeacherListPage from "./pages/TeacherListPage";
+import SubscriptionListPage from "./pages/SubscriptionListPage";
+import ParentListPage from "./pages/ParentListPage";
 import InvoicePreviewPage from "./pages/InvoicePreviewPage";
 import KanbanPage from "./pages/KanbanPage";
-import LanguagePage from "./pages/LanguagePage";
+import CoursesPage from "./pages/CoursesPage";
+import FeePage from "./pages/FeePage";
 import LineChartPage from "./pages/LineChartPage";
 import ListPage from "./pages/ListPage";
 import MarketplaceDetailsPage from "./pages/MarketplaceDetailsPage";
@@ -54,8 +77,6 @@ import PricingPage from "./pages/PricingPage";
 import ProgressPage from "./pages/ProgressPage";
 import RadioPage from "./pages/RadioPage";
 import RoleAccessPage from "./pages/RoleAccessPage";
-import SignInPage from "./pages/SignInPage";
-import SignUpPage from "./pages/SignUpPage";
 import StarRatingPage from "./pages/StarRatingPage";
 import StarredPage from "./pages/StarredPage";
 import SwitchPage from "./pages/SwitchPage";
@@ -65,11 +86,12 @@ import TabsPage from "./pages/TabsPage";
 import TagsPage from "./pages/TagsPage";
 import TermsConditionPage from "./pages/TermsConditionPage";
 import TextGeneratorPage from "./pages/TextGeneratorPage";
+import TextGeneratorNewPage from "./pages/TextGeneratorNewPage";
 import ThemePage from "./pages/ThemePage";
 import TooltipPage from "./pages/TooltipPage";
 import TypographyPage from "./pages/TypographyPage";
 import UsersGridPage from "./pages/UsersGridPage";
-import UsersListPage from "./pages/UsersListPage";
+import StudentListPage from "./pages/StudentListPage";
 import ViewDetailsPage from "./pages/ViewDetailsPage";
 import VideoGeneratorPage from "./pages/VideoGeneratorPage";
 import VideosPage from "./pages/VideosPage";
@@ -78,149 +100,148 @@ import VoiceGeneratorPage from "./pages/VoiceGeneratorPage";
 import WalletPage from "./pages/WalletPage";
 import WidgetsPage from "./pages/WidgetsPage";
 import WizardPage from "./pages/WizardPage";
-import RouteScrollToTop from "./helper/RouteScrollToTop";
-import TextGeneratorNewPage from "./pages/TextGeneratorNewPage";
-import HomePageEight from "./pages/HomePageEight";
-import HomePageNine from "./pages/HomePageNine";
-import HomePageTen from "./pages/HomePageTen";
-import HomePageEleven from "./pages/HomePageEleven";
-import GalleryGridPage from "./pages/GalleryGridPage";
-import GalleryMasonryPage from "./pages/GalleryMasonryPage";
-import GalleryHoverPage from "./pages/GalleryHoverPage";
-import BlogPage from "./pages/BlogPage";
-import BlogDetailsPage from "./pages/BlogDetailsPage";
-import AddBlogPage from "./pages/AddBlogPage";
-import TestimonialsPage from "./pages/TestimonialsPage";
-import ComingSoonPage from "./pages/ComingSoonPage";
-import AccessDeniedPage from "./pages/AccessDeniedPage";
-import MaintenancePage from "./pages/MaintenancePage";
-import BlankPagePage from "./pages/BlankPagePage";
 
 function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/portal">
       <RouteScrollToTop />
       <Routes>
-        {/* <Route exact path='/' element={<HomePageOne />} /> */}
-        <Route exact path='/index-2' element={<HomePageTwo />} />
-        <Route exact path='/index-3' element={<HomePageThree />} />
-        <Route exact path='/index-4' element={<HomePageFour />} />
-        <Route exact path='/index-5' element={<HomePageFive />} />
-        <Route exact path='/' element={<HomePageSix />} />
-        <Route exact path='/index-7' element={<HomePageSeven />} />
-        <Route exact path='/index-8' element={<HomePageEight />} />
-        <Route exact path='/index-9' element={<HomePageNine />} />
-        <Route exact path='/index-10' element={<HomePageTen />} />
-        <Route exact path='/index-11' element={<HomePageEleven />} />
 
-        {/* SL */}
-        <Route exact path='/add-user' element={<AddUserPage />} />
-        <Route exact path='/alert' element={<AlertPage />} />
-        <Route exact path='/assign-role' element={<AssignRolePage />} />
-        <Route exact path='/avatar' element={<AvatarPage />} />
-        <Route exact path='/badges' element={<BadgesPage />} />
-        <Route exact path='/button' element={<ButtonPage />} />
-        <Route exact path='/calendar-main' element={<CalendarMainPage />} />
-        <Route exact path='/calendar' element={<CalendarMainPage />} />
-        <Route exact path='/card' element={<CardPage />} />
-        <Route exact path='/carousel' element={<CarouselPage />} />
-        <Route exact path='/chat-empty' element={<ChatEmptyPage />} />
-        <Route exact path='/chat-message' element={<ChatMessagePage />} />
-        <Route exact path='/chat-profile' element={<ChatProfilePage />} />
-        <Route exact path='/code-generator' element={<CodeGeneratorPage />} />
+        {/* Public Routes */}
         <Route
           exact
-          path='/code-generator-new'
-          element={<CodeGeneratorNewPage />}
+          path="/"
+          element={
+            <GuestRoute>
+              <SignInPage />
+            </GuestRoute>
+          }
         />
-        <Route exact path='/colors' element={<ColorsPage />} />
-        <Route exact path='/column-chart' element={<ColumnChartPage />} />
-        <Route exact path='/company' element={<CompanyPage />} />
-        <Route exact path='/currencies' element={<CurrenciesPage />} />
-        <Route exact path='/dropdown' element={<DropdownPage />} />
-        <Route exact path='/email' element={<EmailPage />} />
-        <Route exact path='/faq' element={<FaqPage />} />
-        <Route exact path='/forgot-password' element={<ForgotPasswordPage />} />
-        <Route exact path='/form-layout' element={<FormLayoutPage />} />
-        <Route exact path='/form-validation' element={<FormValidationPage />} />
-        <Route exact path='/form' element={<FormPage />} />
-
-        <Route exact path='/gallery' element={<GalleryPage />} />
-        <Route exact path='/gallery-grid' element={<GalleryGridPage />} />
-        <Route exact path='/gallery-masonry' element={<GalleryMasonryPage />} />
-        <Route exact path='/gallery-hover' element={<GalleryHoverPage />} />
-
-        <Route exact path='/blog' element={<BlogPage />} />
-        <Route exact path='/blog-details' element={<BlogDetailsPage />} />
-        <Route exact path='/add-blog' element={<AddBlogPage />} />
-
-        <Route exact path='/testimonials' element={<TestimonialsPage />} />
-        <Route exact path='/coming-soon' element={<ComingSoonPage />} />
-        <Route exact path='/access-denied' element={<AccessDeniedPage />} />
-        <Route exact path='/maintenance' element={<MaintenancePage />} />
-        <Route exact path='/blank-page' element={<BlankPagePage />} />
-
-        <Route exact path='/image-generator' element={<ImageGeneratorPage />} />
-        <Route exact path='/image-upload' element={<ImageUploadPage />} />
-        <Route exact path='/invoice-add' element={<InvoiceAddPage />} />
-        <Route exact path='/invoice-edit' element={<InvoiceEditPage />} />
-        <Route exact path='/invoice-list' element={<InvoiceListPage />} />
-        <Route exact path='/invoice-preview' element={<InvoicePreviewPage />} />
-        <Route exact path='/kanban' element={<KanbanPage />} />
-        <Route exact path='/language' element={<LanguagePage />} />
-        <Route exact path='/line-chart' element={<LineChartPage />} />
-        <Route exact path='/list' element={<ListPage />} />
         <Route
           exact
-          path='/marketplace-details'
-          element={<MarketplaceDetailsPage />}
+          path="/sign-up"
+          element={
+            <GuestRoute>
+              <SignUpPage />
+            </GuestRoute>
+          }
         />
-        <Route exact path='/marketplace' element={<MarketplacePage />} />
-        <Route
-          exact
-          path='/notification-alert'
-          element={<NotificationAlertPage />}
-        />
-        <Route exact path='/notification' element={<NotificationPage />} />
-        <Route exact path='/pagination' element={<PaginationPage />} />
-        <Route exact path='/payment-gateway' element={<PaymentGatewayPage />} />
-        <Route exact path='/pie-chart' element={<PieChartPage />} />
-        <Route exact path='/portfolio' element={<PortfolioPage />} />
-        <Route exact path='/pricing' element={<PricingPage />} />
-        <Route exact path='/progress' element={<ProgressPage />} />
-        <Route exact path='/radio' element={<RadioPage />} />
-        <Route exact path='/role-access' element={<RoleAccessPage />} />
-        <Route exact path='/sign-in' element={<SignInPage />} />
-        <Route exact path='/sign-up' element={<SignUpPage />} />
-        <Route exact path='/star-rating' element={<StarRatingPage />} />
-        <Route exact path='/starred' element={<StarredPage />} />
-        <Route exact path='/switch' element={<SwitchPage />} />
-        <Route exact path='/table-basic' element={<TableBasicPage />} />
-        <Route exact path='/table-data' element={<TableDataPage />} />
-        <Route exact path='/tabs' element={<TabsPage />} />
-        <Route exact path='/tags' element={<TagsPage />} />
-        <Route exact path='/terms-condition' element={<TermsConditionPage />} />
-        <Route
-          exact
-          path='/text-generator-new'
-          element={<TextGeneratorNewPage />}
-        />
-        <Route exact path='/text-generator' element={<TextGeneratorPage />} />
-        <Route exact path='/theme' element={<ThemePage />} />
-        <Route exact path='/tooltip' element={<TooltipPage />} />
-        <Route exact path='/typography' element={<TypographyPage />} />
-        <Route exact path='/users-grid' element={<UsersGridPage />} />
-        <Route exact path='/users-list' element={<UsersListPage />} />
-        <Route exact path='/view-details' element={<ViewDetailsPage />} />
-        <Route exact path='/video-generator' element={<VideoGeneratorPage />} />
-        <Route exact path='/videos' element={<VideosPage />} />
-        <Route exact path='/view-profile' element={<ViewProfilePage />} />
-        <Route exact path='/voice-generator' element={<VoiceGeneratorPage />} />
-        <Route exact path='/wallet' element={<WalletPage />} />
-        <Route exact path='/widgets' element={<WidgetsPage />} />
-        <Route exact path='/wizard' element={<WizardPage />} />
 
-        <Route exact path='*' element={<ErrorPage />} />
+        {/* Protected Dashboard/Home Route */}
+        <Route
+          exact
+          path="/index"
+          element={
+            <ProtectedRoute>
+              <HomePageSix />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Protected Routes - All Remaining Pages */}
+        {[
+          ["/email", EmailPage],
+          ["/session-feedbacks", FeedbackPage],
+          ["/add-user", AddUserPage],
+          ["/alert", AlertPage],
+          ["/assign-role", AssignRolePage],
+          ["/avatar", AvatarPage],
+          ["/badges", BadgesPage],
+          ["/button", ButtonPage],
+          ["/calendar-main", CalendarMainPage],
+          ["/calendar", CalendarMainPage],
+          ["/card", CardPage],
+          ["/carousel", CarouselPage],
+          ["/chat-empty", ChatEmptyPage],
+          ["/chat-message", ChatMessagePage],
+          ["/chat-profile", ChatProfilePage],
+          ["/code-generator", CodeGeneratorPage],
+          ["/code-generator-new", CodeGeneratorNewPage],
+          ["/colors", ColorsPage],
+          ["/column-chart", ColumnChartPage],
+          ["/setting", CompanyPage],
+          ["/currencies", CurrenciesPage],
+          ["/dropdown", DropdownPage],
+          ["/faq", FaqPage],
+          ["/forgot-password", ForgotPasswordPage],
+          ["/form-layout", FormLayoutPage],
+          ["/form-validation", FormValidationPage],
+          ["/form", FormPage],
+          ["/gallery", GalleryPage],
+          ["/gallery-grid", GalleryGridPage],
+          ["/gallery-masonry", GalleryMasonryPage],
+          ["/gallery-hover", GalleryHoverPage],
+          ["/blog", BlogPage],
+          ["/blog-details", BlogDetailsPage],
+          ["/add-blog", AddBlogPage],
+          ["/testimonials", TestimonialsPage],
+          ["/coming-soon", ComingSoonPage],
+          ["/access-denied", AccessDeniedPage],
+          ["/maintenance", MaintenancePage],
+          ["/blank-page", BlankPagePage],
+          ["/image-generator", ImageGeneratorPage],
+          ["/image-upload", ImageUploadPage],
+          ["/invoice-add", InvoiceAddPage],
+          ["/invoice-edit", InvoiceEditPage],
+          ["/teachers-list", TeacherListPage],
+          ["/subscription", SubscriptionListPage],
+          ["/parents-list", ParentListPage],
+          ["/invoice-preview", InvoicePreviewPage],
+          ["/kanban", KanbanPage],
+          ["subject", CoursesPage],
+          ["/fee", FeePage],
+          ["/line-chart", LineChartPage],
+          ["/list", ListPage],
+          ["/marketplace-details", MarketplaceDetailsPage],
+          ["/marketplace", MarketplacePage],
+          ["/notification-alert", NotificationAlertPage],
+          ["/notification", NotificationPage],
+          ["/pagination", PaginationPage],
+          ["/payment-gateway", PaymentGatewayPage],
+          ["/pie-chart", PieChartPage],
+          ["/portfolio", PortfolioPage],
+          ["/payments", PricingPage],
+          ["/progress", ProgressPage],
+          ["/radio", RadioPage],
+          ["/bookings", RoleAccessPage],
+          ["/star-rating", StarRatingPage],
+          ["/starred", StarredPage],
+          ["/switch", SwitchPage],
+          ["/table-basic", TableBasicPage],
+          ["/table-data", TableDataPage],
+          ["/tabs", TabsPage],
+          ["/tags", TagsPage],
+          ["/terms-condition", TermsConditionPage],
+          ["/text-generator-new", TextGeneratorNewPage],
+          ["/text-generator", TextGeneratorPage],
+          ["/theme", ThemePage],
+          ["/tooltip", TooltipPage],
+          ["/typography", TypographyPage],
+          ["/users-grid", UsersGridPage],
+          ["/Students-list", StudentListPage],
+          ["/view-details", ViewDetailsPage],
+          ["/video-generator", VideoGeneratorPage],
+          ["/videos", VideosPage],
+          ["/view-profile", ViewProfilePage],
+          ["/voice-generator", VoiceGeneratorPage],
+          ["/wallet", WalletPage],
+          ["/widgets", WidgetsPage],
+          ["/wizard", WizardPage],
+        ].map(([path, Component], index) => (
+          <Route
+            key={index}
+            exact
+            path={path}
+            element={
+              <ProtectedRoute>
+                <Component />
+              </ProtectedRoute>
+            }
+          />
+        ))}
+
+        {/* Catch All */}
+        <Route path="*" element={<ErrorPage />} />
       </Routes>
     </BrowserRouter>
   );

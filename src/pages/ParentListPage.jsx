@@ -1,12 +1,12 @@
 import React from "react";
 import MasterLayout from "../masterLayout/MasterLayout";
 import Breadcrumb from "../components/Breadcrumb";
-import InvoiceListLayer from "../components/InvoiceListLayer";
+import ParentListLayer from "../components/ParentListLayer";
 
 
 
 
-const InvoiceListPage = () => {
+const ParentListPage = () => {
   return (
     <>
 
@@ -14,10 +14,10 @@ const InvoiceListPage = () => {
       <MasterLayout>
 
         {/* Breadcrumb */}
-        <Breadcrumb title="Teachers" />
+        <Breadcrumb title="Parents" />
 
         {/* InvoiceListLayer */}
-        <InvoiceListLayer />
+        <ParentListLayer />
 
       </MasterLayout>
 
@@ -25,4 +25,4 @@ const InvoiceListPage = () => {
   );
 };
 
-export default InvoiceListPage;
+export default ParentListPage;

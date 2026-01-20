@@ -11,7 +11,7 @@ const EmailPage = () => {
       <MasterLayout>
 
         {/* Breadcrumb */}
-        <Breadcrumb title="Email" />
+        <Breadcrumb title="Confirmation Emails" />
 
         {/* EmailLayer */}
         <EmailLayer />

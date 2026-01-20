@@ -8,7 +8,7 @@ const TopPerformerOne = () => {
             <div className="card h-100">
                 <div className="card-body">
                     <div className="d-flex align-items-center flex-wrap gap-2 justify-content-between">
-                        <h6 className="mb-2 fw-bold text-lg mb-0">Top Performer</h6>
+                        <h6 className="mb-2 fw-bold text-lg mb-0">Pending Booking</h6>
                         <Link
                             to="#"
                             className="text-primary-600 hover-text-primary d-flex align-items-center gap-1"
@@ -29,7 +29,7 @@ const TopPerformerOne = () => {
                                     className="w-40-px h-40-px rounded-circle flex-shrink-0 me-12 overflow-hidden"
                                 />
                                 <div className="flex-grow-1">
-                                    <h6 className="text-md mb-0 fw-medium">Dianne Russell</h6>
+                                    <h6 className="text-md mb-0 fw-medium">Dianne Russel</h6>
                                     <span className="text-sm text-secondary-light fw-medium">
                                         Agent ID: 36254
                                     </span>
