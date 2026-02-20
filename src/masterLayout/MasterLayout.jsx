@@ -173,26 +173,50 @@ const MasterLayout = ({ children }) => {
             </li>
             <li>
               <NavLink to="/subscription" className={({ isActive }) => (isActive ? "active-page" : "")}>
-                <Icon icon="material-symbols:map-outline" className="menu-icon" />
+                <Icon icon="material-symbols:subscriptions-outline" className="menu-icon" />
                 <span>Subscriptions</span>
               </NavLink>
             </li>
             <li>
+              <NavLink to="/block-subscription" className={({ isActive }) => (isActive ? "active-page" : "")}>
+                <Icon icon="mdi:credit-card-lock-outline" className="menu-icon" />
+                <span>Block Subscriptions</span>
+              </NavLink>
+            </li>
+            <li>
+              <NavLink to="/promocodes" className={({ isActive }) => (isActive ? "active-page" : "")}>
+                <Icon icon="material-symbols:sell-outline" className="menu-icon" />
+                <span>Promo Codes</span>
+              </NavLink>
+            </li>
+            <li>
               <NavLink to="/payments" className={({ isActive }) => (isActive ? "active-page" : "")}>
-                <Icon icon="fe:vector" className="menu-icon" />
+                <Icon icon="mdi:credit-card-outline" className="menu-icon" />
                 <span>Payments</span>
               </NavLink>
             </li>
             <li>
               <NavLink to="/email" className={({ isActive }) => (isActive ? "active-page" : "")}>
-                <Icon icon="mage:email" className="menu-icon" />
+                <Icon icon="mdi:email-check-outline" className="menu-icon" />
                 <span>Confirmation Emails</span>
+              </NavLink>
+            </li>
+            <li>
+              <NavLink to="/invoice-list" className={({ isActive }) => (isActive ? "active-page" : "")}>
+                <Icon icon="mdi:receipt-outline" className="menu-icon" />
+                <span>Invoices</span>
               </NavLink>
             </li>
             <li>
               <NavLink to="/session-feedbacks" className={({ isActive }) => (isActive ? "active-page" : "")}>
                 <Icon icon="mdi:message-text-outline" className="menu-icon" />
                 <span>Session Feedbacks</span>
+              </NavLink>
+            </li>
+            <li>
+              <NavLink to="/teacher-payouts" className={({ isActive }) => (isActive ? "active-page" : "")}>
+                <Icon icon="mdi:cash-multiple" className="menu-icon" />
+                <span>Teacher Payouts</span>
               </NavLink>
             </li>
             <li>

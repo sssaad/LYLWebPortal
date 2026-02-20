@@ -21,6 +21,25 @@ const RoleAccessLayer = () => {
   const [initialLoading, setInitialLoading] = useState(true);
   const itemsPerPage = 10;
 
+  // ✅ Recording modal states
+  const [isRecordingOpen, setIsRecordingOpen] = useState(false);
+  const [activeRecordingUrl, setActiveRecordingUrl] = useState("");
+
+  // ✅ Normalize URL (handles JSON escaped https:\/\/)
+  const normalizeRecordingUrl = (u) => String(u || "").replace(/\\\//g, "/").trim();
+
+  const openRecording = (item) => {
+    const url = normalizeRecordingUrl(item?.recording_s3_url);
+    if (!url) return;
+    setActiveRecordingUrl(url);
+    setIsRecordingOpen(true);
+  };
+
+  const closeRecording = () => {
+    setIsRecordingOpen(false);
+    setActiveRecordingUrl("");
+  };
+
   // ✅ NOW helper (Asia/Karachi if moment-timezone present)
   const getNow = () => {
     const hasTz = typeof moment.tz === "function";
@@ -357,6 +376,7 @@ const RoleAccessLayer = () => {
               <tr>
                 <th>S.L</th>
                 <th>Book Date</th>
+                <th>Recording</th>
                 <th>Student Name</th>
                 <th>Teacher Name</th>
                 <th>Slot Start</th>
@@ -370,17 +390,35 @@ const RoleAccessLayer = () => {
             <tbody>
               {currentItems.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="text-center">
+                  <td colSpan={10} className="text-center">
                     No records found.
                   </td>
                 </tr>
               ) : (
                 currentItems.map((item, index) => {
                   const status = getBookingStatus(item);
+                  const recUrl = normalizeRecordingUrl(item?.recording_s3_url);
+
                   return (
                     <tr key={item?.bookingid ?? `${indexOfFirstItem}-${index}`}>
                       <td>{indexOfFirstItem + index + 1}</td>
                       <td>{item.bookdate ? moment(item.bookdate).format("DD MMM YYYY") : "-"}</td>
+
+                      {/* ✅ Recording column */}
+                      <td>
+                        {recUrl ? (
+                          <button
+                            type="button"
+                            className="btn btn-outline-primary btn-sm"
+                            onClick={() => openRecording(item)}
+                          >
+                            View
+                          </button>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
+
                       <td>{item.studentname || "-"}</td>
                       <td>{item.teachername || "-"}</td>
                       <td>{item.slot_start ? moment(item.slot_start, "HH:mm:ss").format("hh:mm A") : "-"}</td>
@@ -427,6 +465,41 @@ const RoleAccessLayer = () => {
           </ul>
         </div>
       </div>
+
+      {/* ✅ Recording Modal */}
+      {isRecordingOpen && (
+        <div
+          className="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
+          style={{ background: "rgba(0,0,0,0.6)", zIndex: 1050 }}
+          role="dialog"
+          aria-modal="true"
+          onClick={closeRecording}
+        >
+          <div
+            className="bg-white radius-12 p-16"
+            style={{ width: "min(900px, 92vw)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="d-flex justify-content-between align-items-center mb-2">
+              <h6 className="mb-0">Recording</h6>
+              <button className="btn btn-sm btn-outline-secondary" onClick={closeRecording}>
+                Close
+              </button>
+            </div>
+
+            {activeRecordingUrl ? (
+              <video
+                src={activeRecordingUrl}
+                controls
+                autoPlay
+                style={{ width: "100%", maxHeight: "70vh", background: "#000" }}
+              />
+            ) : (
+              <div className="text-center py-5">Recording not available</div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

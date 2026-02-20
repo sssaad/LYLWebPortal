@@ -14,21 +14,23 @@ const headers = {
   "Content-Type": "application/json",
 };
 
-const SubscriptionsListLayer = () => {
+const VALIDITY_DAYS = 60;
+
+const BlockSubscriptionsListLayer = () => {
   const [subscriptions, setSubscriptions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState(""); // Active / Expired / Exhausted
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
 
   const itemsPerPage = 10;
 
-  // ✅ INLINE AXIOS API CALL
-  const fetchMonthlySubscriptions = async () => {
+  // ✅ BLOCK SUBSCRIPTIONS API CALL
+  const fetchBlockSubscriptions = async () => {
     try {
       setLoading(true);
       setError("");
@@ -40,7 +42,7 @@ const SubscriptionsListLayer = () => {
         return;
       }
 
-      const payload = { procedureName: "sp_get_monthly_subscriptions" };
+      const payload = { procedureName: "get_all_block_subscriptions" };
 
       const res = await axios.post(API_URL, payload, {
         headers: { ...headers, token },
@@ -59,18 +61,31 @@ const SubscriptionsListLayer = () => {
   };
 
   useEffect(() => {
-    fetchMonthlySubscriptions();
+    fetchBlockSubscriptions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ===== helpers (API shape) =====
-  const getStatus = (s) => s?.status || "-";
-  const isActive = (s) => String(getStatus(s)).toLowerCase() === "active";
+  // ===== helpers =====
+  const toNum = (v) => {
+    const n = Number(String(v ?? "").replace(/,/g, "").trim());
+    return Number.isFinite(n) ? n : 0;
+  };
 
-  const getName = (s) =>
-    `${s?.firstname || ""} ${s?.lastname || ""}`.trim() ||
-    s?.username ||
-    "—";
+  const formatAED = (n) => {
+    const x = Number(n);
+    if (!Number.isFinite(x)) return "—";
+    return `AED ${new Intl.NumberFormat("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(x)}`;
+  };
+
+  const getUserId = (s) => s?.userid ?? s?.userId ?? "—";
+
+  const getName = (s) => {
+    const n = String(s?.studentFullname || "").trim();
+    return n || s?.username || s?.email || "—";
+  };
 
   // ✅ RULE: username exists => use username, otherwise email
   const getStudentLogin = (s) => {
@@ -90,19 +105,16 @@ const SubscriptionsListLayer = () => {
     return str.startsWith("+") ? str : `+${str}`;
   };
 
-  const getCreated = (s) => s?.purchase_date || "";
+  const getPurchaseDateRaw = (s) => s?.createdAt || "";
 
-  // ✅ purchase_date normalize + safe moment parse
   const toMoment = (d) => {
     if (!d) return null;
     const s0 = String(d).trim();
 
-    // ".000000" (microseconds) -> ".000" (milliseconds)
     const s1 = s0
       .replace(/\.([0-9]{3})[0-9]+$/, ".$1")
       .replace(/\.0{6}\b/, ".000");
 
-    // "YYYY-MM-DD HH:mm:ss" -> "YYYY-MM-DDTHH:mm:ss" (ISO-ish)
     const isoish = s1.includes(" ") ? s1.replace(" ", "T") : s1;
 
     let m = moment(isoish, moment.ISO_8601, true);
@@ -116,55 +128,65 @@ const SubscriptionsListLayer = () => {
     return m.isValid() ? m : null;
   };
 
-  const getCreatedText = (s) => {
-    const m = toMoment(getCreated(s));
+  const getPurchaseDateText = (s) => {
+    const m = toMoment(getPurchaseDateRaw(s));
     return m ? m.format("DD MMM YYYY") : "—";
   };
 
-  // ✅ NEXT BILLING: ALWAYS + 1 MONTH
-  const getNextBillingText = (s) => {
-    if (!isActive(s)) return "-";
+  // ✅ credits logic
+  const getPackageCredits = (s) => toNum(s?.package); // e.g. 10
+  const getUsedCredits = (s) => toNum(s?.used); // e.g. 1
+  const getRemainingCredits = (s) =>
+    Math.max(getPackageCredits(s) - getUsedCredits(s), 0);
 
-    const m = toMoment(s?.purchase_date);
-    if (!m) return "-";
-
-    return m.clone().add(1, "month").format("DD MMM YYYY");
+  // ✅ validity 60 days
+  const getValidTillMoment = (s) => {
+    const m = toMoment(getPurchaseDateRaw(s));
+    if (!m) return null;
+    return m.clone().add(VALIDITY_DAYS, "days");
   };
 
-  // ✅ Revenue: parse "2750 AED" from package_name
-  const getAmountNumber = (s) => {
-    const pkg = String(s?.package_name || "");
-    const m = pkg.match(/(\d[\d,]*)\s*AED/i);
-    if (!m) return 0;
-    const n = Number(String(m[1]).replace(/,/g, ""));
-    return Number.isFinite(n) ? n : 0;
+  const getValidTillText = (s) => {
+    const till = getValidTillMoment(s);
+    return till ? till.format("DD MMM YYYY") : "—";
   };
 
-  // ✅ USED / REMAINING (from API)
-  const getUsed = (s) => {
-    const n = Number(s?.used_bookings ?? 0);
-    return Number.isFinite(n) ? n : 0;
+  const getDaysLeftText = (s) => {
+    const till = getValidTillMoment(s);
+    if (!till) return "—";
+    const today = moment().startOf("day");
+    const endDay = till.clone().startOf("day");
+    const diff = endDay.diff(today, "days");
+    if (diff < 0) return "Expired";
+    return `${diff} day${diff === 1 ? "" : "s"} left`;
   };
 
-  const getRemaining = (s) => {
-    const n = Number(s?.remaining ?? 0);
-    return Number.isFinite(n) ? n : 0;
+  // ✅ price logic (IMPORTANT)
+  // price = NET (after discount), discount = discount amount
+  // gross/original = price + discount
+  const getNetPaid = (s) => toNum(s?.price); // ✅ paid amount (after discount)
+  const getDiscountAmount = (s) => toNum(s?.discount);
+  const getGrossAmount = (s) => getNetPaid(s) + getDiscountAmount(s);
+
+  // ✅ status by validity + remaining
+  const isExpired = (s) => {
+    const till = getValidTillMoment(s);
+    if (!till) return false;
+    return moment().startOf("day").isAfter(till.clone().startOf("day"));
   };
 
-  // Optional helper (for "9/10 used" style)
-  const getTotalSessions = (s) => {
-    const used = getUsed(s);
-    const rem = getRemaining(s);
-    const total = used + rem;
-    return total > 0 ? total : 0;
+  const getStatus = (s) => {
+    if (isExpired(s)) return "Expired";
+    if (getRemainingCredits(s) === 0) return "Exhausted";
+    return "Active";
   };
 
   const badgeClassByStatus = (status) => {
-    const s = String(status || "").toLowerCase();
-    if (s === "active") return "bg-success";
-    if (s === "expired") return "bg-secondary";
-    if (s === "cancelled") return "bg-danger";
-    return "bg-warning";
+    const st = String(status || "").toLowerCase();
+    if (st === "active") return "bg-success";
+    if (st === "expired") return "bg-danger";
+    if (st === "exhausted") return "bg-warning";
+    return "bg-secondary";
   };
 
   // ===== filters =====
@@ -173,8 +195,10 @@ const SubscriptionsListLayer = () => {
 
     return (subscriptions || []).filter((item) => {
       const fullText = `${getName(item)} ${getStudentLogin(item)} ${
-        item?.package_name || ""
-      } ${getPhoneText(item)} ${item?.parentemail || ""} ${getStatus(item)}`
+        item?.code ?? ""
+      } ${getPhoneText(item)} ${item?.parentemail || ""} ${
+        item?.package ?? ""
+      } ${item?.price ?? ""} ${item?.discount ?? ""} ${getStatus(item)}`
         .toLowerCase()
         .trim();
 
@@ -185,7 +209,7 @@ const SubscriptionsListLayer = () => {
         String(getStatus(item)).toLowerCase() ===
           String(statusFilter).toLowerCase();
 
-      const cd = getCreated(item);
+      const cd = getPurchaseDateRaw(item);
       const itemDate = cd ? new Date(String(cd).replace(".000000", "")) : null;
 
       const fromDateMatch = startDate
@@ -204,12 +228,29 @@ const SubscriptionsListLayer = () => {
     });
   }, [subscriptions, searchTerm, statusFilter, startDate, endDate]);
 
-  // ✅ summary boxes (based on filtered results)
+  // ✅ summary boxes (filtered)
   const summary = useMemo(() => {
     const total = filteredData.length;
-    const active = filteredData.filter((x) => isActive(x)).length;
-    const revenue = filteredData.reduce((sum, x) => sum + getAmountNumber(x), 0);
-    return { total, active, revenue };
+    const active = filteredData.filter((x) => getStatus(x) === "Active").length;
+    const remaining = filteredData.reduce(
+      (sum, x) => sum + getRemainingCredits(x),
+      0
+    );
+
+    const netCollected = filteredData.reduce(
+      (sum, x) => sum + getNetPaid(x),
+      0
+    );
+    const totalDiscount = filteredData.reduce(
+      (sum, x) => sum + getDiscountAmount(x),
+      0
+    );
+    const grossTotal = filteredData.reduce(
+      (sum, x) => sum + getGrossAmount(x),
+      0
+    );
+
+    return { total, active, remaining, netCollected, totalDiscount, grossTotal };
   }, [filteredData]);
 
   // paging
@@ -247,6 +288,8 @@ const SubscriptionsListLayer = () => {
           gap: 10px;
           min-width: 240px;
         }
+
+        /* ✅ Used credits display (same style vibe) */
         .sessions-wrap { min-width: 170px; }
         .sessions-text { font-size: 12px; opacity: 0.8; }
       `}</style>
@@ -295,7 +338,6 @@ const SubscriptionsListLayer = () => {
             <option value="">Status: All</option>
             <option value="Active">Active</option>
             <option value="Expired">Expired</option>
-            <option value="Cancelled">Cancelled</option>
           </select>
 
           <button
@@ -313,7 +355,7 @@ const SubscriptionsListLayer = () => {
         </div>
 
         <button
-          onClick={fetchMonthlySubscriptions}
+          onClick={fetchBlockSubscriptions}
           className="btn btn-outline-primary btn-sm"
           disabled={loading}
         >
@@ -324,18 +366,18 @@ const SubscriptionsListLayer = () => {
       <div className="card-body p-24">
         {error ? <div className="alert alert-danger mb-3">{error}</div> : null}
 
-        {/* ✅ Summary boxes */}
+        {/* ✅ Summary */}
         <div className="row g-3 mb-3">
-          <div className="col-12 col-md-4">
+          <div className="col-12 col-md-2">
             <div className="sub-card">
-              <div className="sub-muted">Total Subscriptions</div>
+              <div className="sub-muted">Total</div>
               <div style={{ fontSize: 22, fontWeight: 700 }}>
                 {summary.total}
               </div>
             </div>
           </div>
 
-          <div className="col-12 col-md-4">
+          <div className="col-12 col-md-2">
             <div className="sub-card">
               <div className="sub-muted">Active</div>
               <div style={{ fontSize: 22, fontWeight: 700 }}>
@@ -344,11 +386,29 @@ const SubscriptionsListLayer = () => {
             </div>
           </div>
 
-          <div className="col-12 col-md-4">
+          <div className="col-12 col-md-2">
             <div className="sub-card">
               <div className="sub-muted">Revenue</div>
               <div style={{ fontSize: 22, fontWeight: 700 }}>
-                AED {summary.revenue.toFixed(2)}
+                {formatAED(summary.netCollected)}
+              </div>
+            </div>
+          </div>
+
+          <div className="col-12 col-md-2">
+            <div className="sub-card">
+              <div className="sub-muted">Discount Given</div>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>
+                {formatAED(summary.totalDiscount)}
+              </div>
+            </div>
+          </div>
+
+          <div className="col-12 col-md-2">
+            <div className="sub-card">
+              <div className="sub-muted">Gross Amount</div>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>
+                {formatAED(summary.grossTotal)}
               </div>
             </div>
           </div>
@@ -362,17 +422,18 @@ const SubscriptionsListLayer = () => {
                 <th style={{ width: 70 }}>S.L</th>
                 <th>Student Name</th>
                 <th>Student Email/Username</th>
-                <th>Package Type</th>
+                <th>Package Credits</th>
+                <th>Used Credits</th>
+                <th>Remaining Credits</th>
+                <th>Grade Wise Base Amount</th>
+                <th>Discount</th>
+                <th>Paid</th>
+                <th>Promo Code</th>
                 <th>Contact No</th>
                 <th>Parent Email</th>
                 <th>Purchase Date</th>
-                <th>Next Billing Date</th>
-
-                {/* ✅ ADDED */}
-                <th>Used</th>
-                <th>Remaining</th>
-
-                <th>Invoice</th>
+                <th>Valid Till</th>
+                <th>Days Left</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -380,13 +441,13 @@ const SubscriptionsListLayer = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={12} className="text-center">
+                  <td colSpan={16} className="text-center">
                     <div className="py-4">Loading...</div>
                   </td>
                 </tr>
               ) : currentItems.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="text-center">
+                  <td colSpan={16} className="text-center">
                     <div className="py-4">
                       <div style={{ fontWeight: 700 }}>No records found.</div>
                       <div className="sub-muted">
@@ -397,18 +458,23 @@ const SubscriptionsListLayer = () => {
                 </tr>
               ) : (
                 currentItems.map((item, index) => {
-                  const used = getUsed(item);
-                  const rem = getRemaining(item);
-                  const total = getTotalSessions(item);
+                  const totalCredits = getPackageCredits(item);
+                  const usedCredits = getUsedCredits(item);
                   const pct =
-                    total > 0 ? Math.min(100, Math.max(0, (used / total) * 100)) : 0;
+                    totalCredits > 0
+                      ? Math.min(
+                          100,
+                          Math.max(0, (usedCredits / totalCredits) * 100)
+                        )
+                      : 0;
 
                   return (
-                    <tr key={`${item?.userid ?? "u"}-${index}`}>
+                    <tr key={`${getUserId(item)}-${index}`}>
                       <td>{indexOfFirstItem + index + 1}</td>
 
                       <td>
                         <div className="name-cell">
+                          {/* ✅ imagepath placeholder (aap baad mein bind kar lena) */}
                           {item?.imagepath ? (
                             <img
                               className="thumb"
@@ -428,25 +494,24 @@ const SubscriptionsListLayer = () => {
                           <div>
                             <div style={{ fontWeight: 600 }}>{getName(item)}</div>
                             <div className="sub-muted">
-                              User ID: {item?.userid ?? "—"}
+                              User ID: {getUserId(item)}
                             </div>
                           </div>
                         </div>
                       </td>
 
                       <td>{getStudentLogin(item)}</td>
-                      <td>{item?.package_name || "—"}</td>
-                      <td>{getPhoneText(item)}</td>
-                      <td>{item?.parentemail || "—"}</td>
-                      <td>{getCreatedText(item)}</td>
-                      <td>{getNextBillingText(item)}</td>
+                      <td>{getPackageCredits(item) || "—"}</td>
 
-                      {/* ✅ ADDED: Used */}
+                      {/* ✅ Used Credits (same style like monthly screen) */}
                       <td className="sessions-wrap">
                         <div style={{ fontWeight: 600 }}>
-                          {total > 0 ? `${used}/${total} used` : `${used}`}
+                          {totalCredits > 0
+                            ? `${usedCredits}/${totalCredits} used`
+                            : `${usedCredits}`}
                         </div>
-                        {total > 0 ? (
+
+                        {totalCredits > 0 ? (
                           <>
                             <div className="progress mt-1" style={{ height: 6 }}>
                               <div
@@ -459,33 +524,34 @@ const SubscriptionsListLayer = () => {
                               />
                             </div>
                             <div className="sessions-text mt-1">
-                              Sessions this month
+                              Credits used
                             </div>
                           </>
                         ) : null}
                       </td>
 
-                      {/* ✅ ADDED: Remaining */}
-                      <td style={{ fontWeight: 600 }}>{rem}</td>
-
-                      <td>
-                        {item?.stripe_receipt_url ? (
-                          <a
-                            className="btn btn-primary btn-sm"
-                            href={item.stripe_receipt_url}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            View
-                          </a>
-                        ) : (
-                          "—"
-                        )}
+                      <td style={{ fontWeight: 700 }}>
+                        {getRemainingCredits(item)}
                       </td>
+
+                      <td>{formatAED(getGrossAmount(item))}</td>
+                      <td>{formatAED(getDiscountAmount(item))}</td>
+                      <td style={{ fontWeight: 700 }}>
+                        {formatAED(getNetPaid(item))}
+                      </td>
+
+                      <td>{item?.code ?? "—"}</td>
+                      <td>{getPhoneText(item)}</td>
+                      <td>{item?.parentemail || "—"}</td>
+                      <td>{getPurchaseDateText(item)}</td>
+                      <td>{getValidTillText(item)}</td>
+                      <td>{getDaysLeftText(item)}</td>
 
                       <td>
                         <span
-                          className={`badge ${badgeClassByStatus(getStatus(item))}`}
+                          className={`badge ${badgeClassByStatus(
+                            getStatus(item)
+                          )}`}
                         >
                           {getStatus(item)}
                         </span>
@@ -527,4 +593,4 @@ const SubscriptionsListLayer = () => {
   );
 };
 
-export default SubscriptionsListLayer;
+export default BlockSubscriptionsListLayer;

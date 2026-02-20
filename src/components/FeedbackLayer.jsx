@@ -34,6 +34,9 @@ const formatTime = (t) => {
   return m.isValid() ? m.format("hh:mm A") : String(t);
 };
 
+// ✅ Normalize URL (handles JSON escaped https:\/\/)
+const normalizeUrl = (u) => String(u || "").replace(/\\\//g, "/").trim();
+
 // ✅ theme detection (works for light/dark)
 const detectIsDark = () => {
   try {
@@ -76,6 +79,24 @@ const FeedbackLayer = () => {
   // Modal
   const [showModal, setShowModal] = useState(false);
   const [currentRow, setCurrentRow] = useState(null);
+
+  // ✅ Recording modal states
+  const [isRecordingOpen, setIsRecordingOpen] = useState(false);
+  const [activeRecordingUrl, setActiveRecordingUrl] = useState("");
+
+  const openRecording = (row) => {
+    const url = normalizeUrl(
+      row?.recordingUrl ?? row?.s3Url ?? row?.s3_url ?? row?.recording_s3_url
+    );
+    if (!url) return;
+    setActiveRecordingUrl(url);
+    setIsRecordingOpen(true);
+  };
+
+  const closeRecording = () => {
+    setIsRecordingOpen(false);
+    setActiveRecordingUrl("");
+  };
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -145,9 +166,32 @@ const FeedbackLayer = () => {
               .toString()
               .toLowerCase();
 
+            // ✅ recording URL from SP response: s3Url (fallbacks included)
+            const recordingUrl = normalizeUrl(
+              item.s3Url ??
+                item.s3_url ??
+                item.recording_s3_url ??
+                item.recordingUrl ??
+                ""
+            );
+
+            // ✅ CONCAT names (firstname + lastname)
+            const studentFull = [item.student_firstname, item.student_lastname]
+              .filter(Boolean)
+              .join(" ")
+              .trim();
+
+            const teacherFull = [item.teacher_firstname, item.teacher_lastname]
+              .filter(Boolean)
+              .join(" ")
+              .trim();
+
             return {
               id: item.id,
               sessionid: item.sessionid,
+
+              // ✅ recording
+              recordingUrl,
 
               bookDate: formatDate(rawBookDate),
               slotStart: formatTime(rawStart),
@@ -156,24 +200,22 @@ const FeedbackLayer = () => {
               email_status: emailStatus || "pending",
               isEmailSent: emailStatus === "sent",
 
+              // ✅ prefer concatenated names, else fallback
               studentName:
-                item.student_fullname ??
-                item.student_name ??
-                item.student?.name ??
-                item.studentName ??
-                item.username ??
-                `${item.student_firstname ?? ""} ${
-                  item.student_lastname ?? ""
-                }`.trim() ??
+                studentFull ||
+                item.student_fullname ||
+                item.student_name ||
+                item.student?.name ||
+                item.studentName ||
+                item.username ||
                 "",
+
               teacherName:
-                item.teacher_fullname ??
-                item.teacher_name ??
-                item.teacher?.name ??
-                item.teacherName ??
-                `${item.teacher_firstname ?? ""} ${
-                  item.teacher_lastname ?? ""
-                }`.trim() ??
+                teacherFull ||
+                item.teacher_fullname ||
+                item.teacher_name ||
+                item.teacher?.name ||
+                item.teacherName ||
                 "",
 
               punctuality: item.punctuality ?? "",
@@ -241,8 +283,7 @@ const FeedbackLayer = () => {
     }
 
     const isSent =
-      (currentRow.email_status || "").toLowerCase() === "sent" ||
-      currentRow.isEmailSent;
+      (currentRow.email_status || "").toLowerCase() === "sent" || currentRow.isEmailSent;
 
     if (isSent) {
       return Swal.fire("Locked", "Email already sent. Editing disabled.", "info");
@@ -313,11 +354,7 @@ const FeedbackLayer = () => {
         Swal.fire("Updated!", "Performance feedback updated successfully.", "success");
         setShowModal(false);
       } else {
-        Swal.fire(
-          "Error",
-          res?.data?.message || "Failed to update feedback.",
-          "error"
-        );
+        Swal.fire("Error", res?.data?.message || "Failed to update feedback.", "error");
       }
     } catch (e) {
       console.error(e);
@@ -331,8 +368,7 @@ const FeedbackLayer = () => {
   const handleSendEmail = async (row) => {
     if (!row?.sessionid) return Swal.fire("Error", "sessionid missing.", "error");
 
-    const isSent =
-      (row.email_status || "").toLowerCase() === "sent" || row.isEmailSent;
+    const isSent = (row.email_status || "").toLowerCase() === "sent" || row.isEmailSent;
     if (isSent) return Swal.fire("Info", "Already sent.", "info");
 
     const result = await Swal.fire({
@@ -364,11 +400,7 @@ const FeedbackLayer = () => {
         res?.data?.success === true;
 
       if (!ok) {
-        return Swal.fire(
-          "Error",
-          res?.data?.message || "Email send failed.",
-          "error"
-        );
+        return Swal.fire("Error", res?.data?.message || "Email send failed.", "error");
       }
 
       // ✅ response me sessionid ho to use, warna row.sessionid
@@ -407,17 +439,11 @@ const FeedbackLayer = () => {
     }
   };
 
-  const modalThemeClass = useMemo(
-    () => (isDarkTheme ? "pf-dark" : "pf-light"),
-    [isDarkTheme]
-  );
+  const modalThemeClass = useMemo(() => (isDarkTheme ? "pf-dark" : "pf-light"), [isDarkTheme]);
 
   if (initialLoading) {
     return (
-      <div
-        className="d-flex justify-content-center align-items-center"
-        style={{ height: "300px" }}
-      >
+      <div className="d-flex justify-content-center align-items-center" style={{ height: "300px" }}>
         <div
           style={{
             width: "48px",
@@ -565,6 +591,7 @@ const FeedbackLayer = () => {
                 <thead>
                   <tr>
                     <th className="text-center">S.L</th>
+                    <th className="text-center">Recording</th>
                     <th className="text-center">Book Date</th>
                     <th className="text-center">Student Name</th>
                     <th className="text-center">Teacher Name</th>
@@ -578,21 +605,38 @@ const FeedbackLayer = () => {
                 <tbody>
                   {currentRows.length === 0 ? (
                     <tr>
-                      <td className="text-center" colSpan={8}>
+                      <td className="text-center" colSpan={9}>
                         No records found.
                       </td>
                     </tr>
                   ) : (
                     currentRows.map((row, idx) => {
                       const isSent =
-                        (row.email_status || "").toLowerCase() === "sent" ||
-                        row.isEmailSent;
+                        (row.email_status || "").toLowerCase() === "sent" || row.isEmailSent;
 
                       const isSendingThisRow = sendingSessionId === row.sessionid;
+
+                      const recUrl = normalizeUrl(row.recordingUrl);
 
                       return (
                         <tr key={row.id ?? `${row.sessionid}-${idx}`}>
                           <td className="text-center">{indexOfFirst + idx + 1}</td>
+
+                          <td className="text-center">
+                            {recUrl ? (
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-outline-primary"
+                                onClick={() => openRecording(row)}
+                                title="View Recording"
+                              >
+                                View
+                              </button>
+                            ) : (
+                              "-"
+                            )}
+                          </td>
+
                           <td className="text-center">{row.bookDate}</td>
                           <td className="text-center">{row.studentName}</td>
                           <td className="text-center">{row.teacherName}</td>
@@ -636,14 +680,8 @@ const FeedbackLayer = () => {
 
               <ul className="pagination mb-0">
                 {Array.from({ length: totalPages }).map((_, i) => (
-                  <li
-                    key={i}
-                    className={`page-item ${currentPage === i + 1 ? "active" : ""}`}
-                  >
-                    <button
-                      onClick={() => handlePageChange(i + 1)}
-                      className="page-link"
-                    >
+                  <li key={i} className={`page-item ${currentPage === i + 1 ? "active" : ""}`}>
+                    <button onClick={() => handlePageChange(i + 1)} className="page-link">
                       {i + 1}
                     </button>
                   </li>
@@ -653,6 +691,43 @@ const FeedbackLayer = () => {
           </div>
         </div>
       </div>
+
+      {/* ✅ Recording Modal */}
+      {isRecordingOpen && (
+        <div
+          className="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
+          style={{ background: "rgba(0,0,0,0.6)", zIndex: 1060 }}
+          role="dialog"
+          aria-modal="true"
+          onClick={closeRecording}
+        >
+          <div
+            className="bg-white radius-12 p-16"
+            style={{ width: "min(900px, 92vw)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="d-flex justify-content-between align-items-center mb-2">
+              <h6 className="mb-0">Recording</h6>
+              <button className="btn btn-sm btn-outline-secondary" onClick={closeRecording}>
+                Close
+              </button>
+            </div>
+
+            {activeRecordingUrl ? (
+              <video
+                controls
+                autoPlay
+                style={{ width: "100%", maxHeight: "70vh", background: "#000" }}
+              >
+                <source src={activeRecordingUrl} type="video/mp4" />
+                Your browser does not support the video tag.
+              </video>
+            ) : (
+              <div className="text-center py-5">Recording not available</div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ✅ Modal */}
       {showModal && (
@@ -668,11 +743,7 @@ const FeedbackLayer = () => {
             <div className={`modal-content pf-modal-card ${modalThemeClass}`}>
               <div className="modal-header">
                 <h5 className="modal-title">Performance Feedback</h5>
-                <button
-                  type="button"
-                  className="btn-close"
-                  onClick={() => setShowModal(false)}
-                />
+                <button type="button" className="btn-close" onClick={() => setShowModal(false)} />
               </div>
 
               <div className="modal-body">
@@ -688,24 +759,18 @@ const FeedbackLayer = () => {
                           <div className="row g-2">
                             <div className="col-md-6">
                               <small>Student</small>
-                              <div className="fw-semibold">
-                                {currentRow.studentName || "-"}
-                              </div>
+                              <div className="fw-semibold">{currentRow.studentName || "-"}</div>
                             </div>
                             <div className="col-md-6">
                               <small>Teacher</small>
-                              <div className="fw-semibold">
-                                {currentRow.teacherName || "-"}
-                              </div>
+                              <div className="fw-semibold">{currentRow.teacherName || "-"}</div>
                             </div>
                           </div>
 
                           <div className="mt-2">
                             <small>Status</small>{" "}
                             <span
-                              className={`badge ${
-                                isSent ? "bg-success" : "bg-warning text-dark"
-                              }`}
+                              className={`badge ${isSent ? "bg-success" : "bg-warning text-dark"}`}
                             >
                               {isSent ? "Sent" : "Pending"}
                             </span>
@@ -721,9 +786,7 @@ const FeedbackLayer = () => {
                               <select
                                 className="form-select"
                                 value={currentRow.punctuality}
-                                onChange={(e) =>
-                                  handleFeedbackChange("punctuality", e.target.value)
-                                }
+                                onChange={(e) => handleFeedbackChange("punctuality", e.target.value)}
                                 disabled={isSent}
                               >
                                 <option value="">Select</option>
@@ -742,9 +805,7 @@ const FeedbackLayer = () => {
                               <select
                                 className="form-select"
                                 value={currentRow.engagement}
-                                onChange={(e) =>
-                                  handleFeedbackChange("engagement", e.target.value)
-                                }
+                                onChange={(e) => handleFeedbackChange("engagement", e.target.value)}
                                 disabled={isSent}
                               >
                                 <option value="">Select</option>
@@ -763,9 +824,7 @@ const FeedbackLayer = () => {
                               <select
                                 className="form-select"
                                 value={currentRow.behaviour}
-                                onChange={(e) =>
-                                  handleFeedbackChange("behaviour", e.target.value)
-                                }
+                                onChange={(e) => handleFeedbackChange("behaviour", e.target.value)}
                                 disabled={isSent}
                               >
                                 <option value="">Select</option>
@@ -806,10 +865,7 @@ const FeedbackLayer = () => {
                                 className="form-select"
                                 value={currentRow.final_class_grade}
                                 onChange={(e) =>
-                                  handleFeedbackChange(
-                                    "final_class_grade",
-                                    e.target.value
-                                  )
+                                  handleFeedbackChange("final_class_grade", e.target.value)
                                 }
                                 disabled={isSent}
                               >
@@ -831,10 +887,7 @@ const FeedbackLayer = () => {
                                 rows="5"
                                 value={currentRow.teacher_feedback}
                                 onChange={(e) =>
-                                  handleFeedbackChange(
-                                    "teacher_feedback",
-                                    e.target.value
-                                  )
+                                  handleFeedbackChange("teacher_feedback", e.target.value)
                                 }
                                 placeholder="Write teacher feedback..."
                                 disabled={isSent}
@@ -863,7 +916,7 @@ const FeedbackLayer = () => {
                   disabled={
                     savingFeedback ||
                     (currentRow &&
-                      (((currentRow.email_status || "").toLowerCase() === "sent") ||
+                      ((currentRow.email_status || "").toLowerCase() === "sent" ||
                         currentRow.isEmailSent))
                   }
                 >

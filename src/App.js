@@ -57,7 +57,11 @@ import ImageUploadPage from "./pages/ImageUploadPage";
 import InvoiceAddPage from "./pages/InvoiceAddPage";
 import InvoiceEditPage from "./pages/InvoiceEditPage";
 import TeacherListPage from "./pages/TeacherListPage";
+import TeacherPayoutPage from "./pages/TeacherPayoutPage";
 import SubscriptionListPage from "./pages/SubscriptionListPage";
+import BlockSubscriptionListPage from "./pages/BlockSubscriptionListPage";
+import InvoiceListPage from "./pages/InvoiceListPage";
+import PromoListPage from "./pages/PromoListPage";
 import ParentListPage from "./pages/ParentListPage";
 import InvoicePreviewPage from "./pages/InvoicePreviewPage";
 import KanbanPage from "./pages/KanbanPage";
@@ -182,9 +186,13 @@ function App() {
           ["/image-generator", ImageGeneratorPage],
           ["/image-upload", ImageUploadPage],
           ["/invoice-add", InvoiceAddPage],
+          ["/teacher-payouts", TeacherPayoutPage],
+          ["/invoice-list", InvoiceListPage] ,
           ["/invoice-edit", InvoiceEditPage],
           ["/teachers-list", TeacherListPage],
           ["/subscription", SubscriptionListPage],
+          ["/block-subscription", BlockSubscriptionListPage],
+          ["/promocodes", PromoListPage],
           ["/parents-list", ParentListPage],
           ["/invoice-preview", InvoicePreviewPage],
           ["/kanban", KanbanPage],
