@@ -24,14 +24,30 @@ const SEND_PROGRESS_EMAIL_URL =
 // ✅ helpers (moment formatting)
 const formatDate = (d) => {
   if (!d) return "";
-  const m = moment(d, ["YYYY-MM-DD", "YYYY/MM/DD", moment.ISO_8601], true);
-  return m.isValid() ? m.format("DD MMM YYYY") : String(d);
+  const m = moment(
+    d,
+    [
+      "YYYY-MM-DD",
+      "YYYY/MM/DD",
+      "YYYY-MM-DD HH:mm:ss",
+      "YYYY-MM-DDTHH:mm:ss",
+      moment.ISO_8601,
+    ],
+    true
+  );
+  if (m.isValid()) return m.format("DD MMM YYYY");
+
+  const loose = moment(d);
+  return loose.isValid() ? loose.format("DD MMM YYYY") : String(d);
 };
 
 const formatTime = (t) => {
   if (!t) return "";
   const m = moment(t, ["HH:mm:ss", "HH:mm", "hh:mm A", "h:mm A"], true);
-  return m.isValid() ? m.format("hh:mm A") : String(t);
+  if (m.isValid()) return m.format("hh:mm A");
+
+  const loose = moment(t);
+  return loose.isValid() ? loose.format("hh:mm A") : String(t);
 };
 
 // ✅ Normalize URL (handles JSON escaped https:\/\/)
@@ -72,6 +88,37 @@ const detectIsDark = () => {
   }
 };
 
+// ✅ SORTING HELPERS
+const parseBookDateTs = (d) => {
+  const s = String(d || "").trim();
+  if (!s) return 0;
+
+  let m = moment(
+    s,
+    [
+      "YYYY-MM-DD",
+      "YYYY/MM/DD",
+      "YYYY-MM-DD HH:mm:ss",
+      "YYYY-MM-DDTHH:mm:ss",
+      "DD MMM YYYY",
+      moment.ISO_8601,
+    ],
+    true
+  );
+
+  if (!m.isValid()) m = moment(s); // fallback (non-strict)
+  return m.isValid() ? m.valueOf() : 0;
+};
+
+const parseTimeMinutes = (t) => {
+  const s = String(t || "").trim();
+  if (!s) return -1;
+
+  let m = moment(s, ["HH:mm:ss", "HH:mm", "hh:mm A", "h:mm A"], true);
+  if (!m.isValid()) m = moment(s);
+  return m.isValid() ? m.hours() * 60 + m.minutes() : -1;
+};
+
 const FeedbackLayer = () => {
   const [rows, setRows] = useState([]);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -110,6 +157,20 @@ const FeedbackLayer = () => {
   const [isDarkTheme, setIsDarkTheme] = useState(false);
 
   const ENUM_OPTIONS = ["Excellent", "Good", "Satisfactory", "Poor", "Very Poor"];
+
+  // ✅ FILTER STATES (NEW)
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all"); // all | pending | sent
+  const [dateFrom, setDateFrom] = useState(""); // YYYY-MM-DD
+  const [dateTo, setDateTo] = useState(""); // YYYY-MM-DD
+
+  const resetFilters = () => {
+    setSearch("");
+    setStatusFilter("all");
+    setDateFrom("");
+    setDateTo("");
+    setCurrentPage(1);
+  };
 
   // ✅ set theme (and keep it updated)
   useEffect(() => {
@@ -169,10 +230,10 @@ const FeedbackLayer = () => {
             // ✅ recording URL from SP response: s3Url (fallbacks included)
             const recordingUrl = normalizeUrl(
               item.s3Url ??
-                item.s3_url ??
-                item.recording_s3_url ??
-                item.recordingUrl ??
-                ""
+              item.s3_url ??
+              item.recording_s3_url ??
+              item.recordingUrl ??
+              ""
             );
 
             // ✅ CONCAT names (firstname + lastname)
@@ -193,9 +254,15 @@ const FeedbackLayer = () => {
               // ✅ recording
               recordingUrl,
 
+              // UI display
               bookDate: formatDate(rawBookDate),
               slotStart: formatTime(rawStart),
               slotEnd: formatTime(rawEnd),
+
+              // ✅ for sorting + date filtering
+              bookDateRaw: rawBookDate,
+              bookDateTs: parseBookDateTs(rawBookDate),
+              slotStartMin: parseTimeMinutes(rawStart),
 
               email_status: emailStatus || "pending",
               isEmailSent: emailStatus === "sent",
@@ -245,18 +312,77 @@ const FeedbackLayer = () => {
     fetchRows();
   }, []);
 
-  // Pagination
+  // ✅ FILTER + SORT (NEW)
+  const filteredSortedRows = useMemo(() => {
+    const arr = Array.isArray(rows) ? [...rows] : [];
+
+    // date range ts
+    const fromTs = dateFrom
+      ? moment(dateFrom, "YYYY-MM-DD").startOf("day").valueOf()
+      : null;
+    const toTs = dateTo
+      ? moment(dateTo, "YYYY-MM-DD").endOf("day").valueOf()
+      : null;
+
+    const q = String(search || "").trim().toLowerCase();
+
+    const filtered = arr.filter((r) => {
+      // status filter
+      if (statusFilter !== "all") {
+        const isSent = (r.email_status || "").toLowerCase() === "sent" || r.isEmailSent;
+        if (statusFilter === "sent" && !isSent) return false;
+        if (statusFilter === "pending" && isSent) return false;
+      }
+
+      // date filter
+      if (fromTs != null || toTs != null) {
+        const ts = Number(r.bookDateTs || 0);
+        if (!ts) return false;
+        if (fromTs != null && ts < fromTs) return false;
+        if (toTs != null && ts > toTs) return false;
+      }
+
+      // search filter
+      if (q) {
+        const blob = `${r.sessionid ?? ""} ${r.bookDate ?? ""} ${r.studentName ?? ""} ${r.teacherName ?? ""
+          } ${r.slotStart ?? ""} ${r.slotEnd ?? ""}`.toLowerCase();
+        if (!blob.includes(q)) return false;
+      }
+
+      return true;
+    });
+
+    // latest first
+    filtered.sort((a, b) => {
+      const d = (b.bookDateTs || 0) - (a.bookDateTs || 0);
+      if (d !== 0) return d;
+
+      const t = (b.slotStartMin ?? -1) - (a.slotStartMin ?? -1);
+      if (t !== 0) return t;
+
+      return Number(b.sessionid || 0) - Number(a.sessionid || 0);
+    });
+
+    return filtered;
+  }, [rows, search, statusFilter, dateFrom, dateTo]);
+
+  // Pagination (use filteredSortedRows)
   const indexOfLast = currentPage * perPage;
   const indexOfFirst = indexOfLast - perPage;
-  const currentRows = rows.slice(indexOfFirst, indexOfLast);
-  const totalPages = Math.ceil(rows.length / perPage) || 1;
+  const currentRows = filteredSortedRows.slice(indexOfFirst, indexOfLast);
+  const totalPages = Math.ceil(filteredSortedRows.length / perPage) || 1;
 
   const handlePageChange = (n) => setCurrentPage(n);
 
   useEffect(() => {
-    if (rows.length === 0) setCurrentPage(1);
+    if (filteredSortedRows.length === 0) setCurrentPage(1);
     else if (currentPage > totalPages) setCurrentPage(totalPages);
-  }, [rows, totalPages, currentPage]);
+  }, [filteredSortedRows.length, totalPages, currentPage]);
+
+  // ✅ when filters change => page 1
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, statusFilter, dateFrom, dateTo]);
 
   // ✅ open modal (always)
   const openFeedbackModal = (row) => {
@@ -339,14 +465,14 @@ const FeedbackLayer = () => {
           prev.map((r) =>
             r.sessionid === currentRow.sessionid
               ? {
-                  ...r,
-                  punctuality: currentRow.punctuality,
-                  engagement: currentRow.engagement,
-                  behaviour: currentRow.behaviour,
-                  understanding: currentRow.understanding,
-                  final_class_grade: currentRow.final_class_grade,
-                  teacher_feedback: currentRow.teacher_feedback,
-                }
+                ...r,
+                punctuality: currentRow.punctuality,
+                engagement: currentRow.engagement,
+                behaviour: currentRow.behaviour,
+                understanding: currentRow.understanding,
+                final_class_grade: currentRow.final_class_grade,
+                teacher_feedback: currentRow.teacher_feedback,
+              }
               : r
           )
         );
@@ -393,7 +519,6 @@ const FeedbackLayer = () => {
 
       const res = await axios.post(SEND_PROGRESS_EMAIL_URL, body, { headers });
 
-      // ✅ success check (handles {statusCode:200} or {status:true} style)
       const ok =
         res?.data?.statusCode === 200 ||
         res?.data?.status === true ||
@@ -403,13 +528,11 @@ const FeedbackLayer = () => {
         return Swal.fire("Error", res?.data?.message || "Email send failed.", "error");
       }
 
-      // ✅ response me sessionid ho to use, warna row.sessionid
       const returnedSessionId =
         res?.data?.data?.[0]?.sessionid != null
           ? Number(res.data.data[0].sessionid)
           : Number(row.sessionid);
 
-      // ✅ update UI -> sent + lock
       setRows((prev) =>
         prev.map((r) =>
           Number(r.sessionid) === returnedSessionId
@@ -586,6 +709,65 @@ const FeedbackLayer = () => {
       <div className="col-xxl-12">
         <div className="card h-100 p-0 email-card">
           <div className="card-body p-0">
+            {/* ✅ FILTER BAR (NEW) */}
+            <div className="px-3 pt-3">
+              <div className="d-flex flex-wrap gap-2 align-items-end">
+                <div style={{ minWidth: 240 }}>
+
+                  <input
+                    className="form-control"
+                    placeholder="Search"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </div>
+
+                <div style={{ minWidth: 180 }}>
+
+                  <select
+                    className="form-select"
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                  >
+                    <option value="all">All</option>
+                    <option value="pending">Pending</option>
+                    <option value="sent">Sent</option>
+                  </select>
+                </div>
+
+                <div style={{ minWidth: 170 }}>
+
+                  <input
+                    type="date"
+                    className="form-control"
+                    value={dateFrom}
+                    onChange={(e) => setDateFrom(e.target.value)}
+                  />
+                </div>
+
+                <div style={{ minWidth: 170 }}>
+
+                  <input
+                    type="date"
+                    className="form-control"
+                    value={dateTo}
+                    onChange={(e) => setDateTo(e.target.value)}
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  className="btn btn-outline-secondary"
+                  onClick={resetFilters}
+                >
+                  Reset Filters
+                </button>
+
+              </div>
+
+              <hr className="my-3" />
+            </div>
+
             <div className="table-responsive">
               <table className="table bordered-table sm-table mb-0">
                 <thead>
@@ -674,8 +856,8 @@ const FeedbackLayer = () => {
 
             <div className="d-flex justify-content-between mt-3 px-3 pb-3">
               <span>
-                Showing {rows.length === 0 ? 0 : indexOfFirst + 1} to{" "}
-                {Math.min(indexOfLast, rows.length)} of {rows.length} entries
+                Showing {filteredSortedRows.length === 0 ? 0 : indexOfFirst + 1} to{" "}
+                {Math.min(indexOfLast, filteredSortedRows.length)} of {filteredSortedRows.length} entries
               </span>
 
               <ul className="pagination mb-0">
@@ -714,11 +896,7 @@ const FeedbackLayer = () => {
             </div>
 
             {activeRecordingUrl ? (
-              <video
-                controls
-                autoPlay
-                style={{ width: "100%", maxHeight: "70vh", background: "#000" }}
-              >
+              <video controls autoPlay style={{ width: "100%", maxHeight: "70vh", background: "#000" }}>
                 <source src={activeRecordingUrl} type="video/mp4" />
                 Your browser does not support the video tag.
               </video>
@@ -736,10 +914,7 @@ const FeedbackLayer = () => {
           style={{ display: "block", background: "rgba(0,0,0,0.5)" }}
           onClick={() => setShowModal(false)}
         >
-          <div
-            className="modal-dialog modal-dialog-centered modal-lg"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="modal-dialog modal-dialog-centered modal-lg" onClick={(e) => e.stopPropagation()}>
             <div className={`modal-content pf-modal-card ${modalThemeClass}`}>
               <div className="modal-header">
                 <h5 className="modal-title">Performance Feedback</h5>
@@ -769,9 +944,7 @@ const FeedbackLayer = () => {
 
                           <div className="mt-2">
                             <small>Status</small>{" "}
-                            <span
-                              className={`badge ${isSent ? "bg-success" : "bg-warning text-dark"}`}
-                            >
+                            <span className={`badge ${isSent ? "bg-success" : "bg-warning text-dark"}`}>
                               {isSent ? "Sent" : "Pending"}
                             </span>
                           </div>
@@ -843,9 +1016,7 @@ const FeedbackLayer = () => {
                               <select
                                 className="form-select"
                                 value={currentRow.understanding}
-                                onChange={(e) =>
-                                  handleFeedbackChange("understanding", e.target.value)
-                                }
+                                onChange={(e) => handleFeedbackChange("understanding", e.target.value)}
                                 disabled={isSent}
                               >
                                 <option value="">Select</option>
@@ -864,9 +1035,7 @@ const FeedbackLayer = () => {
                               <select
                                 className="form-select"
                                 value={currentRow.final_class_grade}
-                                onChange={(e) =>
-                                  handleFeedbackChange("final_class_grade", e.target.value)
-                                }
+                                onChange={(e) => handleFeedbackChange("final_class_grade", e.target.value)}
                                 disabled={isSent}
                               >
                                 <option value="">Select</option>
@@ -886,9 +1055,7 @@ const FeedbackLayer = () => {
                                 className="form-control"
                                 rows="5"
                                 value={currentRow.teacher_feedback}
-                                onChange={(e) =>
-                                  handleFeedbackChange("teacher_feedback", e.target.value)
-                                }
+                                onChange={(e) => handleFeedbackChange("teacher_feedback", e.target.value)}
                                 placeholder="Write teacher feedback..."
                                 disabled={isSent}
                               />
@@ -901,11 +1068,7 @@ const FeedbackLayer = () => {
               </div>
 
               <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn btn-outline-secondary"
-                  onClick={() => setShowModal(false)}
-                >
+                <button type="button" className="btn btn-outline-secondary" onClick={() => setShowModal(false)}>
                   Close
                 </button>
 

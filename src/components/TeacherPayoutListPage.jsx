@@ -912,7 +912,6 @@ const TeacherPayoutListPage = () => {
                         >
                           <option value="">Select</option>
                           <option value="Cash">Cash</option>
-                          <option value="Bank">Bank</option>
                           <option value="Online">Online</option>
                         </select>
                       </td>

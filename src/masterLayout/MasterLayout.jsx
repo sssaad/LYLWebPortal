@@ -172,6 +172,12 @@ const MasterLayout = ({ children }) => {
               </NavLink>
             </li>
             <li>
+              <NavLink to="/direct-bookings" className={({ isActive }) => (isActive ? "active-page" : "")}>
+                <Icon icon="material-symbols:map-outline" className="menu-icon" />
+                <span>Direct Bookings</span>
+              </NavLink>
+            </li>
+            <li>
               <NavLink to="/subscription" className={({ isActive }) => (isActive ? "active-page" : "")}>
                 <Icon icon="material-symbols:subscriptions-outline" className="menu-icon" />
                 <span>Subscriptions</span>
@@ -189,12 +195,12 @@ const MasterLayout = ({ children }) => {
                 <span>Promo Codes</span>
               </NavLink>
             </li>
-            <li>
+            {/* <li>
               <NavLink to="/payments" className={({ isActive }) => (isActive ? "active-page" : "")}>
                 <Icon icon="mdi:credit-card-outline" className="menu-icon" />
                 <span>Payments</span>
               </NavLink>
-            </li>
+            </li> */}
             <li>
               <NavLink to="/email" className={({ isActive }) => (isActive ? "active-page" : "")}>
                 <Icon icon="mdi:email-check-outline" className="menu-icon" />

@@ -97,9 +97,9 @@ const TopInstructorsOne = () => {
               >
                 <div className="d-flex align-items-center">
                   <img
-                    src={teacher.imagepath || "/assets/images/default-user.png"}
+                    src={teacher.imagepath || "https://gostudy.ae/assets/invalid-square.png"}
                     onError={(e) => {
-                      e.currentTarget.src = "/assets/images/default-user.png";
+                      e.currentTarget.src = "https://gostudy.ae/assets/invalid-square.png";
                     }}
                     alt="Teacher"
                     className="w-40-px h-40-px rounded-circle flex-shrink-0 me-12 overflow-hidden"

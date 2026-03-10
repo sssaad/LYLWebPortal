@@ -4,15 +4,13 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import moment from "moment-timezone";
 import { getAllBookings } from "../api/getAllBookings";
-import ManualBookingModal from "./ManualBookingModal";
 
-const RoleAccessLayer = () => {
+const DirectBookingLayer = () => {
   const [rows, setRows] = useState([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
   const [searchTerm, setSearchTerm] = useState("");
-  const [paymentTypeFilter, setPaymentTypeFilter] = useState("");
   const [bookingStatusFilter, setBookingStatusFilter] = useState("");
   const [paymentStatusFilter, setPaymentStatusFilter] = useState("");
   const [sessionTypeFilter, setSessionTypeFilter] = useState("");
@@ -23,8 +21,7 @@ const RoleAccessLayer = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  const [isManualBookingOpen, setIsManualBookingOpen] = useState(false);
-
+  // ✅ Recording modal
   const [isRecordingOpen, setIsRecordingOpen] = useState(false);
   const [activeRecordingUrl, setActiveRecordingUrl] = useState("");
 
@@ -108,22 +105,13 @@ const RoleAccessLayer = () => {
     const endDT = end ? parseDateTime(date, end) : null;
 
     if (endDT) {
-      if (now.isAfter(endDT)) {
-        return hasRecording ? "completed" : "missed";
-      }
-
-      if (startDT && now.isSameOrAfter(startDT) && now.isSameOrBefore(endDT)) {
-        return "ongoing";
-      }
-
+      if (now.isAfter(endDT)) return hasRecording ? "completed" : "missed";
+      if (startDT && now.isSameOrAfter(startDT) && now.isSameOrBefore(endDT)) return "ongoing";
       return "upcoming";
     }
 
     const dayEnd = parseDateTime(date, "23:59:59");
-    if (dayEnd && now.isAfter(dayEnd)) {
-      return hasRecording ? "completed" : "missed";
-    }
-
+    if (dayEnd && now.isAfter(dayEnd)) return hasRecording ? "completed" : "missed";
     return "upcoming";
   };
 
@@ -247,13 +235,13 @@ const RoleAccessLayer = () => {
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     setCurrentPage(1);
   }, [
     searchTerm,
-    paymentTypeFilter,
     bookingStatusFilter,
     paymentStatusFilter,
     sessionTypeFilter,
@@ -262,36 +250,9 @@ const RoleAccessLayer = () => {
     endDate,
   ]);
 
-  const paymentOptions = useMemo(() => {
-    const set = new Set();
-    (rows || []).forEach((r) => {
-      const p = norm(r?.payment_type);
-      if (p) set.add(p);
-    });
-    return Array.from(set);
-  }, [rows]);
-
-  const sessionTypeOptions = useMemo(() => {
-    const set = new Set();
-    (rows || []).forEach((r) => {
-      const s = norm(r?.session_type);
-      if (s) set.add(s);
-    });
-    return Array.from(set);
-  }, [rows]);
-
-  const bookingTypeOptions = useMemo(() => {
-    const set = new Set();
-    (rows || []).forEach((r) => {
-      const b = norm(r?.booking_type);
-      if (b) set.add(b);
-    });
-    return Array.from(set);
-  }, [rows]);
-
+  // ✅ ONLY DIRECT BOOKINGS (Hard Filter)
   const filteredData = useMemo(() => {
     const sTerm = norm(searchTerm);
-    const pFilter = norm(paymentTypeFilter);
     const bFilter = norm(bookingStatusFilter);
     const psFilter = norm(paymentStatusFilter);
     const stFilter = norm(sessionTypeFilter);
@@ -302,6 +263,10 @@ const RoleAccessLayer = () => {
 
     return (rows || []).filter((item) => {
       const bookingStatus = getBookingStatus(item);
+
+      // ✅ HARD FILTER: ONLY DIRECT
+      const isDirect = norm(item?.payment_type) === "direct";
+      if (!isDirect) return false;
 
       const fullText = [
         item?.studentname || "",
@@ -320,20 +285,17 @@ const RoleAccessLayer = () => {
         .toLowerCase();
 
       const matchesSearch = !sTerm || fullText.includes(sTerm);
-      const matchesPayment = !pFilter || norm(item?.payment_type) === pFilter;
       const matchesStatus = !bFilter || norm(bookingStatus) === bFilter;
       const matchesPaymentStatus = !psFilter || norm(item?.payment_status) === psFilter;
       const matchesSessionType = !stFilter || norm(item?.session_type) === stFilter;
       const matchesBookingType = !btFilter || norm(item?.booking_type) === btFilter;
 
       const itemDate = parseBookDate(item?.bookdate || item?.booking_date);
-
       const fromOk = startM ? (itemDate ? itemDate.isSameOrAfter(startM, "day") : false) : true;
       const toOk = endM ? (itemDate ? itemDate.isSameOrBefore(endM, "day") : false) : true;
 
       return (
         matchesSearch &&
-        matchesPayment &&
         matchesStatus &&
         matchesPaymentStatus &&
         matchesSessionType &&
@@ -345,7 +307,6 @@ const RoleAccessLayer = () => {
   }, [
     rows,
     searchTerm,
-    paymentTypeFilter,
     bookingStatusFilter,
     paymentStatusFilter,
     sessionTypeFilter,
@@ -363,10 +324,11 @@ const RoleAccessLayer = () => {
 
   useEffect(() => {
     if (currentPage !== safePage) setCurrentPage(safePage);
-  }, [safePage, currentPage]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [safePage]);
 
   const exportToExcel = () => {
-    const heading = [["Booking List"]];
+    const heading = [["Direct Booking List"]];
     const data = filteredData.map((item, i) => {
       const status = getBookingStatus(item);
       const bd = parseBookDate(item?.bookdate || item?.booking_date);
@@ -390,14 +352,14 @@ const RoleAccessLayer = () => {
     const worksheet = XLSX.utils.json_to_sheet(data, { origin: -1 });
     XLSX.utils.sheet_add_aoa(worksheet, heading, { origin: "A1" });
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Bookings");
-    XLSX.writeFile(workbook, "bookings.xlsx");
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Direct Bookings");
+    XLSX.writeFile(workbook, "direct_bookings.xlsx");
   };
 
   const exportToPDF = () => {
     const doc = new jsPDF();
     doc.setFontSize(16);
-    doc.text("Booking List", 14, 20);
+    doc.text("Direct Booking List", 14, 20);
 
     const columns = [
       "S.L",
@@ -441,7 +403,7 @@ const RoleAccessLayer = () => {
       styles: { fontSize: 8 },
       headStyles: { fontSize: 8 },
     });
-    doc.save("bookings.pdf");
+    doc.save("direct_bookings.pdf");
   };
 
   if (initialLoading) {
@@ -489,20 +451,14 @@ const RoleAccessLayer = () => {
 
           <select
             className="form-select form-select-sm w-auto"
-            value={paymentTypeFilter}
-            onChange={(e) => setPaymentTypeFilter(e.target.value)}
+            value={bookingStatusFilter}
+            onChange={(e) => setBookingStatusFilter(e.target.value)}
           >
-            <option value="">Payment: All</option>
-            <option value="direct">Direct</option>
-            <option value="block">Block</option>
-            <option value="subscription">Subscription</option>
-            {paymentOptions
-              .filter((p) => !["direct", "block", "subscription"].includes(p))
-              .map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
+            <option value="">Status: All</option>
+            <option value="upcoming">Upcoming</option>
+            <option value="completed">Completed</option>
+            <option value="ongoing">Ongoing</option>
+            <option value="missed">Missed</option>
           </select>
 
           <select
@@ -523,13 +479,6 @@ const RoleAccessLayer = () => {
             <option value="">Session Type: All</option>
             <option value="in-person">In-Person</option>
             <option value="online">Online</option>
-            {sessionTypeOptions
-              .filter((s) => !["in-person", "online"].includes(s))
-              .map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
           </select>
 
           <select
@@ -540,31 +489,11 @@ const RoleAccessLayer = () => {
             <option value="">Booking Type: All</option>
             <option value="manual">Manual</option>
             <option value="web app">Web App</option>
-            {bookingTypeOptions
-              .filter((b) => !["manual", "web app"].includes(b))
-              .map((b) => (
-                <option key={b} value={b}>
-                  {b}
-                </option>
-              ))}
-          </select>
-
-          <select
-            className="form-select form-select-sm w-auto"
-            value={bookingStatusFilter}
-            onChange={(e) => setBookingStatusFilter(e.target.value)}
-          >
-            <option value="">Status: All</option>
-            <option value="upcoming">Upcoming</option>
-            <option value="completed">Completed</option>
-            <option value="ongoing">Ongoing</option>
-            <option value="missed">Missed</option>
           </select>
 
           <button
             onClick={() => {
               setSearchTerm("");
-              setPaymentTypeFilter("");
               setBookingStatusFilter("");
               setPaymentStatusFilter("");
               setSessionTypeFilter("");
@@ -585,33 +514,6 @@ const RoleAccessLayer = () => {
             PDF Export
           </button>
         </div>
-
-        <button
-          type="button"
-          className="btn btn-primary btn-sm d-flex align-items-center gap-2"
-          style={{
-            borderRadius: "999px",
-            padding: "10px 18px",
-            boxShadow: "0 10px 22px rgba(13,110,253,0.22)",
-          }}
-          onClick={() => setIsManualBookingOpen(true)}
-        >
-          <span
-            style={{
-              width: 20,
-              height: 20,
-              borderRadius: "50%",
-              background: "rgba(255,255,255,0.2)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontWeight: "bold",
-            }}
-          >
-            +
-          </span>
-          Create Booking
-        </button>
       </div>
 
       <div className="card-body p-24">
@@ -680,6 +582,7 @@ const RoleAccessLayer = () => {
                       <td>{item?.teachername || "-"}</td>
                       <td>{formatTime(item?.slot_start)}</td>
                       <td>{formatTime(item?.slot_end)}</td>
+
                       <td>{getAmountText(item)}</td>
 
                       <td>
@@ -737,6 +640,7 @@ const RoleAccessLayer = () => {
         </div>
       </div>
 
+      {/* ✅ Recording Modal */}
       {isRecordingOpen && (
         <div
           className="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
@@ -770,14 +674,8 @@ const RoleAccessLayer = () => {
           </div>
         </div>
       )}
-
-      <ManualBookingModal
-        isOpen={isManualBookingOpen}
-        title="Manual Booking"
-        onClose={() => setIsManualBookingOpen(false)}
-      />
     </div>
   );
 };
 
-export default RoleAccessLayer;
+export default DirectBookingLayer;

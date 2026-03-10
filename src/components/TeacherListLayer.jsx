@@ -16,7 +16,7 @@ import TeacherDetailsModal from "../components/TeacherDetailsModal";
 import BankDetailModal from "../components/BankDetailModal";
 
 const FALLBACK_AVATAR =
-  "https://lylassets.s3.eu-north-1.amazonaws.com/uploads/person-dummy-02.jpg";
+  "https://gostudy.ae/assets/invalid-square.png";
 
 const TeacherListLayer = () => {
   const [teachers, setTeachers] = useState([]);

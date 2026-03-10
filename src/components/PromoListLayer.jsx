@@ -6,9 +6,6 @@ import { getToken } from "../api/getToken";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-// ✅ Alternative (agar default import issue de):
-// import { jsPDF } from "jspdf";
-// import autoTable from "jspdf-autotable";
 
 const API_URL =
   "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=get_lookup_data";
@@ -18,6 +15,10 @@ const ADD_API_URL =
 
 const UPDATE_API_URL =
   "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=update_dynamic_data";
+
+// ❌ Hard delete removed
+// const DELETE_API_URL =
+//   "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=delete_dynamic";
 
 const headers = {
   projectid: "1",
@@ -33,6 +34,7 @@ const PromoListLayer = () => {
   const [promos, setPromos] = useState([]);
   const [loadingList, setLoadingList] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState(null); // ✅ per-row delete loading
   const [error, setError] = useState("");
 
   // ======================
@@ -175,6 +177,9 @@ const PromoListLayer = () => {
 
       created_by: 1,
 
+      // ✅ ensure active rows are not deleted by default
+      deleted: 0,
+
       updated_at: nowApiDateTime(),
     };
   };
@@ -195,6 +200,15 @@ const PromoListLayer = () => {
       html: `<div style="font-size:14px">Promo ${
         newId ? `<b>#${newId}</b> ` : ""
       }(${promoCode}) created successfully.</div>`,
+      confirmButtonText: "OK",
+    });
+  };
+
+  const showDeletedAlert = async (idNum, promoCode) => {
+    await Swal.fire({
+      icon: "success",
+      title: "Promo Deleted",
+      html: `<div style="font-size:14px">Promo <b>#${idNum}</b> (${promoCode || "—"}) deleted successfully.</div>`,
       confirmButtonText: "OK",
     });
   };
@@ -237,7 +251,10 @@ const PromoListLayer = () => {
 
       const rows = Array.isArray(res?.data?.data) ? res.data.data : [];
 
-      const mapped = rows.map((x) => {
+      // ✅ hide deleted rows (deleted === 1)
+      const activeRows = rows.filter((x) => String(x?.deleted || "0") !== "1");
+
+      const mapped = activeRows.map((x) => {
         const appliesDirect = String(x?.applies_direct || "0") === "1";
         const appliesBlock = String(x?.applies_block || "0") === "1";
 
@@ -267,6 +284,8 @@ const PromoListLayer = () => {
             x?.usage_limit_per_user === undefined
               ? ""
               : String(x.usage_limit_per_user),
+
+          deleted: String(x?.deleted || "0") === "1",
         };
       });
 
@@ -467,6 +486,81 @@ const PromoListLayer = () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  // ✅ SOFT DELETE (update_dynamic_data) -> deleted: 1
+  const onDelete = async (p) => {
+    const idNum = Number(p?.id);
+    if (!idNum || Number.isNaN(idNum)) {
+      toast("Invalid ID for delete.");
+      return;
+    }
+
+    const confirm = await Swal.fire({
+      icon: "warning",
+      title: "Delete Promo?",
+      html: `<div style="font-size:14px">
+              Are you sure you want to delete promo <b>#${idNum}</b> (<code>${String(
+        p?.code || ""
+      )}</code>)?
+              <br/><span style="color:#b91c1c;font-weight:600"></span>
+            </div>`,
+      showCancelButton: true,
+      confirmButtonText: "Yes, Delete",
+      cancelButtonText: "Cancel",
+      confirmButtonColor: "#dc2626",
+    });
+
+    if (!confirm.isConfirmed) return;
+
+    try {
+      setDeletingId(idNum);
+
+      const token = await getToken();
+      if (!token) {
+        toast("Token missing");
+        return;
+      }
+
+      const apiPayload = {
+        token,
+        tablename: "promo_codes",
+        conditions: [{ id: idNum }],
+        updatedata: [
+          {
+            deleted: 1,
+            updated_at: nowApiDateTime(),
+          },
+        ],
+      };
+
+      const res = await axios.post(UPDATE_API_URL, apiPayload, {
+        headers: {
+          ...headers,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (res?.data?.statusCode === 200) {
+        if (Number(String(promoId || "").trim()) === idNum) {
+          resetForm();
+        }
+
+        await showDeletedAlert(idNum, p?.code);
+        await fetchPromoCodes();
+        return;
+      }
+
+      await showErrorAlert(res?.data?.message || "Delete failed.");
+    } catch (err) {
+      await showErrorAlert(
+        err?.response?.data?.message ||
+          err?.message ||
+          "Internal API error (update_dynamic_data - soft delete)"
+      );
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   // ======================
   // Filtering
   // ======================
@@ -474,6 +568,9 @@ const PromoListLayer = () => {
     const q = (search || "").trim().toLowerCase();
 
     return promos.filter((p) => {
+      // safety: if deleted somehow came in, hide it
+      if (p.deleted) return false;
+
       const matchQ =
         !q ||
         String(p.title || "").toLowerCase().includes(q) ||
@@ -644,7 +741,7 @@ const PromoListLayer = () => {
             type="button"
             className="btn btn-outline-secondary btn-sm"
             onClick={resetForm}
-            disabled={saving}
+            disabled={saving || deletingId !== null}
           >
             Reset Form
           </button>
@@ -653,7 +750,7 @@ const PromoListLayer = () => {
             type="button"
             className="btn btn-outline-primary btn-sm"
             onClick={fetchPromoCodes}
-            disabled={loadingList || saving}
+            disabled={loadingList || saving || deletingId !== null}
           >
             {loadingList ? "Refreshing..." : "Refresh List"}
           </button>
@@ -700,7 +797,7 @@ const PromoListLayer = () => {
                         value={title}
                         onChange={(e) => setTitle(e.target.value)}
                         required
-                        disabled={saving}
+                        disabled={saving || deletingId !== null}
                       />
                       <div className="text-sm text-secondary mt-1">
                         Internal title for admin (optional to show to users).
@@ -715,7 +812,7 @@ const PromoListLayer = () => {
                         value={code}
                         onChange={(e) => setCode(e.target.value)}
                         required
-                        disabled={saving}
+                        disabled={saving || deletingId !== null}
                       />
                       <div className="text-sm text-secondary mt-1">
                         Uppercase recommended. Must be unique.
@@ -734,7 +831,7 @@ const PromoListLayer = () => {
                         value={discountPercent}
                         onChange={(e) => setDiscountPercent(e.target.value)}
                         required
-                        disabled={saving}
+                        disabled={saving || deletingId !== null}
                       />
                       <div className="text-sm text-secondary mt-1">
                         Percentage discount (1–100).
@@ -761,7 +858,7 @@ const PromoListLayer = () => {
                             checked={isActive}
                             onChange={(e) => setIsActive(e.target.checked)}
                             aria-label="Toggle promo active"
-                            disabled={saving}
+                            disabled={saving || deletingId !== null}
                           />
                           <label
                             className="wowSlider"
@@ -786,7 +883,7 @@ const PromoListLayer = () => {
                               : "btn-outline-primary"
                           }`}
                           onClick={() => setType("direct")}
-                          disabled={saving}
+                          disabled={saving || deletingId !== null}
                         >
                           Direct Booking
                         </button>
@@ -799,7 +896,7 @@ const PromoListLayer = () => {
                               : "btn-outline-warning"
                           }`}
                           onClick={() => setType("block")}
-                          disabled={saving}
+                          disabled={saving || deletingId !== null}
                         >
                           Block Booking
                         </button>
@@ -820,7 +917,7 @@ const PromoListLayer = () => {
                         value={startDate}
                         onChange={(e) => setStartDate(e.target.value)}
                         required
-                        disabled={saving}
+                        disabled={saving || deletingId !== null}
                       />
                       <div className="text-sm text-secondary mt-1">
                         Promo active window start.
@@ -835,7 +932,7 @@ const PromoListLayer = () => {
                         value={expiryDate}
                         onChange={(e) => setExpiryDate(e.target.value)}
                         required
-                        disabled={saving}
+                        disabled={saving || deletingId !== null}
                       />
                       <div className="text-sm text-secondary mt-1">
                         Promo active window end.
@@ -852,7 +949,7 @@ const PromoListLayer = () => {
                         placeholder="10"
                         value={usageLimitTotal}
                         onChange={(e) => setUsageLimitTotal(e.target.value)}
-                        disabled={saving}
+                        disabled={saving || deletingId !== null}
                       />
                       <div className="text-sm text-secondary mt-1">
                         Blank/0 = unlimited
@@ -871,7 +968,7 @@ const PromoListLayer = () => {
                         placeholder="1"
                         value={usageLimitPerUser}
                         onChange={(e) => setUsageLimitPerUser(e.target.value)}
-                        disabled={saving}
+                        disabled={saving || deletingId !== null}
                       />
                       <div className="text-sm text-secondary mt-1">
                         Max redemptions per user.
@@ -895,7 +992,7 @@ const PromoListLayer = () => {
                             checked={oneTime}
                             onChange={(e) => setOneTime(e.target.checked)}
                             aria-label="Toggle one time"
-                            disabled={saving}
+                            disabled={saving || deletingId !== null}
                           />
                           <label
                             className="wowSlider"
@@ -911,7 +1008,7 @@ const PromoListLayer = () => {
                           type="button"
                           className="btn btn-outline-secondary btn-sm"
                           onClick={resetForm}
-                          disabled={saving}
+                          disabled={saving || deletingId !== null}
                         >
                           Cancel Update
                         </button>
@@ -920,7 +1017,7 @@ const PromoListLayer = () => {
                       <button
                         type="submit"
                         className="btn btn-primary btn-sm"
-                        disabled={saving}
+                        disabled={saving || deletingId !== null}
                       >
                         {saving
                           ? "Saving..."
@@ -1063,7 +1160,7 @@ const PromoListLayer = () => {
                   type="button"
                   className="btn btn-success"
                   onClick={exportToExcel}
-                  disabled={loadingList || saving}
+                  disabled={loadingList || saving || deletingId !== null}
                 >
                   Excel Export
                 </button>
@@ -1071,7 +1168,7 @@ const PromoListLayer = () => {
                   type="button"
                   className="btn btn-danger"
                   onClick={exportToPDF}
-                  disabled={loadingList || saving}
+                  disabled={loadingList || saving || deletingId !== null}
                 >
                   PDF Export
                 </button>
@@ -1093,7 +1190,7 @@ const PromoListLayer = () => {
                     <th>Status</th>
                     <th className="text-end">Total</th>
                     <th className="text-end">Per User</th>
-                    <th style={{ width: 110 }}>Actions</th>
+                    <th style={{ width: 160 }}>Actions</th>
                   </tr>
                 </thead>
 
@@ -1118,6 +1215,8 @@ const PromoListLayer = () => {
                   ) : (
                     pageItems.map((p) => {
                       const active = Boolean(p.is_active);
+                      const isDeletingThis = deletingId === p.id;
+
                       return (
                         <tr key={p.id}>
                           <td className="fw-bold">{p.id}</td>
@@ -1160,14 +1259,26 @@ const PromoListLayer = () => {
                               : p.usage_limit_per_user}
                           </td>
                           <td>
-                            <button
-                              type="button"
-                              className="btn btn-outline-secondary btn-sm"
-                              onClick={() => onEdit(p)}
-                              disabled={saving}
-                            >
-                              Edit
-                            </button>
+                            <div className="d-flex gap-2">
+                              <button
+                                type="button"
+                                className="btn btn-outline-secondary btn-sm"
+                                onClick={() => onEdit(p)}
+                                disabled={saving || deletingId !== null}
+                              >
+                                Edit
+                              </button>
+
+                              {/* ✅ SOFT Delete */}
+                              <button
+                                type="button"
+                                className="btn btn-outline-danger btn-sm"
+                                onClick={() => onDelete(p)}
+                                disabled={saving || isDeletingThis}
+                              >
+                                {isDeletingThis ? "Deleting..." : "Delete"}
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );

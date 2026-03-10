@@ -81,6 +81,7 @@ import PricingPage from "./pages/PricingPage";
 import ProgressPage from "./pages/ProgressPage";
 import RadioPage from "./pages/RadioPage";
 import RoleAccessPage from "./pages/RoleAccessPage";
+import DirectBookingPage from "./pages/DirectBookingPage";
 import StarRatingPage from "./pages/StarRatingPage";
 import StarredPage from "./pages/StarredPage";
 import SwitchPage from "./pages/SwitchPage";
@@ -212,6 +213,7 @@ function App() {
           ["/progress", ProgressPage],
           ["/radio", RadioPage],
           ["/bookings", RoleAccessPage],
+          ["/direct-bookings", DirectBookingPage],
           ["/star-rating", StarRatingPage],
           ["/starred", StarredPage],
           ["/switch", SwitchPage],

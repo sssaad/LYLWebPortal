@@ -16,7 +16,7 @@ import StudentDetailsModal from "../components/StudentDetailsModal";
 import { hardDeleteUser } from "../api/hardDeleteUser";
 
 const FALLBACK_AVATAR =
-  "https://lylassets.s3.eu-north-1.amazonaws.com/uploads/person-dummy-02.jpg";
+  "https://gostudy.ae/assets/invalid-square.png";
 
 const StudentListLayer = () => {
   const [students, setStudents] = useState([]);

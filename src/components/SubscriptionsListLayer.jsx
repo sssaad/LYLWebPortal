@@ -19,6 +19,20 @@ const SubscriptionsListLayer = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const FALLBACK_IMG = "https://gostudy.ae/assets/invalid-square.png";
+
+  const getImageSrc = (item) => {
+    const src = item?.imagepath;
+    if (!src) return FALLBACK_IMG;
+
+    const s = String(src).trim();
+    if (!s || s.toLowerCase() === "null" || s.toLowerCase() === "undefined") {
+      return FALLBACK_IMG;
+    }
+
+    return s;
+  };
+
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [startDate, setStartDate] = useState("");
@@ -172,9 +186,8 @@ const SubscriptionsListLayer = () => {
     const term = (searchTerm || "").toLowerCase().trim();
 
     return (subscriptions || []).filter((item) => {
-      const fullText = `${getName(item)} ${getStudentLogin(item)} ${
-        item?.package_name || ""
-      } ${getPhoneText(item)} ${item?.parentemail || ""} ${getStatus(item)}`
+      const fullText = `${getName(item)} ${getStudentLogin(item)} ${item?.package_name || ""
+        } ${getPhoneText(item)} ${item?.parentemail || ""} ${getStatus(item)}`
         .toLowerCase()
         .trim();
 
@@ -183,7 +196,7 @@ const SubscriptionsListLayer = () => {
       const matchesStatus =
         statusFilter === "" ||
         String(getStatus(item)).toLowerCase() ===
-          String(statusFilter).toLowerCase();
+        String(statusFilter).toLowerCase();
 
       const cd = getCreated(item);
       const itemDate = cd ? new Date(String(cd).replace(".000000", "")) : null;
@@ -409,21 +422,15 @@ const SubscriptionsListLayer = () => {
 
                       <td>
                         <div className="name-cell">
-                          {item?.imagepath ? (
-                            <img
-                              className="thumb"
-                              src={item.imagepath}
-                              alt="student"
-                            />
-                          ) : (
-                            <div
-                              className="thumb"
-                              style={{
-                                background: "rgba(0,0,0,0.08)",
-                                display: "inline-block",
-                              }}
-                            />
-                          )}
+                          <img
+                            className="thumb"
+                            src={getImageSrc(item)}
+                            alt="student"
+                            onError={(e) => {
+                              e.currentTarget.onerror = null; // prevent infinite loop
+                              e.currentTarget.src = FALLBACK_IMG;
+                            }}
+                          />
 
                           <div>
                             <div style={{ fontWeight: 600 }}>{getName(item)}</div>

@@ -20,6 +20,19 @@ const BlockSubscriptionsListLayer = () => {
   const [subscriptions, setSubscriptions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const FALLBACK_IMG = "https://gostudy.ae/assets/invalid-square.png";
+
+  const getImageSrc = (item) => {
+    const src = item?.imagepath;
+    if (!src) return FALLBACK_IMG;
+
+    const s = String(src).trim();
+    if (!s || s.toLowerCase() === "null" || s.toLowerCase() === "undefined") {
+      return FALLBACK_IMG;
+    }
+
+    return s;
+  };
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState(""); // Active / Expired / Exhausted
@@ -194,11 +207,9 @@ const BlockSubscriptionsListLayer = () => {
     const term = (searchTerm || "").toLowerCase().trim();
 
     return (subscriptions || []).filter((item) => {
-      const fullText = `${getName(item)} ${getStudentLogin(item)} ${
-        item?.code ?? ""
-      } ${getPhoneText(item)} ${item?.parentemail || ""} ${
-        item?.package ?? ""
-      } ${item?.price ?? ""} ${item?.discount ?? ""} ${getStatus(item)}`
+      const fullText = `${getName(item)} ${getStudentLogin(item)} ${item?.code ?? ""
+        } ${getPhoneText(item)} ${item?.parentemail || ""} ${item?.package ?? ""
+        } ${item?.price ?? ""} ${item?.discount ?? ""} ${getStatus(item)}`
         .toLowerCase()
         .trim();
 
@@ -207,7 +218,7 @@ const BlockSubscriptionsListLayer = () => {
       const matchesStatus =
         statusFilter === "" ||
         String(getStatus(item)).toLowerCase() ===
-          String(statusFilter).toLowerCase();
+        String(statusFilter).toLowerCase();
 
       const cd = getPurchaseDateRaw(item);
       const itemDate = cd ? new Date(String(cd).replace(".000000", "")) : null;
@@ -463,9 +474,9 @@ const BlockSubscriptionsListLayer = () => {
                   const pct =
                     totalCredits > 0
                       ? Math.min(
-                          100,
-                          Math.max(0, (usedCredits / totalCredits) * 100)
-                        )
+                        100,
+                        Math.max(0, (usedCredits / totalCredits) * 100)
+                      )
                       : 0;
 
                   return (
@@ -475,21 +486,15 @@ const BlockSubscriptionsListLayer = () => {
                       <td>
                         <div className="name-cell">
                           {/* ✅ imagepath placeholder (aap baad mein bind kar lena) */}
-                          {item?.imagepath ? (
-                            <img
-                              className="thumb"
-                              src={item.imagepath}
-                              alt="student"
-                            />
-                          ) : (
-                            <div
-                              className="thumb"
-                              style={{
-                                background: "rgba(0,0,0,0.08)",
-                                display: "inline-block",
-                              }}
-                            />
-                          )}
+                          <img
+                            className="thumb"
+                            src={getImageSrc(item)}
+                            alt="student"
+                            onError={(e) => {
+                              e.currentTarget.onerror = null;
+                              e.currentTarget.src = FALLBACK_IMG;
+                            }}
+                          />
 
                           <div>
                             <div style={{ fontWeight: 600 }}>{getName(item)}</div>

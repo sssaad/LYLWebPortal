@@ -80,7 +80,7 @@ const TopPerformanceOne = () => {
       <div className="card">
         <div className="card-body">
           <div className="d-flex align-items-center flex-wrap gap-2 justify-content-between">
-            <h6 className="fw-bold text-lg mb-0">Current Bookings</h6>
+            <h6 className="fw-bold text-lg mb-0">Recent Bookings</h6>
           </div>
 
           {/* Scrollable List */}

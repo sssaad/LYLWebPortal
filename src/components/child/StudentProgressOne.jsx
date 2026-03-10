@@ -44,7 +44,7 @@ const StudentProgressOne = () => {
               <div key={index} className="d-flex align-items-center justify-content-between gap-3 mb-24">
                 <div className="d-flex align-items-center">
                   <img
-                    src={student.studentimage || "/assets/images/default-user.png"}
+                    src={student.studentimage || "https://gostudy.ae/assets/invalid-square.png"}
                     alt={student.studentname}
                     className="w-40-px h-40-px radius-8 flex-shrink-0 me-12 overflow-hidden"
                   />
