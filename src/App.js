@@ -82,6 +82,8 @@ import ProgressPage from "./pages/ProgressPage";
 import RadioPage from "./pages/RadioPage";
 import RoleAccessPage from "./pages/RoleAccessPage";
 import DirectBookingPage from "./pages/DirectBookingPage";
+import InpersonBookingPage from "./pages/InpersonBookingPage";
+import LeadCentrePage from "./pages/LeadCentrePage";
 import StarRatingPage from "./pages/StarRatingPage";
 import StarredPage from "./pages/StarredPage";
 import SwitchPage from "./pages/SwitchPage";
@@ -214,6 +216,8 @@ function App() {
           ["/radio", RadioPage],
           ["/bookings", RoleAccessPage],
           ["/direct-bookings", DirectBookingPage],
+          ["/inperson-bookings", InpersonBookingPage],
+          ["/leads-centre", LeadCentrePage],
           ["/star-rating", StarRatingPage],
           ["/starred", StarredPage],
           ["/switch", SwitchPage],

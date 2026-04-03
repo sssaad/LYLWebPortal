@@ -15,6 +15,29 @@ const BASE_HEADERS = {
   "Content-Type": "application/json",
 };
 
+// ===== Status Mapping =====
+const UI_STATUS = {
+  UNPAID: "Unpaid",
+  PAID: "Paid",
+};
+
+const API_STATUS = {
+  [UI_STATUS.UNPAID]: "pending",
+  [UI_STATUS.PAID]: "paid",
+};
+
+const getApiStatus = (uiStatus) => API_STATUS[uiStatus] || "pending";
+
+const normalizeStatusToUI = (status) => {
+  const value = String(status || "").trim().toLowerCase();
+
+  if (value === "paid") return UI_STATUS.PAID;
+  if (value === "pending") return UI_STATUS.UNPAID;
+  if (value === "unpaid") return UI_STATUS.UNPAID;
+
+  return UI_STATUS.UNPAID;
+};
+
 // ===== Helpers =====
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -77,7 +100,7 @@ const InvoiceEditLayer = () => {
     id: invoiceId,
     invoiceNo: "GoStudy-inv-001",
     dateISO: "",
-    status: "Pending",
+    status: UI_STATUS.UNPAID,
     currency: "AED",
   });
 
@@ -162,7 +185,7 @@ const InvoiceEditLayer = () => {
         id: row.id ?? invoiceId,
         invoiceNo: row.invoice_no || "GoStudy-inv-001",
         dateISO,
-        status: row.status || "Pending",
+        status: normalizeStatusToUI(row.status),
         currency: row.currency || "AED",
       });
 
@@ -219,13 +242,15 @@ const InvoiceEditLayer = () => {
         itemsPayload.reduce((sum, it) => sum + (Number(it.line_total) || 0), 0)
       );
 
+      const statusForApi = getApiStatus(invoiceMeta.status);
+
       const payload = {
         procedureName: "add_update_invoice",
         parameters: [
           invoiceMeta.id,
           invoiceMeta.invoiceNo,
           invoiceMeta.dateISO,
-          invoiceMeta.status || "Pending",
+          statusForApi, // UI: Paid/Unpaid | API: paid/pending
           invoiceMeta.currency || "AED",
           client.name,
           client.phone,
@@ -473,6 +498,38 @@ const InvoiceEditLayer = () => {
 
   .gs-invoice .gs-actions{ margin-top:12px; display:flex; justify-content:flex-end; }
 
+  .gs-status-toggle{
+    display:flex;
+    gap:8px;
+    margin-top:2px;
+    flex-wrap:wrap;
+  }
+
+  .gs-status-btn{
+    border:1px solid rgba(255,255,255,.16);
+    background:rgba(255,255,255,.05);
+    color:#eaf2ff;
+    padding:8px 14px;
+    border-radius:999px;
+    cursor:pointer;
+    font-weight:800;
+    font-size:12px;
+    transition:.2s ease;
+  }
+
+  .gs-status-btn.active{
+    background: linear-gradient(90deg, rgba(31,139,255,.95), rgba(15,177,255,.85));
+    color:#fff;
+    box-shadow: 0 12px 24px rgba(31,139,255,.20);
+  }
+
+  .gs-status-label{
+    margin-top:8px;
+    font-size:12px;
+    color:#a9bbd7;
+    font-weight:700;
+  }
+
   /* ✅ FOOTER (same as preview) */
   .gs-invoice .footer{
     margin-top:0 !important;
@@ -591,7 +648,7 @@ const InvoiceEditLayer = () => {
             <button
               type="button"
               className="btn btn-sm btn-primary-600 radius-8 d-inline-flex align-items-center gap-1"
-              onClick={handleUpdateConfirm} // ✅ confirm alert here
+              onClick={handleUpdateConfirm}
               disabled={saving}
             >
               <Icon icon="simple-line-icons:check" className="text-xl" />
@@ -692,6 +749,45 @@ const InvoiceEditLayer = () => {
                                 setInvoiceMeta((p) => ({ ...p, dateISO: e.target.value }))
                               }
                             />
+                          </div>
+
+                          <b>Status:</b>
+                          <div>
+                            <div className="gs-status-toggle">
+                              <button
+                                type="button"
+                                className={`gs-status-btn ${
+                                  invoiceMeta.status === UI_STATUS.UNPAID ? "active" : ""
+                                }`}
+                                onClick={() =>
+                                  setInvoiceMeta((p) => ({
+                                    ...p,
+                                    status: UI_STATUS.UNPAID,
+                                  }))
+                                }
+                              >
+                                Unpaid
+                              </button>
+
+                              <button
+                                type="button"
+                                className={`gs-status-btn ${
+                                  invoiceMeta.status === UI_STATUS.PAID ? "active" : ""
+                                }`}
+                                onClick={() =>
+                                  setInvoiceMeta((p) => ({
+                                    ...p,
+                                    status: UI_STATUS.PAID,
+                                  }))
+                                }
+                              >
+                                Paid
+                              </button>
+                            </div>
+
+                            <div className="gs-status-label">
+                              Current: {invoiceMeta.status}
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -833,7 +929,6 @@ const InvoiceEditLayer = () => {
                     </div>
                   </section>
 
-                  {/* ✅ FOOTER BACK (same as preview) */}
                   <footer className="footer">
                     <div className="footer-grid">
                       <div className="footer-brand">

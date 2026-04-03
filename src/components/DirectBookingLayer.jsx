@@ -4,6 +4,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import moment from "moment-timezone";
 import { getAllBookings } from "../api/getAllBookings";
+import RescheduleBookingModal from "./RescheduleBookingModal";
 
 const DirectBookingLayer = () => {
   const [rows, setRows] = useState([]);
@@ -21,13 +22,33 @@ const DirectBookingLayer = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  // ✅ Recording modal
   const [isRecordingOpen, setIsRecordingOpen] = useState(false);
   const [activeRecordingUrl, setActiveRecordingUrl] = useState("");
+
+  const [isRescheduleOpen, setIsRescheduleOpen] = useState(false);
+  const [selectedBooking, setSelectedBooking] = useState(null);
+
+  const [reloadNonce, setReloadNonce] = useState(0);
 
   const TZ = "Asia/Karachi";
 
   const norm = (v) => String(v ?? "").toLowerCase().trim();
+
+  const getBookDateValue = (item) => item?.bookdate || item?.booking_date || "";
+  const getSlotStartValue = (item) => item?.slot_start || item?.booking_start_time || "";
+  const getSlotEndValue = (item) => item?.slot_end || item?.booking_end_time || "";
+
+  const getSessionTypeKey = (value) => {
+    const t = norm(value).replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+
+    if (t === "in person") return "in-person";
+    if (t === "online") return "online";
+
+    return t;
+  };
+
+  const isInPersonSession = (item) => getSessionTypeKey(item?.session_type) === "in-person";
+
   const normalizeRecordingUrl = (u) => String(u || "").replace(/\\\//g, "/").trim();
   const hasRecordingUrl = (item) => !!normalizeRecordingUrl(item?.recording_s3_url);
 
@@ -41,6 +62,20 @@ const DirectBookingLayer = () => {
   const closeRecording = () => {
     setIsRecordingOpen(false);
     setActiveRecordingUrl("");
+  };
+
+  const openRescheduleModal = (item) => {
+    setSelectedBooking(item);
+    setIsRescheduleOpen(true);
+  };
+
+  const closeRescheduleModal = () => {
+    setIsRescheduleOpen(false);
+    setSelectedBooking(null);
+  };
+
+  const refreshBookings = () => {
+    setReloadNonce((prev) => prev + 1);
   };
 
   const getNow = () => moment.tz(TZ);
@@ -94,10 +129,12 @@ const DirectBookingLayer = () => {
   const getBookingStatus = (item) => {
     const now = getNow();
 
-    const date = item?.bookdate || item?.booking_date || "";
-    const start = item?.slot_start || item?.booking_start_time || "";
-    const end = item?.slot_end || item?.booking_end_time || "";
+    const date = getBookDateValue(item);
+    const start = getSlotStartValue(item);
+    const end = getSlotEndValue(item);
+
     const hasRecording = hasRecordingUrl(item);
+    const inPerson = isInPersonSession(item);
 
     if (!date) return "upcoming";
 
@@ -105,14 +142,31 @@ const DirectBookingLayer = () => {
     const endDT = end ? parseDateTime(date, end) : null;
 
     if (endDT) {
-      if (now.isAfter(endDT)) return hasRecording ? "completed" : "missed";
-      if (startDT && now.isSameOrAfter(startDT) && now.isSameOrBefore(endDT)) return "ongoing";
+      if (now.isAfter(endDT)) {
+        if (inPerson) return "completed";
+        return hasRecording ? "completed" : "missed";
+      }
+
+      if (startDT && now.isSameOrAfter(startDT) && now.isSameOrBefore(endDT)) {
+        return "ongoing";
+      }
+
       return "upcoming";
     }
 
     const dayEnd = parseDateTime(date, "23:59:59");
-    if (dayEnd && now.isAfter(dayEnd)) return hasRecording ? "completed" : "missed";
+    if (dayEnd && now.isAfter(dayEnd)) {
+      if (inPerson) return "completed";
+      return hasRecording ? "completed" : "missed";
+    }
+
     return "upcoming";
+  };
+
+  const isRescheduleDisabled = (item) => {
+    const bd = parseBookDate(getBookDateValue(item));
+    if (!bd) return false;
+    return bd.isBefore(getNow(), "day");
   };
 
   const getBookingStatusBadgeClass = (status) => {
@@ -139,7 +193,7 @@ const DirectBookingLayer = () => {
   };
 
   const getSessionTypeBadgeClass = (type) => {
-    const t = norm(type);
+    const t = getSessionTypeKey(type);
     if (t === "in-person") return "bg-dark";
     if (t === "online") return "bg-info";
     return "bg-secondary";
@@ -168,9 +222,9 @@ const DirectBookingLayer = () => {
 
   const makeRowKey = (item) => {
     const bookingid = item?.bookingid ?? item?.booking_id ?? item?.id ?? "na";
-    const date = item?.bookdate ?? item?.booking_date ?? "na";
-    const ss = item?.slot_start ?? item?.booking_start_time ?? "na";
-    const se = item?.slot_end ?? item?.booking_end_time ?? "na";
+    const date = getBookDateValue(item) || "na";
+    const ss = getSlotStartValue(item) || "na";
+    const se = getSlotEndValue(item) || "na";
     const t = item?.teachername ?? "na";
     const s = item?.studentname ?? "na";
     const sid = item?.studentid ?? "na";
@@ -212,8 +266,8 @@ const DirectBookingLayer = () => {
         const deduped = dedupeBookings(raw);
 
         const sorted = deduped.slice().sort((a, b) => {
-          const ma = parseBookDate(a?.bookdate || a?.booking_date);
-          const mb = parseBookDate(b?.bookdate || b?.booking_date);
+          const ma = parseBookDate(getBookDateValue(a));
+          const mb = parseBookDate(getBookDateValue(b));
           return (mb?.valueOf?.() || 0) - (ma?.valueOf?.() || 0);
         });
 
@@ -236,7 +290,7 @@ const DirectBookingLayer = () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [reloadNonce]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -250,12 +304,11 @@ const DirectBookingLayer = () => {
     endDate,
   ]);
 
-  // ✅ ONLY DIRECT BOOKINGS (Hard Filter)
   const filteredData = useMemo(() => {
     const sTerm = norm(searchTerm);
     const bFilter = norm(bookingStatusFilter);
     const psFilter = norm(paymentStatusFilter);
-    const stFilter = norm(sessionTypeFilter);
+    const stFilter = getSessionTypeKey(sessionTypeFilter);
     const btFilter = norm(bookingTypeFilter);
 
     const startM = startDate ? moment.tz(startDate, "YYYY-MM-DD", true, TZ) : null;
@@ -264,7 +317,6 @@ const DirectBookingLayer = () => {
     return (rows || []).filter((item) => {
       const bookingStatus = getBookingStatus(item);
 
-      // ✅ HARD FILTER: ONLY DIRECT
       const isDirect = norm(item?.payment_type) === "direct";
       if (!isDirect) return false;
 
@@ -277,9 +329,9 @@ const DirectBookingLayer = () => {
         item?.booking_type || "",
         getAmountText(item),
         bookingStatus,
-        item?.bookdate || "",
-        item?.slot_start || "",
-        item?.slot_end || "",
+        getBookDateValue(item),
+        getSlotStartValue(item),
+        getSlotEndValue(item),
       ]
         .join(" ")
         .toLowerCase();
@@ -287,10 +339,10 @@ const DirectBookingLayer = () => {
       const matchesSearch = !sTerm || fullText.includes(sTerm);
       const matchesStatus = !bFilter || norm(bookingStatus) === bFilter;
       const matchesPaymentStatus = !psFilter || norm(item?.payment_status) === psFilter;
-      const matchesSessionType = !stFilter || norm(item?.session_type) === stFilter;
+      const matchesSessionType = !stFilter || getSessionTypeKey(item?.session_type) === stFilter;
       const matchesBookingType = !btFilter || norm(item?.booking_type) === btFilter;
 
-      const itemDate = parseBookDate(item?.bookdate || item?.booking_date);
+      const itemDate = parseBookDate(getBookDateValue(item));
       const fromOk = startM ? (itemDate ? itemDate.isSameOrAfter(startM, "day") : false) : true;
       const toOk = endM ? (itemDate ? itemDate.isSameOrBefore(endM, "day") : false) : true;
 
@@ -331,15 +383,15 @@ const DirectBookingLayer = () => {
     const heading = [["Direct Booking List"]];
     const data = filteredData.map((item, i) => {
       const status = getBookingStatus(item);
-      const bd = parseBookDate(item?.bookdate || item?.booking_date);
+      const bd = parseBookDate(getBookDateValue(item));
 
       return {
         "S.L": i + 1,
         "Book Date": bd ? bd.format("DD MMM YYYY") : "-",
         "Student Name": item?.studentname || "-",
         "Booked Teacher": item?.teachername || "-",
-        "Slot Start": formatTime(item?.slot_start),
-        "Slot End": formatTime(item?.slot_end),
+        "Slot Start": formatTime(getSlotStartValue(item)),
+        "Slot End": formatTime(getSlotEndValue(item)),
         Amount: getAmountText(item),
         "Payment Type": item?.payment_type || "-",
         "Payment Status": item?.payment_status || "-",
@@ -378,15 +430,15 @@ const DirectBookingLayer = () => {
 
     const rowsPdf = filteredData.map((item, i) => {
       const status = getBookingStatus(item);
-      const bd = parseBookDate(item?.bookdate || item?.booking_date);
+      const bd = parseBookDate(getBookDateValue(item));
 
       return [
         i + 1,
         bd ? bd.format("DD MMM YYYY") : "-",
         item?.studentname || "-",
         item?.teachername || "-",
-        formatTime(item?.slot_start),
-        formatTime(item?.slot_end),
+        formatTime(getSlotStartValue(item)),
+        formatTime(getSlotEndValue(item)),
         getAmountText(item),
         item?.payment_type || "-",
         item?.payment_status || "-",
@@ -520,7 +572,7 @@ const DirectBookingLayer = () => {
         {loadError ? (
           <div className="alert alert-danger d-flex align-items-center justify-content-between">
             <div>{loadError}</div>
-            <button className="btn btn-sm btn-outline-light" onClick={() => window.location.reload()}>
+            <button className="btn btn-sm btn-outline-light" onClick={refreshBookings}>
               Reload
             </button>
           </div>
@@ -531,6 +583,7 @@ const DirectBookingLayer = () => {
             <thead>
               <tr>
                 <th>S.L</th>
+                <th>Reschedule Booking</th>
                 <th>Book Date</th>
                 <th>Recording</th>
                 <th>Student Name</th>
@@ -549,7 +602,7 @@ const DirectBookingLayer = () => {
             <tbody>
               {currentItems.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="text-center">
+                  <td colSpan={14} className="text-center">
                     No records found.
                   </td>
                 </tr>
@@ -557,11 +610,36 @@ const DirectBookingLayer = () => {
                 currentItems.map((item, index) => {
                   const status = getBookingStatus(item);
                   const recUrl = normalizeRecordingUrl(item?.recording_s3_url);
-                  const bd = parseBookDate(item?.bookdate || item?.booking_date);
+                  const bd = parseBookDate(getBookDateValue(item));
+                  const isDisabled = isRescheduleDisabled(item);
 
                   return (
                     <tr key={makeRowKey(item)}>
                       <td>{indexOfFirstItem + index + 1}</td>
+
+                      <td>
+                        <button
+                          type="button"
+                          className={`btn btn-sm ${
+                            isDisabled ? "btn-outline-secondary" : "btn-outline-primary"
+                          }`}
+                          onClick={() => {
+                            if (!isDisabled) openRescheduleModal(item);
+                          }}
+                          disabled={isDisabled}
+                          title={isDisabled ? "Past bookings cannot be rescheduled" : "Reschedule booking"}
+                          style={{
+                            minWidth: "110px",
+                            borderRadius: "8px",
+                            fontWeight: 600,
+                            cursor: isDisabled ? "not-allowed" : "pointer",
+                            opacity: isDisabled ? 0.6 : 1,
+                          }}
+                        >
+                          Reschedule
+                        </button>
+                      </td>
+
                       <td>{bd ? bd.format("DD MMM YYYY") : "-"}</td>
 
                       <td>
@@ -580,8 +658,8 @@ const DirectBookingLayer = () => {
 
                       <td>{item?.studentname || "-"}</td>
                       <td>{item?.teachername || "-"}</td>
-                      <td>{formatTime(item?.slot_start)}</td>
-                      <td>{formatTime(item?.slot_end)}</td>
+                      <td>{formatTime(getSlotStartValue(item))}</td>
+                      <td>{formatTime(getSlotEndValue(item))}</td>
 
                       <td>{getAmountText(item)}</td>
 
@@ -640,7 +718,6 @@ const DirectBookingLayer = () => {
         </div>
       </div>
 
-      {/* ✅ Recording Modal */}
       {isRecordingOpen && (
         <div
           className="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
@@ -674,6 +751,20 @@ const DirectBookingLayer = () => {
           </div>
         </div>
       )}
+
+      <RescheduleBookingModal
+        key={
+          selectedBooking?.bookingid ||
+          selectedBooking?.booking_id ||
+          selectedBooking?.id ||
+          "reschedule"
+        }
+        isOpen={isRescheduleOpen}
+        onClose={closeRescheduleModal}
+        onSuccess={refreshBookings}
+        booking={selectedBooking}
+        timezone={selectedBooking?.studentTime_zone || TZ}
+      />
     </div>
   );
 };

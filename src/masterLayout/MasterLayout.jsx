@@ -173,8 +173,14 @@ const MasterLayout = ({ children }) => {
             </li>
             <li>
               <NavLink to="/direct-bookings" className={({ isActive }) => (isActive ? "active-page" : "")}>
-                <Icon icon="material-symbols:map-outline" className="menu-icon" />
+                <Icon icon="material-symbols:bolt-outline" className="menu-icon" />
                 <span>Direct Bookings</span>
+              </NavLink>
+            </li>
+            <li>
+              <NavLink to="/inperson-bookings" className={({ isActive }) => (isActive ? "active-page" : "")}>
+                <Icon icon="material-symbols:event-seat-outline" className="menu-icon" />
+                <span>In-Person Bookings</span>
               </NavLink>
             </li>
             <li>
@@ -223,6 +229,12 @@ const MasterLayout = ({ children }) => {
               <NavLink to="/teacher-payouts" className={({ isActive }) => (isActive ? "active-page" : "")}>
                 <Icon icon="mdi:cash-multiple" className="menu-icon" />
                 <span>Teacher Payouts</span>
+              </NavLink>
+            </li>
+            <li>
+              <NavLink to="/leads-centre" className={({ isActive }) => (isActive ? "active-page" : "")}>
+                <Icon icon="material-symbols:event-seat-outline" className="menu-icon" />
+                <span>Leads Centre</span>
               </NavLink>
             </li>
             <li>

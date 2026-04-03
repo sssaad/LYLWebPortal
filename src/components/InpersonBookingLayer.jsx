@@ -1,22 +1,19 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import moment from "moment-timezone";
 import { getAllBookings } from "../api/getAllBookings";
-import ManualBookingModal from "./ManualBookingModal";
 import RescheduleBookingModal from "./RescheduleBookingModal";
 
-const RoleAccessLayer = () => {
+const InpersonBookingLayer = () => {
   const [rows, setRows] = useState([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
   const [searchTerm, setSearchTerm] = useState("");
-  const [paymentTypeFilter, setPaymentTypeFilter] = useState("");
   const [bookingStatusFilter, setBookingStatusFilter] = useState("");
   const [paymentStatusFilter, setPaymentStatusFilter] = useState("");
-  const [sessionTypeFilter, setSessionTypeFilter] = useState("");
   const [bookingTypeFilter, setBookingTypeFilter] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -24,13 +21,10 @@ const RoleAccessLayer = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  const [isManualBookingOpen, setIsManualBookingOpen] = useState(false);
-
-  const [isRecordingOpen, setIsRecordingOpen] = useState(false);
-  const [activeRecordingUrl, setActiveRecordingUrl] = useState("");
-
   const [isRescheduleOpen, setIsRescheduleOpen] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState(null);
+
+  const [reloadNonce, setReloadNonce] = useState(0);
 
   const TZ = "Asia/Karachi";
 
@@ -51,21 +45,6 @@ const RoleAccessLayer = () => {
 
   const isInPersonSession = (item) => getSessionTypeKey(item?.session_type) === "in-person";
 
-  const normalizeRecordingUrl = (u) => String(u || "").replace(/\\\//g, "/").trim();
-  const hasRecordingUrl = (item) => !!normalizeRecordingUrl(item?.recording_s3_url);
-
-  const openRecording = (item) => {
-    const url = normalizeRecordingUrl(item?.recording_s3_url);
-    if (!url) return;
-    setActiveRecordingUrl(url);
-    setIsRecordingOpen(true);
-  };
-
-  const closeRecording = () => {
-    setIsRecordingOpen(false);
-    setActiveRecordingUrl("");
-  };
-
   const openRescheduleModal = (item) => {
     setSelectedBooking(item);
     setIsRescheduleOpen(true);
@@ -74,6 +53,10 @@ const RoleAccessLayer = () => {
   const closeRescheduleModal = () => {
     setIsRescheduleOpen(false);
     setSelectedBooking(null);
+  };
+
+  const refreshBookings = () => {
+    setReloadNonce((prev) => prev + 1);
   };
 
   const getNow = () => moment.tz(TZ);
@@ -131,9 +114,6 @@ const RoleAccessLayer = () => {
     const start = getSlotStartValue(item);
     const end = getSlotEndValue(item);
 
-    const hasRecording = hasRecordingUrl(item);
-    const inPerson = isInPersonSession(item);
-
     if (!date) return "upcoming";
 
     const startDT = start ? parseDateTime(date, start) : null;
@@ -141,11 +121,7 @@ const RoleAccessLayer = () => {
 
     if (endDT) {
       if (now.isAfter(endDT)) {
-        // IMPORTANT:
-        // In-person booking => always completed after time passes
-        // Online booking => completed only if recording exists, otherwise missed
-        if (inPerson) return "completed";
-        return hasRecording ? "completed" : "missed";
+        return "completed";
       }
 
       if (startDT && now.isSameOrAfter(startDT) && now.isSameOrBefore(endDT)) {
@@ -157,8 +133,7 @@ const RoleAccessLayer = () => {
 
     const dayEnd = parseDateTime(date, "23:59:59");
     if (dayEnd && now.isAfter(dayEnd)) {
-      if (inPerson) return "completed";
-      return hasRecording ? "completed" : "missed";
+      return "completed";
     }
 
     return "upcoming";
@@ -174,7 +149,6 @@ const RoleAccessLayer = () => {
     const s = norm(status);
     if (s === "completed") return "bg-success";
     if (s === "ongoing") return "bg-info";
-    if (s === "missed") return "bg-danger";
     return "bg-warning text-dark";
   };
 
@@ -244,91 +218,81 @@ const RoleAccessLayer = () => {
     return out;
   };
 
-  const fetchBookings = useCallback(async () => {
-    setInitialLoading(true);
-    setLoadError("");
-
-    try {
-      const data = await getAllBookings();
-
-      const raw = Array.isArray(data)
-        ? data
-        : Array.isArray(data?.data)
-        ? data.data
-        : Array.isArray(data?.getall_bookings)
-        ? data.getall_bookings
-        : Array.isArray(data?.getallbookings)
-        ? data.getallbookings
-        : [];
-
-      const deduped = dedupeBookings(raw);
-
-      const sorted = deduped.slice().sort((a, b) => {
-        const ma = parseBookDate(getBookDateValue(a));
-        const mb = parseBookDate(getBookDateValue(b));
-        return (mb?.valueOf?.() || 0) - (ma?.valueOf?.() || 0);
-      });
-
-      setRows(sorted);
-    } catch (err) {
-      console.error("getAllBookings failed:", err);
-      setRows([]);
-      setLoadError("Bookings load nahi ho rahi. API/Network check karo.");
-    } finally {
-      setInitialLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    fetchBookings();
-  }, [fetchBookings]);
+    let alive = true;
+
+    const fetchData = async () => {
+      setInitialLoading(true);
+      setLoadError("");
+
+      try {
+        const data = await getAllBookings();
+
+        const raw = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.data)
+          ? data.data
+          : Array.isArray(data?.getall_bookings)
+          ? data.getall_bookings
+          : Array.isArray(data?.getallbookings)
+          ? data.getallbookings
+          : [];
+
+        const deduped = dedupeBookings(raw);
+
+        const sorted = deduped.slice().sort((a, b) => {
+          const ma = parseBookDate(getBookDateValue(a));
+          const mb = parseBookDate(getBookDateValue(b));
+          return (mb?.valueOf?.() || 0) - (ma?.valueOf?.() || 0);
+        });
+
+        if (!alive) return;
+        setRows(sorted);
+      } catch (err) {
+        if (!alive) return;
+        console.error("getAllBookings failed:", err);
+        setRows([]);
+        setLoadError("Bookings load nahi ho rahi. API/Network check karo.");
+      } finally {
+        if (!alive) return;
+        setInitialLoading(false);
+      }
+    };
+
+    fetchData();
+
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reloadNonce]);
 
   useEffect(() => {
     setCurrentPage(1);
   }, [
     searchTerm,
-    paymentTypeFilter,
     bookingStatusFilter,
     paymentStatusFilter,
-    sessionTypeFilter,
     bookingTypeFilter,
     startDate,
     endDate,
   ]);
 
-  const paymentOptions = useMemo(() => {
-    const set = new Set();
-    (rows || []).forEach((r) => {
-      const p = norm(r?.payment_type);
-      if (p) set.add(p);
-    });
-    return Array.from(set);
-  }, [rows]);
-
-  const sessionTypeOptions = useMemo(() => {
-    const set = new Set();
-    (rows || []).forEach((r) => {
-      const s = getSessionTypeKey(r?.session_type);
-      if (s) set.add(s);
-    });
-    return Array.from(set);
-  }, [rows]);
-
   const bookingTypeOptions = useMemo(() => {
     const set = new Set();
     (rows || []).forEach((r) => {
-      const b = norm(r?.booking_type);
-      if (b) set.add(b);
+      if (isInPersonSession(r)) {
+        const b = norm(r?.booking_type);
+        if (b) set.add(b);
+      }
     });
     return Array.from(set);
   }, [rows]);
 
   const filteredData = useMemo(() => {
     const sTerm = norm(searchTerm);
-    const pFilter = norm(paymentTypeFilter);
     const bFilter = norm(bookingStatusFilter);
     const psFilter = norm(paymentStatusFilter);
-    const stFilter = getSessionTypeKey(sessionTypeFilter);
     const btFilter = norm(bookingTypeFilter);
 
     const startM = startDate ? moment.tz(startDate, "YYYY-MM-DD", true, TZ) : null;
@@ -336,6 +300,9 @@ const RoleAccessLayer = () => {
 
     return (rows || []).filter((item) => {
       const bookingStatus = getBookingStatus(item);
+
+      const isInPerson = isInPersonSession(item);
+      if (!isInPerson) return false;
 
       const fullText = [
         item?.studentname || "",
@@ -354,23 +321,18 @@ const RoleAccessLayer = () => {
         .toLowerCase();
 
       const matchesSearch = !sTerm || fullText.includes(sTerm);
-      const matchesPayment = !pFilter || norm(item?.payment_type) === pFilter;
       const matchesStatus = !bFilter || norm(bookingStatus) === bFilter;
       const matchesPaymentStatus = !psFilter || norm(item?.payment_status) === psFilter;
-      const matchesSessionType = !stFilter || getSessionTypeKey(item?.session_type) === stFilter;
       const matchesBookingType = !btFilter || norm(item?.booking_type) === btFilter;
 
       const itemDate = parseBookDate(getBookDateValue(item));
-
       const fromOk = startM ? (itemDate ? itemDate.isSameOrAfter(startM, "day") : false) : true;
       const toOk = endM ? (itemDate ? itemDate.isSameOrBefore(endM, "day") : false) : true;
 
       return (
         matchesSearch &&
-        matchesPayment &&
         matchesStatus &&
         matchesPaymentStatus &&
-        matchesSessionType &&
         matchesBookingType &&
         fromOk &&
         toOk
@@ -379,10 +341,8 @@ const RoleAccessLayer = () => {
   }, [
     rows,
     searchTerm,
-    paymentTypeFilter,
     bookingStatusFilter,
     paymentStatusFilter,
-    sessionTypeFilter,
     bookingTypeFilter,
     startDate,
     endDate,
@@ -397,10 +357,11 @@ const RoleAccessLayer = () => {
 
   useEffect(() => {
     if (currentPage !== safePage) setCurrentPage(safePage);
-  }, [safePage, currentPage]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [safePage]);
 
   const exportToExcel = () => {
-    const heading = [["Booking List"]];
+    const heading = [["Inperson Booking List"]];
     const data = filteredData.map((item, i) => {
       const status = getBookingStatus(item);
       const bd = parseBookDate(getBookDateValue(item));
@@ -424,14 +385,14 @@ const RoleAccessLayer = () => {
     const worksheet = XLSX.utils.json_to_sheet(data, { origin: -1 });
     XLSX.utils.sheet_add_aoa(worksheet, heading, { origin: "A1" });
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Bookings");
-    XLSX.writeFile(workbook, "bookings.xlsx");
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Inperson Bookings");
+    XLSX.writeFile(workbook, "inperson_bookings.xlsx");
   };
 
   const exportToPDF = () => {
     const doc = new jsPDF();
     doc.setFontSize(16);
-    doc.text("Booking List", 14, 20);
+    doc.text("Inperson Booking List", 14, 20);
 
     const columns = [
       "S.L",
@@ -475,7 +436,7 @@ const RoleAccessLayer = () => {
       styles: { fontSize: 8 },
       headStyles: { fontSize: 8 },
     });
-    doc.save("bookings.pdf");
+    doc.save("inperson_bookings.pdf");
   };
 
   if (initialLoading) {
@@ -523,20 +484,13 @@ const RoleAccessLayer = () => {
 
           <select
             className="form-select form-select-sm w-auto"
-            value={paymentTypeFilter}
-            onChange={(e) => setPaymentTypeFilter(e.target.value)}
+            value={bookingStatusFilter}
+            onChange={(e) => setBookingStatusFilter(e.target.value)}
           >
-            <option value="">Payment: All</option>
-            <option value="direct">Direct</option>
-            <option value="block">Block</option>
-            <option value="subscription">Subscription</option>
-            {paymentOptions
-              .filter((p) => !["direct", "block", "subscription"].includes(p))
-              .map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
+            <option value="">Status: All</option>
+            <option value="upcoming">Upcoming</option>
+            <option value="completed">Completed</option>
+            <option value="ongoing">Ongoing</option>
           </select>
 
           <select
@@ -547,23 +501,6 @@ const RoleAccessLayer = () => {
             <option value="">Payment Status: All</option>
             <option value="paid">Paid</option>
             <option value="unpaid">Unpaid</option>
-          </select>
-
-          <select
-            className="form-select form-select-sm w-auto"
-            value={sessionTypeFilter}
-            onChange={(e) => setSessionTypeFilter(e.target.value)}
-          >
-            <option value="">Session Type: All</option>
-            <option value="in-person">In-Person</option>
-            <option value="online">Online</option>
-            {sessionTypeOptions
-              .filter((s) => !["in-person", "online"].includes(s))
-              .map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
           </select>
 
           <select
@@ -583,25 +520,11 @@ const RoleAccessLayer = () => {
               ))}
           </select>
 
-          <select
-            className="form-select form-select-sm w-auto"
-            value={bookingStatusFilter}
-            onChange={(e) => setBookingStatusFilter(e.target.value)}
-          >
-            <option value="">Status: All</option>
-            <option value="upcoming">Upcoming</option>
-            <option value="completed">Completed</option>
-            <option value="ongoing">Ongoing</option>
-            <option value="missed">Missed</option>
-          </select>
-
           <button
             onClick={() => {
               setSearchTerm("");
-              setPaymentTypeFilter("");
               setBookingStatusFilter("");
               setPaymentStatusFilter("");
-              setSessionTypeFilter("");
               setBookingTypeFilter("");
               setStartDate("");
               setEndDate("");
@@ -619,40 +542,13 @@ const RoleAccessLayer = () => {
             PDF Export
           </button>
         </div>
-
-        <button
-          type="button"
-          className="btn btn-primary btn-sm d-flex align-items-center gap-2"
-          style={{
-            borderRadius: "999px",
-            padding: "10px 18px",
-            boxShadow: "0 10px 22px rgba(13,110,253,0.22)",
-          }}
-          onClick={() => setIsManualBookingOpen(true)}
-        >
-          <span
-            style={{
-              width: 20,
-              height: 20,
-              borderRadius: "50%",
-              background: "rgba(255,255,255,0.2)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontWeight: "bold",
-            }}
-          >
-            +
-          </span>
-          Create Booking
-        </button>
       </div>
 
       <div className="card-body p-24">
         {loadError ? (
           <div className="alert alert-danger d-flex align-items-center justify-content-between">
             <div>{loadError}</div>
-            <button className="btn btn-sm btn-outline-light" onClick={fetchBookings}>
+            <button className="btn btn-sm btn-outline-light" onClick={refreshBookings}>
               Reload
             </button>
           </div>
@@ -665,7 +561,6 @@ const RoleAccessLayer = () => {
                 <th>S.L</th>
                 <th>Reschedule Booking</th>
                 <th>Book Date</th>
-                <th>Recording</th>
                 <th>Student Name</th>
                 <th>Teacher Name</th>
                 <th>Slot Start</th>
@@ -682,14 +577,13 @@ const RoleAccessLayer = () => {
             <tbody>
               {currentItems.length === 0 ? (
                 <tr>
-                  <td colSpan={14} className="text-center">
+                  <td colSpan={13} className="text-center">
                     No records found.
                   </td>
                 </tr>
               ) : (
                 currentItems.map((item, index) => {
                   const status = getBookingStatus(item);
-                  const recUrl = normalizeRecordingUrl(item?.recording_s3_url);
                   const bd = parseBookDate(getBookDateValue(item));
                   const isDisabled = isRescheduleDisabled(item);
 
@@ -721,21 +615,6 @@ const RoleAccessLayer = () => {
                       </td>
 
                       <td>{bd ? bd.format("DD MMM YYYY") : "-"}</td>
-
-                      <td>
-                        {recUrl ? (
-                          <button
-                            type="button"
-                            className="btn btn-outline-primary btn-sm"
-                            onClick={() => openRecording(item)}
-                          >
-                            View
-                          </button>
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-
                       <td>{item?.studentname || "-"}</td>
                       <td>{item?.teachername || "-"}</td>
                       <td>{formatTime(getSlotStartValue(item))}</td>
@@ -797,56 +676,21 @@ const RoleAccessLayer = () => {
         </div>
       </div>
 
-      {isRecordingOpen && (
-        <div
-          className="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
-          style={{ background: "rgba(0,0,0,0.6)", zIndex: 1050 }}
-          role="dialog"
-          aria-modal="true"
-          onClick={closeRecording}
-        >
-          <div
-            className="bg-white radius-12 p-16"
-            style={{ width: "min(900px, 92vw)" }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="d-flex justify-content-between align-items-center mb-2">
-              <h6 className="mb-0">Recording</h6>
-              <button className="btn btn-sm btn-outline-secondary" onClick={closeRecording}>
-                Close
-              </button>
-            </div>
-
-            {activeRecordingUrl ? (
-              <video
-                src={activeRecordingUrl}
-                controls
-                autoPlay
-                style={{ width: "100%", maxHeight: "70vh", background: "#000" }}
-              />
-            ) : (
-              <div className="text-center py-5">Recording not available</div>
-            )}
-          </div>
-        </div>
-      )}
-
       <RescheduleBookingModal
-        key={selectedBooking?.bookingid || selectedBooking?.booking_id || "reschedule"}
+        key={
+          selectedBooking?.bookingid ||
+          selectedBooking?.booking_id ||
+          selectedBooking?.id ||
+          "reschedule"
+        }
         isOpen={isRescheduleOpen}
         onClose={closeRescheduleModal}
-        onSuccess={fetchBookings}
+        onSuccess={refreshBookings}
         booking={selectedBooking}
         timezone={selectedBooking?.studentTime_zone || TZ}
-      />
-
-      <ManualBookingModal
-        isOpen={isManualBookingOpen}
-        title="Manual Booking"
-        onClose={() => setIsManualBookingOpen(false)}
       />
     </div>
   );
 };
 
-export default RoleAccessLayer;
+export default InpersonBookingLayer;

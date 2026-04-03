@@ -1,5 +1,4 @@
-// src/components/ParentListLayer.jsx
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Icon } from '@iconify/react';
 import Swal from "sweetalert2";
 import moment from 'moment';
@@ -7,6 +6,7 @@ import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import ParentDetailsModal from './ParentDetailsModal';
+import RegisterParentModal from './RegisterParentModal';
 import { getNationalities } from '../api/getNationalities';
 
 // ✅ HARD DELETE API (same as teacher/student)
@@ -33,12 +33,14 @@ function safeStr(v) {
   }
   return String(v);
 }
+
 function cleanDate(v) {
   const s = safeStr(v);
   if (!s || s.startsWith('0000-00-00')) return '';
   const d = new Date(s.replace('.000000', ''));
   return isNaN(d.getTime()) ? '' : moment(d).format('DD MMM YYYY');
 }
+
 // force -> id string or ""
 const getNatId = (val) => {
   if (val === null || val === undefined) return '';
@@ -47,11 +49,13 @@ const getNatId = (val) => {
   const n = parseInt(s, 10);
   return Number.isFinite(n) ? String(n) : '';
 };
+
 const addr = (p) =>
   `${p.street || ''}, ${p.area || ''}, ${p.city || ''} - ${p.postcode || ''}`
     .replace(/\s+/g, ' ')
     .replace(/,\s*,/g, ',')
     .replace(/(^,\s*)|(\s*,-?$)/g, '');
+
 const fileStamp = () => moment().format('YYYY-MM-DD_HHmm');
 
 // ✅ Stable key (pagination safe)
@@ -142,6 +146,9 @@ const ParentListLayer = ({ useApi = true }) => {
   const [selectedParentId, setSelectedParentId] = useState(null);
   const [seedRow, setSeedRow] = useState(null);
 
+  // ✅ Register Parent Modal state
+  const [showRegisterParentModal, setShowRegisterParentModal] = useState(false);
+
   // ✅ Nationality filter
   const [nationalityFilter, setNationalityFilter] = useState('');
 
@@ -159,7 +166,9 @@ const ParentListLayer = ({ useApi = true }) => {
         const res = await getNationalities();
         const list = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
         const m = {};
-        (list || []).forEach((n) => { m[String(n.id)] = n.nationality; });
+        (list || []).forEach((n) => {
+          m[String(n.id)] = n.nationality;
+        });
         setNatMap(m);
       } catch (e) {
         console.error('getNationalities failed', e);
@@ -169,34 +178,41 @@ const ParentListLayer = ({ useApi = true }) => {
     })();
   }, []);
 
-  useEffect(() => {
+  const fetchParents = useCallback(async () => {
     if (!useApi) return;
-    (async () => {
-      try {
-        setLoading(true);
-        setError('');
-        const res = await fetch(API_URL, { method: 'GET', headers: API_HEADERS });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json();
-        if (json.statusCode !== 200 || !Array.isArray(json.data)) {
-          throw new Error(json.message || 'Unexpected API response');
-        }
-        const mapped = json.data.map(mapRow).sort(
-          (a, b) => new Date(b.createddate) - new Date(a.createddate)
-        );
-        setRows(mapped);
-      } catch (e) {
-        setError(e.message || 'Failed to load');
-      } finally {
-        setLoading(false);
+
+    try {
+      setLoading(true);
+      setError('');
+
+      const res = await fetch(API_URL, { method: 'GET', headers: API_HEADERS });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const json = await res.json();
+      if (json.statusCode !== 200 || !Array.isArray(json.data)) {
+        throw new Error(json.message || 'Unexpected API response');
       }
-    })();
+
+      const mapped = json.data
+        .map(mapRow)
+        .sort((a, b) => new Date(b.createddate) - new Date(a.createddate));
+
+      setRows(mapped);
+    } catch (e) {
+      setError(e.message || 'Failed to load');
+    } finally {
+      setLoading(false);
+    }
   }, [useApi]);
+
+  useEffect(() => {
+    fetchParents();
+  }, [fetchParents]);
 
   // resolve nationality name via lookup
   const rowsWithNationality = useMemo(() => {
     if (!natLoaded) return rows;
-    return rows.map(r => ({
+    return rows.map((r) => ({
       ...r,
       nationalityName: r.nationalityid ? (natMap[r.nationalityid] || '-') : '-',
     }));
@@ -232,6 +248,7 @@ const ParentListLayer = ({ useApi = true }) => {
 
   const filteredParents = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
+
     return rowsWithNationality.filter((p) => {
       const hay = `${p.parentName} ${p.email} ${p.nationalityName}`.toLowerCase();
       const okSearch = term ? hay.includes(term) : true;
@@ -257,6 +274,7 @@ const ParentListLayer = ({ useApi = true }) => {
   const totalPages = Math.ceil(filteredParents.length / perPage) || 1;
 
   const handlePageChange = (n) => setCurrentPage(n);
+
   const resetFilters = () => {
     setSearchTerm('');
     setProfileFilter('');
@@ -275,6 +293,7 @@ const ParentListLayer = ({ useApi = true }) => {
   // ✅ children modal open/close
   const openChildrenModal = (row) => {
     const kids = getChildrenArr(row);
+
     setChildrenModalData({
       parentName: row?.parentName || '-',
       count: kids.length,
@@ -286,8 +305,10 @@ const ParentListLayer = ({ useApi = true }) => {
           '-',
       })),
     });
+
     setShowChildrenModal(true);
   };
+
   const closeChildrenModal = () => {
     setShowChildrenModal(false);
     setChildrenModalData(null);
@@ -296,6 +317,7 @@ const ParentListLayer = ({ useApi = true }) => {
   // ✅ HARD DELETE (pagination safe, row object pass)
   const handleHardDelete = async (row) => {
     const parentId = getHardDeleteId(row);
+
     if (!parentId) {
       console.log('Parent row:', row);
       Swal.fire('Error', 'Parent ID missing.', 'error');
@@ -309,6 +331,7 @@ const ParentListLayer = ({ useApi = true }) => {
       showCancelButton: true,
       confirmButtonText: 'Yes, Hard Delete',
     });
+
     if (!confirm.isConfirmed) return;
 
     Swal.fire({
@@ -333,7 +356,8 @@ const ParentListLayer = ({ useApi = true }) => {
         r.id === updated.userid || r.id === updated.id
           ? {
               ...r,
-              parentName: `${updated.firstname || ''} ${updated.lastname || ''}`.trim() || r.parentName,
+              parentName:
+                `${updated.firstname || ''} ${updated.lastname || ''}`.trim() || r.parentName,
               email: updated.email || r.email,
               phonenumber: updated.phonenumber || r.phonenumber,
               nationalityid: updated.nationalityid ? String(updated.nationalityid) : r.nationalityid,
@@ -343,7 +367,10 @@ const ParentListLayer = ({ useApi = true }) => {
               area: updated.area ?? r.area,
               city: updated.city ?? r.city,
               postcode: updated.postcode ?? r.postcode,
-              address: [updated.street, updated.area, updated.city, updated.postcode].filter(Boolean).join(', ') || r.address,
+              address:
+                [updated.street, updated.area, updated.city, updated.postcode]
+                  .filter(Boolean)
+                  .join(', ') || r.address,
               avatar: updated.imagepath ? updated.imagepath : r.avatar,
               isProfileComplete: true,
             }
@@ -366,6 +393,7 @@ const ParentListLayer = ({ useApi = true }) => {
       Gender: p.gender || '-',
       Address: addr(p) || '-',
     }));
+
     const ws = XLSX.utils.json_to_sheet(data, { origin: -1 });
     XLSX.utils.sheet_add_aoa(ws, heading, { origin: 'A1' });
     const wb = XLSX.utils.book_new();
@@ -380,7 +408,7 @@ const ParentListLayer = ({ useApi = true }) => {
 
     const head = [[
       'S.L', 'Joined Date', 'Parent Name', 'Email', 'Phone',
-      'Nationality', 'DOB', 'Gender', 'Address'
+      'Nationality', 'DOB', 'Gender', 'Address',
     ]];
 
     const body = filteredParents.map((p, i) => ([
@@ -419,97 +447,95 @@ const ParentListLayer = ({ useApi = true }) => {
         }
 
         /* ===== Theme-aware helpers (works with data-bs-theme, data-theme, or .dark) ===== */
-        /* ===== Theme-aware helpers (works with data-bs-theme, data-theme, or .dark) ===== */
-:root {
-  --child-muted: rgba(33, 37, 41, 0.65);
+        :root {
+          --child-muted: rgba(33, 37, 41, 0.65);
 
-  --child-modal-bg: #ffffff;
-  --child-modal-text: #212529;
-  --child-modal-border: rgba(0,0,0,0.12);
+          --child-modal-bg: #ffffff;
+          --child-modal-text: #212529;
+          --child-modal-border: rgba(0,0,0,0.12);
 
-  --child-modal-head-bg: #f8f9fa;
+          --child-modal-head-bg: #f8f9fa;
 
-  /* ✅ table colors (light) */
-  --child-table-head-bg: #f1f3f5;
-  --child-table-row-bg: #ffffff;
-  --child-table-hover-bg: #f6f7f9;
+          /* ✅ table colors (light) */
+          --child-table-head-bg: #f1f3f5;
+          --child-table-row-bg: #ffffff;
+          --child-table-hover-bg: #f6f7f9;
 
-  --child-close-filter: none;
-}
+          --child-close-filter: none;
+        }
 
-[data-bs-theme="dark"],
-[data-theme="dark"],
-.dark {
-  --child-muted: rgba(255,255,255,0.75);
+        [data-bs-theme="dark"],
+        [data-theme="dark"],
+        .dark {
+          --child-muted: rgba(255,255,255,0.75);
 
-  --child-modal-bg: #0f172a;        /* slate/dark */
-  --child-modal-text: #e5e7eb;
-  --child-modal-border: rgba(255,255,255,0.12);
+          --child-modal-bg: #0f172a;
+          --child-modal-text: #e5e7eb;
+          --child-modal-border: rgba(255,255,255,0.12);
 
-  --child-modal-head-bg: #111827;
+          --child-modal-head-bg: #111827;
 
-  /* ✅ table colors (dark) */
-  --child-table-head-bg: #111827;
-  --child-table-row-bg: #0f172a;
-  --child-table-hover-bg: #162033;
+          /* ✅ table colors (dark) */
+          --child-table-head-bg: #111827;
+          --child-table-row-bg: #0f172a;
+          --child-table-hover-bg: #162033;
 
-  --child-close-filter: invert(1) grayscale(100%);
-}
+          --child-close-filter: invert(1) grayscale(100%);
+        }
 
-.child-empty-text{
-  color: var(--child-muted) !important;
-  font-weight: 500;
-}
+        .child-empty-text{
+          color: var(--child-muted) !important;
+          font-weight: 500;
+        }
 
-/* ✅ Modal theming */
-.child-modal .modal-content{
-  background: var(--child-modal-bg) !important;
-  color: var(--child-modal-text) !important;
-  border: 1px solid var(--child-modal-border) !important;
-}
-.child-modal .modal-header{
-  background: var(--child-modal-head-bg) !important;
-  border-bottom: 1px solid var(--child-modal-border) !important;
-}
-.child-modal .modal-body{
-  background: var(--child-modal-bg) !important;
-}
-.child-modal .btn-close{
-  filter: var(--child-close-filter);
-}
+        /* ✅ Modal theming */
+        .child-modal .modal-content{
+          background: var(--child-modal-bg) !important;
+          color: var(--child-modal-text) !important;
+          border: 1px solid var(--child-modal-border) !important;
+        }
+        .child-modal .modal-header{
+          background: var(--child-modal-head-bg) !important;
+          border-bottom: 1px solid var(--child-modal-border) !important;
+        }
+        .child-modal .modal-body{
+          background: var(--child-modal-bg) !important;
+        }
+        .child-modal .btn-close{
+          filter: var(--child-close-filter);
+        }
 
-/* ✅ IMPORTANT: Fix white table rows in dark theme */
-.child-modal .table-responsive{
-  background: var(--child-modal-bg) !important;
-}
+        /* ✅ IMPORTANT: Fix white table rows in dark theme */
+        .child-modal .table-responsive{
+          background: var(--child-modal-bg) !important;
+        }
 
-/* Bootstrap table variables override (best fix) */
-.child-modal .table{
-  --bs-table-bg: var(--child-table-row-bg) !important;
-  --bs-table-color: var(--child-modal-text) !important;
-  --bs-table-border-color: var(--child-modal-border) !important;
-  background: var(--child-table-row-bg) !important;
-  color: var(--child-modal-text) !important;
-}
+        /* Bootstrap table variables override (best fix) */
+        .child-modal .table{
+          --bs-table-bg: var(--child-table-row-bg) !important;
+          --bs-table-color: var(--child-modal-text) !important;
+          --bs-table-border-color: var(--child-modal-border) !important;
+          background: var(--child-table-row-bg) !important;
+          color: var(--child-modal-text) !important;
+        }
 
-/* Force all cells to use modal bg instead of white */
-.child-modal .table > :not(caption) > * > *{
-  background-color: var(--child-table-row-bg) !important;
-  color: var(--child-modal-text) !important;
-  border-color: var(--child-modal-border) !important;
-}
+        /* Force all cells to use modal bg instead of white */
+        .child-modal .table > :not(caption) > * > *{
+          background-color: var(--child-table-row-bg) !important;
+          color: var(--child-modal-text) !important;
+          border-color: var(--child-modal-border) !important;
+        }
 
-/* Thead background */
-.child-modal .table thead th{
-  background-color: var(--child-table-head-bg) !important;
-  color: var(--child-modal-text) !important;
-}
+        /* Thead background */
+        .child-modal .table thead th{
+          background-color: var(--child-table-head-bg) !important;
+          color: var(--child-modal-text) !important;
+        }
 
-/* Hover (optional but nice) */
-.child-modal .table tbody tr:hover > *{
-  background-color: var(--child-table-hover-bg) !important;
-}
-
+        /* Hover */
+        .child-modal .table tbody tr:hover > *{
+          background-color: var(--child-table-hover-bg) !important;
+        }
       `}</style>
 
       <div className="card-header border-bottom bg-base py-16 px-24 d-flex align-items-center flex-wrap gap-3 justify-content-between">
@@ -519,24 +545,39 @@ const ParentListLayer = ({ useApi = true }) => {
             className="form-control w-auto"
             placeholder="Search"
             value={searchTerm}
-            onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setCurrentPage(1);
+            }}
           />
+
           <input
             type="date"
             className="form-control w-auto"
             value={startDate}
-            onChange={(e) => { setStartDate(e.target.value); setCurrentPage(1); }}
+            onChange={(e) => {
+              setStartDate(e.target.value);
+              setCurrentPage(1);
+            }}
           />
+
           <input
             type="date"
             className="form-control w-auto"
             value={endDate}
-            onChange={(e) => { setEndDate(e.target.value); setCurrentPage(1); }}
+            onChange={(e) => {
+              setEndDate(e.target.value);
+              setCurrentPage(1);
+            }}
           />
+
           <select
             className="form-select form-select-sm w-auto"
             value={profileFilter}
-            onChange={(e) => { setProfileFilter(e.target.value); setCurrentPage(1); }}
+            onChange={(e) => {
+              setProfileFilter(e.target.value);
+              setCurrentPage(1);
+            }}
           >
             <option value="">Profile: All</option>
             <option value="Complete">Completed Profiles</option>
@@ -547,7 +588,10 @@ const ParentListLayer = ({ useApi = true }) => {
           <select
             className="form-select form-select-sm w-auto"
             value={nationalityFilter}
-            onChange={(e) => { setNationalityFilter(e.target.value); setCurrentPage(1); }}
+            onChange={(e) => {
+              setNationalityFilter(e.target.value);
+              setCurrentPage(1);
+            }}
           >
             <option value="">Nationality: All</option>
             {nationalityOptions.map((n) => (
@@ -564,8 +608,18 @@ const ParentListLayer = ({ useApi = true }) => {
           <button onClick={exportParentsToExcel} className="btn btn-success btn-sm">
             Excel Export
           </button>
+
           <button onClick={exportParentsToPDF} className="btn btn-danger btn-sm">
             PDF Export
+          </button>
+
+          {/* ✅ Register Parent Button */}
+          <button
+            onClick={() => setShowRegisterParentModal(true)}
+            className="btn btn-primary btn-sm d-flex align-items-center gap-1"
+          >
+            <Icon icon="ic:round-person-add" />
+            Register Parent
           </button>
         </div>
       </div>
@@ -574,8 +628,20 @@ const ParentListLayer = ({ useApi = true }) => {
         {error && <div className="alert alert-danger" role="alert">{error}</div>}
 
         {loading ? (
-          <div className="d-flex justify-content-center align-items-center" style={{ height: '220px' }}>
-            <div style={{ width: 48, height: 48, border: '6px solid #e0e0e0', borderTop: '6px solid #45B369', borderRadius: '50%', animation: 'spin 1s ease-in-out infinite' }} />
+          <div
+            className="d-flex justify-content-center align-items-center"
+            style={{ height: '220px' }}
+          >
+            <div
+              style={{
+                width: 48,
+                height: 48,
+                border: '6px solid #e0e0e0',
+                borderTop: '6px solid #45B369',
+                borderRadius: '50%',
+                animation: 'spin 1s ease-in-out infinite',
+              }}
+            />
             <style>{`@keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}`}</style>
           </div>
         ) : (
@@ -696,7 +762,11 @@ const ParentListLayer = ({ useApi = true }) => {
           show={showModal}
           userid={selectedParentId}
           seed={seedRow}
-          onClose={() => { setShowModal(false); setSelectedParentId(null); setSeedRow(null); }}
+          onClose={() => {
+            setShowModal(false);
+            setSelectedParentId(null);
+            setSeedRow(null);
+          }}
           onSave={(updated) => {
             handleSaved(updated);
             setShowModal(false);
@@ -706,9 +776,26 @@ const ParentListLayer = ({ useApi = true }) => {
         />
       )}
 
+      {/* ✅ Register Parent Modal */}
+      {showRegisterParentModal && (
+        <RegisterParentModal
+          show={showRegisterParentModal}
+          onClose={() => setShowRegisterParentModal(false)}
+          onSave={async () => {
+            setShowRegisterParentModal(false);
+            setCurrentPage(1);
+            await fetchParents();
+          }}
+        />
+      )}
+
       {/* ✅ Children Modal (theme-aware) */}
       {showChildrenModal && childrenModalData && (
-        <div className="modal fade show d-block child-modal" tabIndex="-1" style={{ background: "rgba(0,0,0,0.6)" }}>
+        <div
+          className="modal fade show d-block child-modal"
+          tabIndex="-1"
+          style={{ background: "rgba(0,0,0,0.6)" }}
+        >
           <div className="modal-dialog modal-lg modal-dialog-centered">
             <div className="modal-content">
               <div className="modal-header">

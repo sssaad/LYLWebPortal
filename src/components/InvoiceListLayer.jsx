@@ -280,6 +280,7 @@ const InvoiceListLayer = () => {
               <th scope="col">Name</th>
               <th scope="col">Issued Date</th>
               <th scope="col">Amount</th>
+              <th scope="col">Status</th>
               <th scope="col">Action</th>
             </tr>
           </thead>
@@ -287,13 +288,13 @@ const InvoiceListLayer = () => {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={6} className="text-center py-24">
+                <td colSpan={7} className="text-center py-24">
                   Loading...
                 </td>
               </tr>
             ) : paginated.length === 0 ? (
               <tr>
-                <td colSpan={6} className="text-center py-24">
+                <td colSpan={7} className="text-center py-24">
                   No invoices found.
                 </td>
               </tr>
@@ -322,7 +323,26 @@ const InvoiceListLayer = () => {
                     <td>{fmtDate(r.issue_date)}</td>
 
                     <td>{fmtAmount(r.currency, r.total)}</td>
+                    <td>
+                      {(() => {
+                        const rawStatus = String(r.status || "").toLowerCase();
+                        const normalizedStatus =
+                          rawStatus === "pending" ? "unpaid" : rawStatus || "-";
 
+                        const statusClass =
+                          normalizedStatus === "paid"
+                            ? "bg-success-focus text-success-main"
+                            : normalizedStatus === "unpaid"
+                              ? "bg-danger-focus text-danger-main"
+                              : "bg-secondary-light text-secondary-main";
+
+                        return (
+                          <span className={`px-12 py-4 rounded-pill fw-medium ${statusClass}`}>
+                            {normalizedStatus.charAt(0).toUpperCase() + normalizedStatus.slice(1)}
+                          </span>
+                        );
+                      })()}
+                    </td>
                     <td>
                       <Link
                         to="/invoice-preview"
@@ -382,9 +402,8 @@ const InvoiceListLayer = () => {
                   <button
                     type="button"
                     onClick={() => setPage(p)}
-                    className={`page-link fw-medium radius-4 border-0 px-10 py-10 d-flex align-items-center justify-content-center h-32-px me-8 w-32-px ${
-                      p === page ? "bg-primary-600 text-white" : "bg-primary-50 text-secondary-light"
-                    }`}
+                    className={`page-link fw-medium radius-4 border-0 px-10 py-10 d-flex align-items-center justify-content-center h-32-px me-8 w-32-px ${p === page ? "bg-primary-600 text-white" : "bg-primary-50 text-secondary-light"
+                      }`}
                   >
                     {p}
                   </button>

@@ -1,18 +1,16 @@
-// src/components/StudentListLayer.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Icon } from "@iconify/react";
 import Swal from "sweetalert2";
 
 import { getAllStudents } from "../api/getAllStudents";
-import { getNationalities } from "../api/getNationalities"; // ✅ NEW (lookup list)
+import { getNationalities } from "../api/getNationalities";
 
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import moment from "moment";
 import StudentDetailsModal from "../components/StudentDetailsModal";
-
-// ✅ HARD DELETE API (same as teacher wala)
+import RegisterStudentModal from "../components/RegisterStudentModal";
 import { hardDeleteUser } from "../api/hardDeleteUser";
 
 const FALLBACK_AVATAR =
@@ -26,13 +24,16 @@ const StudentListLayer = () => {
   const [currentPage, setCurrentPage] = useState(1);
 
   const [showStudentModal, setShowStudentModal] = useState(false);
-  const [selectedStudentId, setSelectedStudentId] = useState(null); // null => Add mode
-  const [seedRow, setSeedRow] = useState(null); // seed for Add mode
+  const [selectedStudentId, setSelectedStudentId] = useState(null);
+  const [seedRow, setSeedRow] = useState(null);
+
+  // ✅ Register Student Modal state
+  const [showRegisterStudentModal, setShowRegisterStudentModal] = useState(false);
 
   // Profile filter dropdown: all | complete | incomplete
   const [compFilter, setCompFilter] = useState("all");
 
-  // ✅ NEW: Nationality filter (lookup) + Year(1-13) filter
+  // ✅ Nationality filter + Year filter
   const [nationalities, setNationalities] = useState([]);
   const [nationalityFilter, setNationalityFilter] = useState("");
   const [yearFilter, setYearFilter] = useState("");
@@ -42,13 +43,11 @@ const StudentListLayer = () => {
   // ------- helpers -------
   const getUD = (s) => s?.userdetails ?? {};
 
-  // ✅ For EDIT/VIEW we use userid if exists, otherwise fallback to id
   const getUID = (s) => {
     const ud = getUD(s);
     return ud.userid ?? (s?.id ? Number(s.id) : null);
   };
 
-  // ✅ Hard delete ID: response me top-level "id" hai (string), wahi use karo
   const getHardDeleteId = (s) => {
     const raw = s?.id ?? getUD(s)?.userid ?? null;
     if (raw === null || raw === undefined || raw === "") return null;
@@ -56,7 +55,6 @@ const StudentListLayer = () => {
     return Number.isNaN(n) ? null : n;
   };
 
-  // ✅ Stable row key (pagination safe)
   const getRowKey = (s) =>
     String(
       s?.id ??
@@ -68,6 +66,7 @@ const StudentListLayer = () => {
   const getLastName = (s) => getUD(s).lastname ?? s.lastname ?? "";
   const getEmail = (s) => s.email ?? getUD(s).email ?? "";
   const getUsername = (s) => s?.username ?? getUD(s)?.username ?? "";
+
   const getStudentEmailOrUsername = (s) => {
     const u = String(getUsername(s) || "").trim();
     if (u) return u;
@@ -77,34 +76,38 @@ const StudentListLayer = () => {
 
   const getParentEmail = (s) => getUD(s).parentemail ?? s.parentemail ?? "";
   const getPhone = (s) => (getUD(s).phonenumber ?? s.phonenumber ?? "") || "-";
+
   const getAddress = (s) => {
     const ud = getUD(s);
     const street = ud.street ?? s.street ?? "";
     const area = ud.area ?? s.area ?? "";
     const city = ud.city ?? s.city ?? "";
     const postcode = ud.postcode ?? s.postcode ?? "";
+
     return `${street ? street + ", " : ""}${area ? area + ", " : ""}${
       city ? city + " " : ""
-    }${postcode}`.replace(/, ,/g, ",").replace(/,\s*$/, "");
+    }${postcode}`
+      .replace(/, ,/g, ",")
+      .replace(/,\s*$/, "");
   };
+
   const getCountry = (s) => getUD(s).country ?? s.country ?? "-";
   const getCreated = (s) => s.createddate ?? getUD(s).createddate ?? "";
+
   const getImage = (s) => {
     const p = getUD(s).imagepath ?? s.imagepath ?? "";
     if (!p || String(p).trim() === "") return FALLBACK_AVATAR;
     return p;
   };
 
-  // ✅ incomplete = userdetails.id missing/null
   const isIncomplete = (s) => !(getUD(s)?.id);
 
-  // ✅ Nationality helpers (lookup like TeacherListLayer)
-  const getNationalityId = (s) => getUD(s)?.nationalityid ?? s?.nationalityid ?? null;
+  const getNationalityId = (s) =>
+    getUD(s)?.nationalityid ?? s?.nationalityid ?? null;
 
   const getNationalityName = (s) => {
     const ud = getUD(s);
 
-    // prefer response-provided name
     if (ud?.nationalityname) return String(ud.nationalityname);
     if (s?.nationalityname) return String(s.nationalityname);
 
@@ -118,7 +121,6 @@ const StudentListLayer = () => {
     return `Nationality #${nid}`;
   };
 
-  // ✅ Year(1-13) from educationdetails.degree (supports "9" or "Year 7")
   const getStudentYear = (s) => {
     const arr = Array.isArray(s?.educationdetails) ? s.educationdetails : [];
     const first = arr.find((e) => e && String(e.deleted ?? "0") !== "1") || arr[0];
@@ -129,7 +131,6 @@ const StudentListLayer = () => {
     const str = String(raw).trim();
     if (!str) return null;
 
-    // extract digits from "Year 7" etc.
     const m = str.match(/(\d{1,2})/);
     if (!m) return null;
 
@@ -137,16 +138,15 @@ const StudentListLayer = () => {
     if (!Number.isFinite(n)) return null;
     if (n < 1 || n > 13) return null;
 
-    return n; // 1..13
+    return n;
   };
 
-  // ------- fetch & init -------
-  useEffect(() => {
-    const fetchStudents = async () => {
+  // ------- fetch students -------
+  const fetchStudents = useCallback(async () => {
+    try {
       const data = await getAllStudents();
       const list = data?.getallstudentlist ?? data ?? [];
 
-      // ✅ keep only not-soft-deleted (active !== "2")
       const filtered = (list || []).filter((student) => student.active !== "2");
 
       filtered.sort(
@@ -155,12 +155,17 @@ const StudentListLayer = () => {
       );
 
       setStudents(filtered);
-    };
-    fetchStudents();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    } catch (e) {
+      console.error("getAllStudents error:", e);
+      setStudents([]);
+    }
   }, []);
 
-  // ✅ NEW: load nationalities lookup list
+  useEffect(() => {
+    fetchStudents();
+  }, [fetchStudents]);
+
+  // ✅ load nationalities lookup list
   useEffect(() => {
     (async () => {
       try {
@@ -174,17 +179,14 @@ const StudentListLayer = () => {
     })();
   }, []);
 
-  // ✅ Nationality dropdown options (lookup list + fallback from students)
   const nationalityOptions = useMemo(() => {
     const map = new Map();
 
-    // 1) from lookup list
     (nationalities || []).forEach((n) => {
       if (n?.id == null) return;
       map.set(String(n.id), String(n.nationality || `Nationality #${n.id}`));
     });
 
-    // 2) fallback from students (if lookup missing)
     (students || []).forEach((s) => {
       const id = getNationalityId(s);
       if (id === null || id === undefined || id === "") return;
@@ -204,7 +206,7 @@ const StudentListLayer = () => {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [nationalities, students]);
 
-  // ------- HARD delete (pagination safe, object pass) -------
+  // ------- HARD delete -------
   const handleHardDelete = async (student) => {
     const hardId = getHardDeleteId(student);
 
@@ -226,6 +228,7 @@ const StudentListLayer = () => {
       showCancelButton: true,
       confirmButtonText: "Yes, Hard Delete",
     });
+
     if (!confirm.isConfirmed) return;
 
     Swal.fire({
@@ -234,11 +237,9 @@ const StudentListLayer = () => {
       didOpen: () => Swal.showLoading(),
     });
 
-    // ✅ call hard delete API with student "id"
     const result = await hardDeleteUser(hardId);
 
     if (result?.statusCode === 200) {
-      // ✅ remove by id (hard delete id)
       setStudents((prev) => prev.filter((s) => getHardDeleteId(s) !== hardId));
       Swal.fire("Deleted!", "Student hard deleted successfully.", "success");
     } else {
@@ -246,7 +247,7 @@ const StudentListLayer = () => {
     }
   };
 
-  // ------- filter (search + date + profile + nationality + year) -------
+  // ------- filter -------
   const filteredStudents = students.filter((student) => {
     const incomplete = isIncomplete(student);
     if (compFilter === "complete" && incomplete) return false;
@@ -258,10 +259,13 @@ const StudentListLayer = () => {
 
     const address = getAddress(student).toLowerCase();
 
-    // ✅ search includes username/email + parentemail + nationality + year
     const yearVal = getStudentYear(student);
     const fullText =
-      `${fullName} ${getEmail(student)} ${getUsername(student)} ${getParentEmail(student) || ""} ${address} ${getNationalityName(student)} ${yearVal ? `year ${yearVal}` : ""}`.toLowerCase();
+      `${fullName} ${getEmail(student)} ${getUsername(student)} ${
+        getParentEmail(student) || ""
+      } ${address} ${getNationalityName(student)} ${
+        yearVal ? `year ${yearVal}` : ""
+      }`.toLowerCase();
 
     const matchesSearch = fullText.includes((searchTerm || "").toLowerCase());
 
@@ -269,14 +273,13 @@ const StudentListLayer = () => {
     const afterStart = startDate ? cdate >= new Date(startDate) : true;
     const beforeEnd = endDate ? cdate <= new Date(endDate) : true;
 
-    // ✅ nationality filter
     const matchesNationality =
       nationalityFilter === "" ||
       String(getNationalityId(student) ?? "") === String(nationalityFilter);
 
-    // ✅ year filter (1..13)
     const matchesYear =
-      yearFilter === "" || String(getStudentYear(student) ?? "") === String(yearFilter);
+      yearFilter === "" ||
+      String(getStudentYear(student) ?? "") === String(yearFilter);
 
     return matchesSearch && afterStart && beforeEnd && matchesNationality && matchesYear;
   });
@@ -306,6 +309,7 @@ const StudentListLayer = () => {
       Country: getCountry(s) || "-",
       Status: isIncomplete(s) ? "Incomplete" : "Complete",
     }));
+
     const ws = XLSX.utils.json_to_sheet(data, { origin: -1 });
     XLSX.utils.sheet_add_aoa(ws, heading, { origin: "A1" });
     const wb = XLSX.utils.book_new();
@@ -320,8 +324,8 @@ const StudentListLayer = () => {
     doc.text("Student List", 14, 18);
 
     const head = [[
-      "S.L","Join Date","Name","Student Email/Username","Parent Email",
-      "Phone","Address","Country","Status"
+      "S.L", "Join Date", "Name", "Student Email/Username", "Parent Email",
+      "Phone", "Address", "Country", "Status"
     ]];
 
     const body = filteredStudents.map((s, i) => ([
@@ -367,13 +371,26 @@ const StudentListLayer = () => {
       setSelectedStudentId(uid);
       setSeedRow(null);
     }
+
     setShowStudentModal(true);
   };
 
   if (!students || students.length === 0) {
     return (
-      <div className="d-flex justify-content-center align-items-center" style={{ height: "300px" }}>
-        <div style={{ width: 48, height: 48, border: "6px solid #e0e0e0", borderTop: "6px solid #45B369", borderRadius: "50%", animation: "spin 1s ease-in-out infinite" }} />
+      <div
+        className="d-flex justify-content-center align-items-center"
+        style={{ height: "300px" }}
+      >
+        <div
+          style={{
+            width: 48,
+            height: 48,
+            border: "6px solid #e0e0e0",
+            borderTop: "6px solid #45B369",
+            borderRadius: "50%",
+            animation: "spin 1s ease-in-out infinite",
+          }}
+        />
         <style>{`@keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}`}</style>
       </div>
     );
@@ -385,7 +402,6 @@ const StudentListLayer = () => {
         .avatar-ring-danger { box-shadow: 0 0 0 2px #ffe3e6, 0 0 0 4px #dc3545; }
       `}</style>
 
-      {/* Header */}
       <div className="card-header border-bottom bg-base py-16 px-24 d-flex align-items-center flex-wrap gap-3 justify-content-between">
         <div className="d-flex align-items-center flex-wrap gap-3">
           <input
@@ -393,37 +409,52 @@ const StudentListLayer = () => {
             className="form-control w-auto"
             placeholder="Search"
             value={searchTerm}
-            onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setCurrentPage(1);
+            }}
           />
 
           <input
             type="date"
             className="form-control w-auto"
             value={startDate}
-            onChange={(e) => { setStartDate(e.target.value); setCurrentPage(1); }}
+            onChange={(e) => {
+              setStartDate(e.target.value);
+              setCurrentPage(1);
+            }}
           />
+
           <input
             type="date"
             className="form-control w-auto"
             value={endDate}
-            onChange={(e) => { setEndDate(e.target.value); setCurrentPage(1); }}
+            onChange={(e) => {
+              setEndDate(e.target.value);
+              setCurrentPage(1);
+            }}
           />
 
           <select
             className="form-select w-auto"
             value={compFilter}
-            onChange={(e) => { setCompFilter(e.target.value); setCurrentPage(1); }}
+            onChange={(e) => {
+              setCompFilter(e.target.value);
+              setCurrentPage(1);
+            }}
           >
             <option value="all">Profile: All</option>
             <option value="complete">Completed Profiles</option>
             <option value="incomplete">Incomplete Profiles</option>
           </select>
 
-          {/* ✅ Nationality filter */}
           <select
             className="form-select w-auto"
             value={nationalityFilter}
-            onChange={(e) => { setNationalityFilter(e.target.value); setCurrentPage(1); }}
+            onChange={(e) => {
+              setNationalityFilter(e.target.value);
+              setCurrentPage(1);
+            }}
           >
             <option value="">Nationality: All</option>
             {nationalityOptions.map((n) => (
@@ -433,11 +464,13 @@ const StudentListLayer = () => {
             ))}
           </select>
 
-          {/* ✅ Year filter (1..13) */}
           <select
             className="form-select w-auto"
             value={yearFilter}
-            onChange={(e) => { setYearFilter(e.target.value); setCurrentPage(1); }}
+            onChange={(e) => {
+              setYearFilter(e.target.value);
+              setCurrentPage(1);
+            }}
           >
             <option value="">Year: All</option>
             {Array.from({ length: 13 }).map((_, i) => {
@@ -465,17 +498,42 @@ const StudentListLayer = () => {
             Reset
           </button>
 
-          <button onClick={exportToExcel} className="btn btn-success btn-sm">Excel Export</button>
-          <button onClick={exportToPDF} className="btn btn-danger btn-sm">PDF Export</button>
+          <button onClick={exportToExcel} className="btn btn-success btn-sm">
+            Excel Export
+          </button>
+
+          <button onClick={exportToPDF} className="btn btn-danger btn-sm">
+            PDF Export
+          </button>
+
+          <button
+            onClick={() => setShowRegisterStudentModal(true)}
+            className="btn btn-primary btn-sm d-flex align-items-center gap-1"
+          >
+            <Icon icon="ic:round-person-add" />
+            Register Student
+          </button>
         </div>
       </div>
 
-      {/* Table */}
       <div className="card-body p-24">
-        <div className="table-responsive" style={{ maxHeight: "calc(100vh - 360px)" }}>
-          <table className="table bordered-table sm-table mb-0" style={{ borderCollapse: "separate" }}>
+        <div
+          className="table-responsive"
+          style={{ maxHeight: "calc(100vh - 360px)" }}
+        >
+          <table
+            className="table bordered-table sm-table mb-0"
+            style={{ borderCollapse: "separate" }}
+          >
             <thead>
-              <tr style={{ position: "sticky", top: 0, background: "#f8f9fa", zIndex: 5 }}>
+              <tr
+                style={{
+                  position: "sticky",
+                  top: 0,
+                  background: "#f8f9fa",
+                  zIndex: 5,
+                }}
+              >
                 <th>S.L</th>
                 <th>Join Date</th>
                 <th>Student Name</th>
@@ -509,14 +567,15 @@ const StudentListLayer = () => {
                             e.currentTarget.src = FALLBACK_AVATAR;
                           }}
                           alt="User"
-                          className={`w-40-px h-40-px rounded-circle me-12 ${incomplete ? "avatar-ring-danger" : ""}`}
+                          className={`w-40-px h-40-px rounded-circle me-12 ${
+                            incomplete ? "avatar-ring-danger" : ""
+                          }`}
                           style={{ objectFit: "cover" }}
                         />
                         <span>{name}</span>
                       </div>
                     </td>
 
-                    {/* ✅ Username priority, else email */}
                     <td>{getStudentEmailOrUsername(s)}</td>
                     <td>{getParentEmail(s) || "-"}</td>
                     <td>{getPhone(s)}</td>
@@ -525,14 +584,15 @@ const StudentListLayer = () => {
                     <td className="text-center">
                       <div className="d-flex justify-content-center gap-2">
                         <button
-                          className={`btn btn-sm ${incomplete ? "btn-outline-danger" : "btn-primary"}`}
+                          className={`btn btn-sm ${
+                            incomplete ? "btn-outline-danger" : "btn-primary"
+                          }`}
                           onClick={() => openStudent(s)}
                           title={incomplete ? "Add Details" : "View / Edit"}
                         >
                           <Icon icon="majesticons:eye-line" />
                         </button>
 
-                        {/* ✅ HARD DELETE (pagination safe) */}
                         <button
                           className="btn btn-danger btn-sm"
                           onClick={() => handleHardDelete(s)}
@@ -546,19 +606,21 @@ const StudentListLayer = () => {
                 );
               })}
             </tbody>
-
           </table>
         </div>
 
-        {/* Pagination */}
         <div className="d-flex justify-content-between mt-3">
           <span>
             Showing {filteredStudents.length === 0 ? 0 : indexOfFirstStudent + 1} to{" "}
-            {Math.min(indexOfLastStudent, filteredStudents.length)} of {filteredStudents.length} entries
+            {Math.min(indexOfLastStudent, filteredStudents.length)} of{" "}
+            {filteredStudents.length} entries
           </span>
           <ul className="pagination">
             {Array.from({ length: totalPages }).map((_, i) => (
-              <li key={i} className={`page-item ${currentPage === i + 1 ? "active" : ""}`}>
+              <li
+                key={i}
+                className={`page-item ${currentPage === i + 1 ? "active" : ""}`}
+              >
                 <button onClick={() => setCurrentPage(i + 1)} className="page-link">
                   {i + 1}
                 </button>
@@ -568,14 +630,29 @@ const StudentListLayer = () => {
         </div>
       </div>
 
-      {/* Modal */}
       {showStudentModal && (
         <StudentDetailsModal
           show={showStudentModal}
-          onClose={() => { setShowStudentModal(false); setSelectedStudentId(null); setSeedRow(null); }}
-          userid={selectedStudentId}   // null => Add mode
-          seed={seedRow}               // { id, email, parentemail, phonenumber, fullname }
+          onClose={() => {
+            setShowStudentModal(false);
+            setSelectedStudentId(null);
+            setSeedRow(null);
+          }}
+          userid={selectedStudentId}
+          seed={seedRow}
           onSave={() => {}}
+        />
+      )}
+
+      {showRegisterStudentModal && (
+        <RegisterStudentModal
+          show={showRegisterStudentModal}
+          onClose={() => setShowRegisterStudentModal(false)}
+          onSave={async () => {
+            setShowRegisterStudentModal(false);
+            setCurrentPage(1);
+            await fetchStudents();
+          }}
         />
       )}
     </div>

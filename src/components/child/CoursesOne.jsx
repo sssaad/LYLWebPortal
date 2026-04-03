@@ -43,9 +43,8 @@ const CoursesOne = () => {
       filteredEnrollments.map(item => ({
         "Registered Date": moment(item.teacher_registration_date).format('DD MMM YYYY'),
         "Teacher": item.teachername,
-        "Subject": item.subjectname,
         "Bookings": item.bookingcount,
-        "Earning": item.totalbookingsamount ? `$${item.totalbookingsamount}` : '$0.00',
+        "Earning": item.totalbookingsamount ? `AED${item.totalbookingsamount}` : 'AED0.00',
       }))
     );
     const workbook = XLSX.utils.book_new();
@@ -56,13 +55,12 @@ const CoursesOne = () => {
   const exportToPDF = () => {
     const doc = new jsPDF();
     autoTable(doc, {
-      head: [["Registered Date", "Teacher", "Subject", "Bookings", "Earning"]],
+      head: [["Registered Date", "Teacher", "Bookings", "Earning"]],
       body: filteredEnrollments.map(item => [
         moment(item.teacher_registration_date).format('DD MMM YYYY'),
         item.teachername,
-        item.subjectname,
         item.bookingcount,
-        item.totalbookingsamount ? `$${item.totalbookingsamount}` : '$0.00',
+        item.totalbookingsamount ? `AED${item.totalbookingsamount}` : 'AED0.00',
       ]),
     });
     doc.save("Course_Enrollments.pdf");
@@ -120,13 +118,12 @@ const CoursesOne = () => {
         </div>
 
         <div className="card-body p-24">
-          <div className="table-responsive scroll-sm" style={{ maxHeight: '320px', overflowY: 'auto' }}>
+          <div className="table-responsive" style={{ maxHeight: '320px', overflowY: 'auto' }}>
             <table className="table bordered-table mb-0">
               <thead className="table-dark" style={{ position: 'sticky', top: 0, zIndex: 2 }}>
                 <tr>
                   <th>Registered Date</th>
                   <th>Teacher</th>
-                  <th>Subject</th>
                   <th>Bookings</th>
                   <th>Earning</th>
                 </tr>
@@ -142,11 +139,6 @@ const CoursesOne = () => {
                       </td>
                       <td>
                         <span className="text-secondary-light">{item.teachername}</span>
-                      </td>
-                      <td>
-                        <div className="text-secondary-light">
-                          <h6 className="text-md mb-0 fw-normal">{item.subjectname}</h6>
-                        </div>
                       </td>
                       <td>
                         <span className="text-secondary-light">{item.bookingcount}</span>

@@ -148,7 +148,8 @@ const zonedLocalToUtcDate = (dateStr, timeStr, sourceTZ) => {
   const fixed = parseFixedOffsetMinutes(sourceTZ);
   if (fixed !== null) {
     return new Date(
-      Date.UTC(Y, (M || 1) - 1, D || 1, hh || 0, mm || 0, 0) - fixed * 60 * 1000
+      Date.UTC(Y, (M || 1) - 1, D || 1, hh || 0, mm || 0, 0) -
+        fixed * 60 * 1000
     );
   }
 
@@ -302,7 +303,9 @@ const SearchableSelect = ({
               autoFocus
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              className={`mbmSSSearch ${theme === "dark" ? "mbmSSSearchDark" : ""}`}
+              className={`mbmSSSearch ${
+                theme === "dark" ? "mbmSSSearchDark" : ""
+              }`}
               placeholder={searchPlaceholder}
             />
           </div>
@@ -429,6 +432,15 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
 
   const [selectedSlot, setSelectedSlot] = useState(null);
 
+  const [customSlotDate, setCustomSlotDate] = useState("");
+  const [customSlotStart, setCustomSlotStart] = useState("");
+  const [customSlotEnd, setCustomSlotEnd] = useState("");
+  const [customSlotTz, setCustomSlotTz] = useState("UTC");
+  const [customSlotError, setCustomSlotError] = useState("");
+
+  const lastNonFreeAmountRef = useRef("");
+  const prevPaymentStatusRef = useRef("Paid");
+
   const [bookedUtcIntervals, setBookedUtcIntervals] = useState([]);
   const [bookedLoading, setBookedLoading] = useState(false);
 
@@ -500,6 +512,7 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
           const tzs = res?.data || [];
           setTimezones(Array.isArray(tzs) ? tzs : []);
           setStudentTz(userTz);
+          setCustomSlotTz(userTz);
           setWeekAnchorDateStr(getTodayDateStr(userTz));
           return;
         }
@@ -509,6 +522,7 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
 
       setTimezones([]);
       setStudentTz(userTz);
+      setCustomSlotTz(userTz);
       setWeekAnchorDateStr(getTodayDateStr(userTz));
     })();
   }, []);
@@ -523,17 +537,28 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
       }));
     }
 
-    const hasSelected =
-      list.some((o) => String(o.value) === String(studentTz)) || !studentTz;
-    if (!hasSelected && studentTz) {
-      list.unshift({ value: studentTz, label: studentTz, timezoneid: null });
-    }
+    const ensureOption = (tzValue) => {
+      const val = String(tzValue || "").trim();
+      if (!val) return;
+      const exists = list.some((o) => String(o.value) === val);
+      if (!exists) {
+        list.unshift({
+          value: val,
+          label: val,
+          timezoneid: null,
+        });
+      }
+    };
+
+    ensureOption(studentTz);
+    ensureOption(customSlotTz);
 
     if (!list.length) {
+      const fallbackTz = studentTz || customSlotTz || "UTC";
       list = [
         {
-          value: studentTz || "UTC",
-          label: studentTz || "UTC",
+          value: fallbackTz,
+          label: fallbackTz,
           timezoneid: null,
         },
       ];
@@ -546,7 +571,7 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
       seen.add(k);
       return true;
     });
-  }, [timezones, studentTz]);
+  }, [timezones, studentTz, customSlotTz]);
 
   const getTzStringById = (tzId) => {
     const id = String(tzId ?? "").trim();
@@ -576,9 +601,9 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
     return fallback || "UTC";
   };
 
-  const getSelectedTimezoneId = () => {
+  const getTimezoneIdByValue = (tzValue) => {
     const opt = (timezoneOptions || []).find(
-      (o) => String(o.value) === String(studentTz)
+      (o) => String(o.value) === String(tzValue)
     );
     const id = opt?.timezoneid;
     return id === null || id === undefined || id === "" ? "" : String(id);
@@ -656,6 +681,9 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
     setSessionType("Online");
     setBookingType("Manual");
     setPaymentStatus("Paid");
+    prevPaymentStatusRef.current = "Paid";
+    lastNonFreeAmountRef.current = "";
+    setCustomSlotError("");
 
     setBookingSubmitting(false);
     setBookingError("");
@@ -666,7 +694,11 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
 
     const tz = userDetectedTzRef.current || studentTz || "UTC";
     setStudentTz(tz);
+    setCustomSlotTz(tz);
     setWeekAnchorDateStr(getTodayDateStr(tz));
+    setCustomSlotDate(getTodayDateStr(tz));
+    setCustomSlotStart("");
+    setCustomSlotEnd("");
 
     setBookedUtcIntervals([]);
     setBookedLoading(false);
@@ -679,6 +711,22 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
     fetchStudents();
     fetchTeachers();
   }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const minDate = getTodayDateStr(customSlotTz || "UTC");
+    setCustomSlotDate((prev) => {
+      if (!prev) return minDate;
+      return prev < minDate ? minDate : prev;
+    });
+  }, [customSlotTz]);
+
+  useEffect(() => {
+    if (selectedSlot?.kind === "custom") {
+      setSelectedSlot(null);
+    }
+    setCustomSlotError("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customSlotTz]);
 
   const students = useMemo(() => {
     return (studentsRaw || [])
@@ -742,6 +790,7 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
     setSubjects([]);
     setSubjectId("");
     setSelectedSlot(null);
+    setCustomSlotError("");
 
     try {
       const headers = await buildHeaders();
@@ -794,6 +843,7 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
       setSubjects([]);
       setSubjectId("");
       setSelectedSlot(null);
+      setCustomSlotError("");
       setTeacherProfileError("");
       setBookedUtcIntervals([]);
       return;
@@ -803,7 +853,11 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
 
   // ---------------- entitlement fetch (block + subscription) ----------------
   const parseDT = (s) =>
-    moment(String(s || "").trim(), ["YYYY-MM-DD HH:mm:ss", moment.ISO_8601], true);
+    moment(
+      String(s || "").trim(),
+      ["YYYY-MM-DD HH:mm:ss", moment.ISO_8601],
+      true
+    );
 
   const isBlockActiveFromRow = (row) => {
     const pkg = Number(row?.package ?? 0) || 0;
@@ -863,7 +917,9 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
       const remaining = Math.max(pkg - used, 0);
       const createdAtStr = String(r?.createdAt || "");
       const createdAt = parseDT(createdAtStr);
-      const daysOld = createdAt.isValid() ? moment().diff(createdAt, "days") : null;
+      const daysOld = createdAt.isValid()
+        ? moment().diff(createdAt, "days")
+        : null;
 
       const hasActive = isBlockActiveFromRow(r);
 
@@ -912,7 +968,9 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
     const isExpiredFlag = Number(r?.is_expired ?? 0) || 0;
     if (isDeleted !== 0 || isExpiredFlag !== 0) return false;
 
-    const stripeStatus = String(r?.stripe_subscription?.status || "").toLowerCase();
+    const stripeStatus = String(
+      r?.stripe_subscription?.status || ""
+    ).toLowerCase();
     const localStatus = String(r?.status || "").toLowerCase();
 
     const exp = computeSubscriptionExpiry(r);
@@ -1002,20 +1060,34 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
     setBookingError("");
     setBookingSuccess("");
     setSelectedSlot(null);
+    setCustomSlotError("");
 
     setBlockInfo({ hasActive: false });
     setSubInfo({ hasActive: false });
     setEntDone({ block: false, sub: false });
 
     if (!nextId) {
-      setAmount("");
+      if (paymentStatus === "Free") {
+        setAmount("0");
+      } else {
+        setAmount("");
+      }
+      lastNonFreeAmountRef.current = "";
       setPaymentType("direct");
       return;
     }
 
     const st = students.find((s) => String(s.value) === String(nextId)) || null;
     const price = Number(st?.price ?? 0) || 0;
-    setAmount(price > 0 ? String(price) : "");
+    const nextAmount = price > 0 ? String(price) : "";
+
+    if (paymentStatus === "Free") {
+      lastNonFreeAmountRef.current = nextAmount;
+      setAmount("0");
+    } else {
+      lastNonFreeAmountRef.current = nextAmount;
+      setAmount(nextAmount);
+    }
 
     setPaymentType("direct");
 
@@ -1030,7 +1102,13 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
     if (blockInfo?.hasActive) return "block";
     if (subInfo?.hasActive) return "subscription";
     return "direct";
-  }, [studentId, entDone.block, entDone.sub, blockInfo?.hasActive, subInfo?.hasActive]);
+  }, [
+    studentId,
+    entDone.block,
+    entDone.sub,
+    blockInfo?.hasActive,
+    subInfo?.hasActive,
+  ]);
 
   useEffect(() => {
     if (!studentId) return;
@@ -1042,6 +1120,153 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
     if (!studentId) return false;
     if (!effectiveLock) return false;
     return String(val) !== String(effectiveLock);
+  };
+
+  const isFreePayment = paymentStatus === "Free";
+
+  useEffect(() => {
+    const prev = prevPaymentStatusRef.current;
+
+    if (paymentStatus === "Free") {
+      const currentAmount = String(amount ?? "").trim();
+      if (currentAmount && currentAmount !== "0") {
+        lastNonFreeAmountRef.current = currentAmount;
+      }
+      if (currentAmount !== "0") {
+        setAmount("0");
+      }
+    } else if (prev === "Free") {
+      const restoreAmount =
+        lastNonFreeAmountRef.current ||
+        (() => {
+          const st =
+            students.find((s) => String(s.value) === String(studentId)) || null;
+          const price = Number(st?.price ?? 0) || 0;
+          return price > 0 ? String(price) : "";
+        })();
+      setAmount(restoreAmount);
+    }
+
+    prevPaymentStatusRef.current = paymentStatus;
+  }, [paymentStatus, amount, students, studentId]);
+
+  const buildSelectedSlotUtcInterval = (slot) => {
+    if (!slot?.dateStr || !slot?.start || !slot?.end) return null;
+
+    const slotTz =
+      String(slot?.bookingTz || studentTz || "UTC").trim() || "UTC";
+
+    const startUtc = zonedLocalToUtcDate(slot.dateStr, slot.start, slotTz);
+    let endDateStr = slot.dateStr;
+
+    if (moment(slot.end, "HH:mm").isSameOrBefore(moment(slot.start, "HH:mm"))) {
+      endDateStr = addDaysDateStr(slot.dateStr, 1);
+    }
+
+    const endUtc = zonedLocalToUtcDate(endDateStr, slot.end, slotTz);
+    if (endUtc.getTime() <= startUtc.getTime()) return null;
+
+    return { startUtc, endUtc, endDateStr };
+  };
+
+  const buildCustomSlotCandidate = () => {
+    const dateStr = String(customSlotDate || "").trim();
+    const start = toHHMM(customSlotStart);
+    const end = toHHMM(customSlotEnd);
+    const bookingTz = String(customSlotTz || "").trim() || "UTC";
+
+    if (!dateStr || !start || !end) {
+      return { error: "Please select custom date, start time and end time." };
+    }
+
+    if (!bookingTz) {
+      return { error: "Please select custom slot timezone." };
+    }
+
+    if (start === end) {
+      return { error: "Start and end time cannot be same." };
+    }
+
+    const todayStr = getTodayDateStr(bookingTz);
+    if (dateStr < todayStr) {
+      return { error: "Past date is not allowed for custom slot." };
+    }
+
+    const slot = {
+      id: `custom-${dateStr}-${start}-${end}-${bookingTz}`,
+      availId: "",
+      dayKey: dayKeyFromName(moment(dateStr, "YYYY-MM-DD").format("ddd")) || "",
+      dateStr,
+      start,
+      end,
+      isGroup: false,
+      noofParticipants: "1",
+      teacherTz: bookingTz,
+      bookingTz,
+      booked: false,
+    };
+
+    const utcInterval = buildSelectedSlotUtcInterval(slot);
+    if (!utcInterval) {
+      return { error: "Invalid custom slot time range." };
+    }
+
+    const hasConflict = (bookedUtcIntervals || []).some((b) =>
+      overlaps(
+        utcInterval.startUtc.getTime(),
+        utcInterval.endUtc.getTime(),
+        b.start.getTime(),
+        b.end.getTime()
+      )
+    );
+
+    if (hasConflict) {
+      return {
+        error: "This custom slot overlaps with an already booked slot.",
+      };
+    }
+
+    return { slot };
+  };
+
+  const applyCustomSlot = async () => {
+    setBookingError("");
+    setBookingSuccess("");
+
+    if (!teacherId) {
+      setCustomSlotError("Please select teacher first.");
+      await Swal.fire({
+        icon: "warning",
+        title: "Required",
+        text: "Please select teacher first.",
+      });
+      return;
+    }
+
+    if (bookedLoading) {
+      setCustomSlotError("Teacher bookings are still loading. Please try again.");
+      await Swal.fire({
+        icon: "info",
+        title: "Please wait",
+        text: "Teacher bookings are still loading. Please try again.",
+      });
+      return;
+    }
+
+    const { slot, error } = buildCustomSlotCandidate();
+
+    if (error) {
+      setCustomSlotError(error);
+      await Swal.fire({
+        icon: "warning",
+        title: "Invalid Custom Slot",
+        text: error,
+      });
+      return;
+    }
+
+    setCustomSlotError("");
+    setSelectedSlot({ kind: "custom", ...slot });
   };
 
   // ---------------- week helpers ----------------
@@ -1156,6 +1381,7 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
 
   useEffect(() => {
     setSelectedSlot(null);
+    setCustomSlotError("");
     setBookingError("");
     setBookingSuccess("");
   }, [studentId, teacherId, studentTz, weekAnchorDateStr]);
@@ -1354,14 +1580,11 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
     return "Online";
   };
 
-  const normalizeBookingType = (v) => {
-    const s = String(v || "").toLowerCase().trim();
-    if (s.includes("web")) return "Web App";
-    return "Manual";
-  };
+  const normalizeBookingType = () => "Manual";
 
   const normalizePaymentStatus = (v) => {
     const s = String(v || "").toLowerCase().trim();
+    if (s === "free") return "Free";
     return s === "paid" ? "Paid" : "Unpaid";
   };
 
@@ -1402,7 +1625,14 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
       return;
     }
 
-    const tzId = getSelectedTimezoneId();
+    const bookingTz =
+      String(
+        selectedSlot?.kind === "custom"
+          ? selectedSlot?.bookingTz || customSlotTz || studentTz
+          : selectedSlot?.bookingTz || studentTz
+      ).trim() || "UTC";
+
+    const tzId = getTimezoneIdByValue(bookingTz);
     if (!tzId) {
       Swal.fire({
         icon: "warning",
@@ -1412,8 +1642,13 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
       return;
     }
 
-    const feesNum = Number(String(amount || "").replace(/[^\d.]/g, ""));
-    if (!feesNum || feesNum <= 0) {
+    const normalizedPaymentStatus = normalizePaymentStatus(paymentStatus);
+    const feesNum =
+      normalizedPaymentStatus === "Free"
+        ? 0
+        : Number(String(amount || "").replace(/[^\d.]/g, ""));
+
+    if (normalizedPaymentStatus !== "Free" && (!feesNum || feesNum <= 0)) {
       Swal.fire({
         icon: "warning",
         title: "Invalid Amount",
@@ -1435,7 +1670,35 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
       return;
     }
 
-    const confirmText = `Are you sure you want to book this session of ${selectedStudentName} with ${selectedTeacherName}?\n\nDate: ${bookdate}\nTime: ${selectedSlot.start} - ${selectedSlot.end}`;
+    const selectedUtcInterval = buildSelectedSlotUtcInterval(selectedSlot);
+    if (!selectedUtcInterval) {
+      Swal.fire({
+        icon: "error",
+        title: "Invalid Slot",
+        text: "Selected slot timing is invalid. Please re-select a slot.",
+      });
+      return;
+    }
+
+    const hasBookingConflict = (bookedUtcIntervals || []).some((b) =>
+      overlaps(
+        selectedUtcInterval.startUtc.getTime(),
+        selectedUtcInterval.endUtc.getTime(),
+        b.start.getTime(),
+        b.end.getTime()
+      )
+    );
+
+    if (hasBookingConflict) {
+      Swal.fire({
+        icon: "warning",
+        title: "Slot Already Booked",
+        text: "This slot overlaps with an already booked slot. Please choose another slot.",
+      });
+      return;
+    }
+
+    const confirmText = `Are you sure you want to book this session of ${selectedStudentName} with ${selectedTeacherName}?\n\nDate: ${bookdate}\nTime: ${selectedSlot.start} - ${selectedSlot.end}\nTimezone: ${bookingTz}`;
     const confirmRes = await Swal.fire({
       icon: "question",
       title: "Confirm Booking",
@@ -1450,7 +1713,6 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
 
     const isGroup = selectedSlot.kind === "group" ? 1 : 0;
 
-    // FIXED: one-to-one should be 1
     const noofParticipants = String(
       selectedSlot.kind === "group"
         ? selectedSlot.noofParticipants || "2"
@@ -1469,7 +1731,7 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
       bookdate: String(bookdate),
       slot_start: String(slot_start),
       slot_end: String(slot_end),
-      payment_status: normalizePaymentStatus(paymentStatus),
+      payment_status: normalizedPaymentStatus,
       isGroup: Number(isGroup),
       noofParticipants: String(noofParticipants),
       trail_done: "",
@@ -1676,7 +1938,10 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
                             className={`mbmSchedSlot ${
                               isSelected ? "mbmSchedSlotActive" : ""
                             }`}
-                            onClick={() => setSelectedSlot({ kind, ...s })}
+                            onClick={() => {
+                              setCustomSlotError("");
+                              setSelectedSlot({ kind, ...s, bookingTz: studentTz });
+                            }}
                           >
                             {s.start} - {s.end}
                           </button>
@@ -2177,8 +2442,15 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
                     className="form-control mbmControl"
                     placeholder="Type amount..."
                     value={amount}
+                    disabled={isFreePayment}
+                    title={
+                      isFreePayment
+                        ? "Amount is auto set to 0 for Free payment status"
+                        : "Type amount..."
+                    }
                     onChange={(e) => {
                       setAmountTouched(true);
+                      lastNonFreeAmountRef.current = e.target.value;
                       setAmount(e.target.value);
                     }}
                   />
@@ -2202,9 +2474,9 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
                     className="form-select mbmControl"
                     value={bookingType}
                     onChange={(e) => setBookingType(e.target.value)}
+                    disabled
                   >
                     <option value="Manual">Manual</option>
-                    <option value="Web App">Web App</option>
                   </select>
                 </div>
 
@@ -2237,6 +2509,17 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
                     >
                       Unpaid
                     </button>
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={paymentStatus === "Free"}
+                      className={`mbmSegBtn ${
+                        paymentStatus === "Free" ? "mbmSegBtnActivePrimary" : ""
+                      }`}
+                      onClick={() => setPaymentStatus("Free")}
+                    >
+                      Free
+                    </button>
                   </div>
                 </div>
               </div>
@@ -2261,6 +2544,93 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
                 scrollRef: schedRefB,
               })}
 
+              <div style={{ marginTop: 18 }}>
+                <div className="mbmScheduleTitle">Custom Slot</div>
+
+                <div className="row g-3">
+                  <div className="col-lg-3 col-md-6">
+                    <div className="mbmLabel">Custom Slot Time Zone</div>
+                    <select
+                      className="form-select mbmControl"
+                      value={customSlotTz}
+                      onChange={(e) => setCustomSlotTz(e.target.value)}
+                    >
+                      {timezoneOptions.map((t) => (
+                        <option key={t.value} value={t.value}>
+                          {t.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="col-lg-3 col-md-6">
+                    <div className="mbmLabel">Custom Date</div>
+                    <input
+                      type="date"
+                      className="form-control mbmControl"
+                      value={customSlotDate}
+                      min={getTodayDateStr(customSlotTz)}
+                      onChange={(e) => {
+                        setCustomSlotError("");
+                        setCustomSlotDate(e.target.value);
+                      }}
+                    />
+                  </div>
+
+                  <div className="col-lg-2 col-md-6">
+                    <div className="mbmLabel">Start Time</div>
+                    <input
+                      type="time"
+                      className="form-control mbmControl"
+                      value={customSlotStart}
+                      onChange={(e) => {
+                        setCustomSlotError("");
+                        setCustomSlotStart(e.target.value);
+                      }}
+                    />
+                  </div>
+
+                  <div className="col-lg-2 col-md-6">
+                    <div className="mbmLabel">End Time</div>
+                    <input
+                      type="time"
+                      className="form-control mbmControl"
+                      value={customSlotEnd}
+                      onChange={(e) => {
+                        setCustomSlotError("");
+                        setCustomSlotEnd(e.target.value);
+                      }}
+                    />
+                  </div>
+
+                  <div className="col-lg-2 col-md-6 d-flex align-items-end">
+                    <button
+                      type="button"
+                      className="btn btn-sm mbmBtnPrimary w-100"
+                      onClick={applyCustomSlot}
+                    >
+                      Use Custom Slot
+                    </button>
+                  </div>
+                </div>
+
+                {/* <div
+                  style={{
+                    marginTop: 8,
+                    fontSize: 12,
+                    fontWeight: 800,
+                    color: "var(--mbm-muted)",
+                  }}
+                >
+                  Custom slot selected timezone ({customSlotTz}) ke mutabiq save
+                  hoga.
+                </div> */}
+
+                {customSlotError ? (
+                  <div className="mbmErr">{customSlotError}</div>
+                ) : null}
+              </div>
+
               <div
                 style={{
                   marginTop: 18,
@@ -2275,14 +2645,20 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
                   {selectedSlot ? (
                     <span style={{ color: "var(--mbm-primary)" }}>
                       {selectedSlot.start}-{selectedSlot.end} ({selectedSlot.dateStr}){" "}
-                      {selectedSlot.kind === "group" ? "[Group]" : "[One to One]"}
+                      {selectedSlot.kind === "group"
+                        ? "[Group]"
+                        : selectedSlot.kind === "custom"
+                        ? `[Custom - ${selectedSlot.bookingTz}]`
+                        : "[One to One]"}
                     </span>
                   ) : (
                     <span style={{ color: "var(--mbm-muted)" }}>None</span>
                   )}
 
                   {bookingError ? <div className="mbmErr">{bookingError}</div> : null}
-                  {bookingSuccess ? <div className="mbmOk">{bookingSuccess}</div> : null}
+                  {bookingSuccess ? (
+                    <div className="mbmOk">{bookingSuccess}</div>
+                  ) : null}
                 </div>
 
                 <div className="d-flex gap-2">
@@ -2291,6 +2667,7 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
                     className="btn btn-sm mbmBtnGhost"
                     onClick={() => {
                       setSelectedSlot(null);
+                      setCustomSlotError("");
                       setBookingError("");
                       setBookingSuccess("");
                     }}

@@ -230,10 +230,10 @@ const FeedbackLayer = () => {
             // ✅ recording URL from SP response: s3Url (fallbacks included)
             const recordingUrl = normalizeUrl(
               item.s3Url ??
-              item.s3_url ??
-              item.recording_s3_url ??
-              item.recordingUrl ??
-              ""
+                item.s3_url ??
+                item.recording_s3_url ??
+                item.recordingUrl ??
+                ""
             );
 
             // ✅ CONCAT names (firstname + lastname)
@@ -291,6 +291,11 @@ const FeedbackLayer = () => {
               understanding: item.understanding ?? "",
               final_class_grade: item.final_class_grade ?? "",
               teacher_feedback: item.teacher_feedback ?? "",
+              topics_covered_today: item.topics_covered_today ?? "",
+              what_went_well_today: item.what_went_well_today ?? "",
+              areas_for_development: item.areas_for_development ?? "",
+              recommended_next_steps: item.recommended_next_steps ?? "",
+              next_lesson_plan: item.next_lesson_plan ?? "",
             };
           });
 
@@ -394,6 +399,11 @@ const FeedbackLayer = () => {
       understanding: row.understanding || "",
       final_class_grade: row.final_class_grade || "",
       teacher_feedback: row.teacher_feedback || "",
+      topics_covered_today: row.topics_covered_today || "",
+      what_went_well_today: row.what_went_well_today || "",
+      areas_for_development: row.areas_for_development || "",
+      recommended_next_steps: row.recommended_next_steps || "",
+      next_lesson_plan: row.next_lesson_plan || "",
     });
     setShowModal(true);
   };
@@ -449,7 +459,12 @@ const FeedbackLayer = () => {
             behaviour: currentRow.behaviour || "",
             understanding: currentRow.understanding || "",
             final_class_grade: currentRow.final_class_grade || "",
-            teacher_feedback: currentRow.teacher_feedback || "",
+            // teacher_feedback: currentRow.teacher_feedback || "",
+            topics_covered_today: currentRow.topics_covered_today || "",
+            what_went_well_today: currentRow.what_went_well_today || "",
+            areas_for_development: currentRow.areas_for_development || "",
+            recommended_next_steps: currentRow.recommended_next_steps || "",
+            next_lesson_plan: currentRow.next_lesson_plan || "",
           },
         ],
       };
@@ -465,14 +480,19 @@ const FeedbackLayer = () => {
           prev.map((r) =>
             r.sessionid === currentRow.sessionid
               ? {
-                ...r,
-                punctuality: currentRow.punctuality,
-                engagement: currentRow.engagement,
-                behaviour: currentRow.behaviour,
-                understanding: currentRow.understanding,
-                final_class_grade: currentRow.final_class_grade,
-                teacher_feedback: currentRow.teacher_feedback,
-              }
+                  ...r,
+                  punctuality: currentRow.punctuality,
+                  engagement: currentRow.engagement,
+                  behaviour: currentRow.behaviour,
+                  understanding: currentRow.understanding,
+                  final_class_grade: currentRow.final_class_grade,
+                  teacher_feedback: currentRow.teacher_feedback,
+                  topics_covered_today: currentRow.topics_covered_today,
+                  what_went_well_today: currentRow.what_went_well_today,
+                  areas_for_development: currentRow.areas_for_development,
+                  recommended_next_steps: currentRow.recommended_next_steps,
+                  next_lesson_plan: currentRow.next_lesson_plan,
+                }
               : r
           )
         );
@@ -713,7 +733,6 @@ const FeedbackLayer = () => {
             <div className="px-3 pt-3">
               <div className="d-flex flex-wrap gap-2 align-items-end">
                 <div style={{ minWidth: 240 }}>
-
                   <input
                     className="form-control"
                     placeholder="Search"
@@ -723,7 +742,6 @@ const FeedbackLayer = () => {
                 </div>
 
                 <div style={{ minWidth: 180 }}>
-
                   <select
                     className="form-select"
                     value={statusFilter}
@@ -736,7 +754,6 @@ const FeedbackLayer = () => {
                 </div>
 
                 <div style={{ minWidth: 170 }}>
-
                   <input
                     type="date"
                     className="form-control"
@@ -746,7 +763,6 @@ const FeedbackLayer = () => {
                 </div>
 
                 <div style={{ minWidth: 170 }}>
-
                   <input
                     type="date"
                     className="form-control"
@@ -1048,7 +1064,7 @@ const FeedbackLayer = () => {
                             </div>
                           </div>
 
-                          <div className="col-12">
+                          {/* <div className="col-12">
                             <div className="pf-box">
                               <label className="form-label">Teacher Feedback</label>
                               <textarea
@@ -1057,6 +1073,76 @@ const FeedbackLayer = () => {
                                 value={currentRow.teacher_feedback}
                                 onChange={(e) => handleFeedbackChange("teacher_feedback", e.target.value)}
                                 placeholder="Write teacher feedback..."
+                                disabled={isSent}
+                              />
+                            </div>
+                          </div> */}
+
+                          <div className="col-12">
+                            <div className="pf-box">
+                              <label className="form-label">Topics Covered Today</label>
+                              <textarea
+                                className="form-control"
+                                rows="1"
+                                value={currentRow.topics_covered_today}
+                                onChange={(e) => handleFeedbackChange("topics_covered_today", e.target.value)}
+                                placeholder="Write topics covered today..."
+                                disabled={isSent}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="col-12">
+                            <div className="pf-box">
+                              <label className="form-label">What Went Well Today</label>
+                              <textarea
+                                className="form-control"
+                                rows="1"
+                                value={currentRow.what_went_well_today}
+                                onChange={(e) => handleFeedbackChange("what_went_well_today", e.target.value)}
+                                placeholder="Write what went well today..."
+                                disabled={isSent}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="col-12">
+                            <div className="pf-box">
+                              <label className="form-label">Areas for Further Development</label>
+                              <textarea
+                                className="form-control"
+                                rows="1"
+                                value={currentRow.areas_for_development}
+                                onChange={(e) => handleFeedbackChange("areas_for_development", e.target.value)}
+                                placeholder="Write areas for further development..."
+                                disabled={isSent}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="col-12">
+                            <div className="pf-box">
+                              <label className="form-label">Recommended Next Steps</label>
+                              <textarea
+                                className="form-control"
+                                rows="1"
+                                value={currentRow.recommended_next_steps}
+                                onChange={(e) => handleFeedbackChange("recommended_next_steps", e.target.value)}
+                                placeholder="Write recommended next steps..."
+                                disabled={isSent}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="col-12">
+                            <div className="pf-box">
+                              <label className="form-label">What We Will Work On Next Lesson</label>
+                              <textarea
+                                className="form-control"
+                                rows="1"
+                                value={currentRow.next_lesson_plan}
+                                onChange={(e) => handleFeedbackChange("next_lesson_plan", e.target.value)}
+                                placeholder="Write next lesson plan..."
                                 disabled={isSent}
                               />
                             </div>
