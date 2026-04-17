@@ -149,7 +149,7 @@ const zonedLocalToUtcDate = (dateStr, timeStr, sourceTZ) => {
   if (fixed !== null) {
     return new Date(
       Date.UTC(Y, (M || 1) - 1, D || 1, hh || 0, mm || 0, 0) -
-        fixed * 60 * 1000
+      fixed * 60 * 1000
     );
   }
 
@@ -303,9 +303,8 @@ const SearchableSelect = ({
               autoFocus
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              className={`mbmSSSearch ${
-                theme === "dark" ? "mbmSSSearchDark" : ""
-              }`}
+              className={`mbmSSSearch ${theme === "dark" ? "mbmSSSearchDark" : ""
+                }`}
               placeholder={searchPlaceholder}
             />
           </div>
@@ -318,9 +317,8 @@ const SearchableSelect = ({
                 <button
                   key={o.value}
                   type="button"
-                  className={`mbmSSItem ${
-                    String(o.value) === String(value) ? "mbmSSItemActive" : ""
-                  } ${theme === "dark" ? "mbmSSItemDark" : ""}`}
+                  className={`mbmSSItem ${String(o.value) === String(value) ? "mbmSSItemActive" : ""
+                    } ${theme === "dark" ? "mbmSSItemDark" : ""}`}
                   onClick={() => {
                     onChange?.(o.value);
                     setOpen(false);
@@ -502,7 +500,7 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
       let userTz = "UTC";
       try {
         userTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-      } catch {}
+      } catch { }
 
       userDetectedTzRef.current = userTz;
 
@@ -1169,6 +1167,21 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
     return { startUtc, endUtc, endDateStr };
   };
 
+  const getSlotDurationMinutes = (dateStr, start, end, bookingTz) => {
+    const interval = buildSelectedSlotUtcInterval({
+      dateStr,
+      start,
+      end,
+      bookingTz,
+    });
+
+    if (!interval) return 0;
+
+    return Math.round(
+      (interval.endUtc.getTime() - interval.startUtc.getTime()) / 60000
+    );
+  };
+
   const buildCustomSlotCandidate = () => {
     const dateStr = String(customSlotDate || "").trim();
     const start = toHHMM(customSlotStart);
@@ -1209,6 +1222,23 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
     const utcInterval = buildSelectedSlotUtcInterval(slot);
     if (!utcInterval) {
       return { error: "Invalid custom slot time range." };
+    }
+
+    const durationMinutes = getSlotDurationMinutes(
+      dateStr,
+      start,
+      end,
+      bookingTz
+    );
+
+    if (
+      normalizeSessionType(sessionType) === "Online" &&
+      durationMinutes > 60
+    ) {
+      return {
+        error:
+          "Custom slot duration cannot be more than 1 hour for online sessions.",
+      };
     }
 
     const hasConflict = (bookedUtcIntervals || []).some((b) =>
@@ -1397,7 +1427,7 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
 
   const bindScrollSync = (ref, setPct) => {
     const el = ref.current;
-    if (!el) return () => {};
+    if (!el) return () => { };
     const onScroll = () => {
       const max = el.scrollWidth - el.clientWidth;
       if (max <= 0) return setPct(0);
@@ -1447,8 +1477,8 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
     const defaultStepMin =
       Number(
         teacherProfileData?.profile?.[0]?.slotduration ||
-          teacherProfileData?.profile?.[0]?.sessionduration ||
-          60
+        teacherProfileData?.profile?.[0]?.sessionduration ||
+        60
       ) || 60;
 
     const seen = new Set();
@@ -1497,9 +1527,8 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
           )
         );
 
-        const dedupeKey = `${a?.id || "av"}|${dayKey}|${baseDateStr}|${showStart}|${showEnd}|${
-          isGroup ? "G" : "O"
-        }|${isBooked ? "B" : "A"}`;
+        const dedupeKey = `${a?.id || "av"}|${dayKey}|${baseDateStr}|${showStart}|${showEnd}|${isGroup ? "G" : "O"
+          }|${isBooked ? "B" : "A"}`;
         if (seen.has(dedupeKey)) continue;
         seen.add(dedupeKey);
 
@@ -1574,6 +1603,32 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
     return m.isValid() ? m.format("HH:mm:ss") : "";
   };
 
+  useEffect(() => {
+    if (normalizeSessionType(sessionType) !== "Online") return;
+
+    const start = toHHMM(customSlotStart);
+    const end = toHHMM(customSlotEnd);
+    const dateStr = String(customSlotDate || "").trim();
+    const bookingTz = String(customSlotTz || "").trim() || "UTC";
+
+    if (!start || !end || !dateStr) return;
+
+    const durationMinutes = getSlotDurationMinutes(
+      dateStr,
+      start,
+      end,
+      bookingTz
+    );
+
+    if (durationMinutes > 60) {
+      setCustomSlotEnd("");
+      setSelectedSlot((prev) => (prev?.kind === "custom" ? null : prev));
+      setCustomSlotError(
+        "Custom slot can be a maximum of 1 hour for online sessions."
+      );
+    }
+  }, [sessionType, customSlotDate, customSlotStart, customSlotEnd, customSlotTz]);
+
   const normalizeSessionType = (v) => {
     const s = String(v || "").toLowerCase().trim();
     if (s.includes("person")) return "In-Person";
@@ -1600,6 +1655,7 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
       });
       return;
     }
+
     if (!teacherId) {
       Swal.fire({
         icon: "warning",
@@ -1608,6 +1664,7 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
       });
       return;
     }
+
     if (!subjectId) {
       Swal.fire({
         icon: "warning",
@@ -1616,6 +1673,7 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
       });
       return;
     }
+
     if (!selectedSlot) {
       Swal.fire({
         icon: "warning",
@@ -1633,6 +1691,7 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
       ).trim() || "UTC";
 
     const tzId = getTimezoneIdByValue(bookingTz);
+
     if (!tzId) {
       Swal.fire({
         icon: "warning",
@@ -1643,6 +1702,7 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
     }
 
     const normalizedPaymentStatus = normalizePaymentStatus(paymentStatus);
+
     const feesNum =
       normalizedPaymentStatus === "Free"
         ? 0
@@ -1671,6 +1731,7 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
     }
 
     const selectedUtcInterval = buildSelectedSlotUtcInterval(selectedSlot);
+
     if (!selectedUtcInterval) {
       Swal.fire({
         icon: "error",
@@ -1699,6 +1760,7 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
     }
 
     const confirmText = `Are you sure you want to book this session of ${selectedStudentName} with ${selectedTeacherName}?\n\nDate: ${bookdate}\nTime: ${selectedSlot.start} - ${selectedSlot.end}\nTimezone: ${bookingTz}`;
+
     const confirmRes = await Swal.fire({
       icon: "question",
       title: "Confirm Booking",
@@ -1716,10 +1778,36 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
     const noofParticipants = String(
       selectedSlot.kind === "group"
         ? selectedSlot.noofParticipants || "2"
-        : "1"
+        : "2"
     );
 
-    const finalPaymentType = effectiveLock || String(paymentType || "direct");
+    // --------------------------------------------------
+    // YAHAN PAYMENT TYPE KA FINAL SCENE
+    // direct       => paymentmethod: "card"
+    // block        => paymentmethod: "credits"
+    // subscription => paymentmethod: "credits"
+    // --------------------------------------------------
+    const finalPaymentType = String(
+      effectiveLock || paymentType || "direct"
+    )
+      .toLowerCase()
+      .trim();
+
+    const paymentmethod =
+      finalPaymentType === "direct"
+        ? "card"
+        : finalPaymentType === "block"
+          ? "credits"
+          : finalPaymentType === "subscription"
+            ? "subscription"
+            : "card";
+
+    const apiPaymentType =
+      finalPaymentType === "block"
+        ? "Block"
+        : finalPaymentType === "subscription"
+          ? "Subscription"
+          : "Direct";
 
     const body = {
       tablename: "bookteacher",
@@ -1735,18 +1823,22 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
       isGroup: Number(isGroup),
       noofParticipants: String(noofParticipants),
       trail_done: "",
-      paymentmethod: "card",
+      paymentmethod: paymentmethod,
       fees: Number(feesNum),
       subjectid: Number(subjectId),
       promoCode: "",
-      paymentType: String(finalPaymentType),
+      paymentType: apiPaymentType,
       sessionType: normalizeSessionType(sessionType),
       bookingType: normalizeBookingType(bookingType),
     };
 
+    console.log("BOOKING BODY =>", body);
+
     setBookingSubmitting(true);
+
     try {
       const headers = await buildHeaders();
+
       const resp = await fetch(BOOK_TEACHER_URL, {
         method: "POST",
         headers,
@@ -1765,9 +1857,8 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
         return;
       }
 
-      const okMsg = `Booking Successful (ID: ${json?.data?.id || "-"}) - ${
-        json?.data?.teachername || selectedTeacherName
-      }`;
+      const okMsg = `Booking Successful (ID: ${json?.data?.id || "-"}) - ${json?.data?.teachername || selectedTeacherName
+        }`;
 
       setBookingSuccess(okMsg);
 
@@ -1787,27 +1878,35 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
             parameters: [String(teacherId)],
           }),
         });
+
         const json2 = await resp2.json();
+
         if (json2?.statusCode === 200) {
           const rows = Array.isArray(json2?.data) ? json2.data : [];
           const intervals = [];
+
           for (const r of rows) {
             const dateStr = String(r?.bookdate || "").trim();
             const start = toHHMM(r?.slot_start);
             const end = toHHMM(r?.slot_end);
             const tz = String(r?.timezone || "UTC").trim() || "UTC";
+
             if (!dateStr || !start || !end) continue;
 
             const utcStart = zonedLocalToUtcDate(dateStr, start, tz);
+
             let endDateStr = dateStr;
             if (moment(end, "HH:mm").isSameOrBefore(moment(start, "HH:mm"))) {
               endDateStr = addDaysDateStr(dateStr, 1);
             }
+
             const utcEnd = zonedLocalToUtcDate(endDateStr, end, tz);
+
             if (utcEnd.getTime() > utcStart.getTime()) {
               intervals.push({ start: utcStart, end: utcEnd });
             }
           }
+
           setBookedUtcIntervals(intervals);
         }
       } catch {
@@ -1935,9 +2034,8 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
                           <button
                             type="button"
                             key={s.id}
-                            className={`mbmSchedSlot ${
-                              isSelected ? "mbmSchedSlotActive" : ""
-                            }`}
+                            className={`mbmSchedSlot ${isSelected ? "mbmSchedSlotActive" : ""
+                              }`}
                             onClick={() => {
                               setCustomSlotError("");
                               setSelectedSlot({ kind, ...s, bookingTz: studentTz });
@@ -1992,11 +2090,10 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
               border: 1px solid var(--mbm-border);
               border-radius: 18px;
               overflow: hidden;
-              box-shadow: ${
-                isDark
-                  ? "0 30px 90px rgba(0,0,0,0.60)"
-                  : "0 25px 70px rgba(0,0,0,0.35)"
-              };
+              box-shadow: ${isDark
+              ? "0 30px 90px rgba(0,0,0,0.60)"
+              : "0 25px 70px rgba(0,0,0,0.35)"
+            };
               display:flex;
               flex-direction:column;
               max-height: calc(100vh - 80px);
@@ -2009,11 +2106,10 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
               justify-content:space-between;
               padding: 14px 16px;
               border-bottom: 1px solid var(--mbm-border);
-              background: ${
-                isDark
-                  ? "linear-gradient(135deg, rgba(59,130,246,0.18), rgba(148,163,184,0.06))"
-                  : "linear-gradient(135deg, rgba(13,110,253,0.18), rgba(13,110,253,0.04))"
-              };
+              background: ${isDark
+              ? "linear-gradient(135deg, rgba(59,130,246,0.18), rgba(148,163,184,0.06))"
+              : "linear-gradient(135deg, rgba(13,110,253,0.18), rgba(13,110,253,0.04))"
+            };
             }
             .mbmHeaderLeft{ display:flex; align-items:center; gap:12px; }
             .mbmIcon{
@@ -2039,11 +2135,10 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
               border: 1px solid var(--mbm-border) !important;
               background: var(--mbm-bg) !important;
               color: var(--mbm-text) !important;
-              box-shadow: ${
-                isDark
-                  ? "0 10px 24px rgba(0,0,0,0.25)"
-                  : "0 6px 18px rgba(15,23,42,0.06)"
-              };
+              box-shadow: ${isDark
+              ? "0 10px 24px rgba(0,0,0,0.25)"
+              : "0 6px 18px rgba(15,23,42,0.06)"
+            };
               font-weight: 800;
             }
 
@@ -2056,11 +2151,10 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
               border: 1px solid var(--mbm-border);
               background: var(--mbm-bg);
               color: var(--mbm-text);
-              box-shadow: ${
-                isDark
-                  ? "0 10px 24px rgba(0,0,0,0.25)"
-                  : "0 6px 18px rgba(15,23,42,0.06)"
-              };
+              box-shadow: ${isDark
+              ? "0 10px 24px rgba(0,0,0,0.25)"
+              : "0 6px 18px rgba(15,23,42,0.06)"
+            };
               font-weight: 800;
             }
             .mbmSSPlaceholder{ color: var(--mbm-muted); font-weight: 800; }
@@ -2073,11 +2167,10 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
               border-radius: 14px;
               border: 1px solid var(--mbm-border);
               background: var(--mbm-bg);
-              box-shadow: ${
-                isDark
-                  ? "0 18px 40px rgba(0,0,0,0.55)"
-                  : "0 18px 45px rgba(15,23,42,0.20)"
-              };
+              box-shadow: ${isDark
+              ? "0 18px 40px rgba(0,0,0,0.55)"
+              : "0 18px 45px rgba(15,23,42,0.20)"
+            };
               overflow:hidden;
             }
             .mbmSSSearchWrap{ padding: 10px; border-bottom: 1px solid var(--mbm-border); background: var(--mbm-soft); }
@@ -2270,11 +2363,10 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
               border-radius: 16px;
               border: 1px solid var(--mbm-border);
               background: var(--mbm-bg);
-              box-shadow: ${
-                isDark
-                  ? "0 10px 24px rgba(0,0,0,0.25)"
-                  : "0 6px 18px rgba(15,23,42,0.06)"
-              };
+              box-shadow: ${isDark
+              ? "0 10px 24px rgba(0,0,0,0.25)"
+              : "0 6px 18px rgba(15,23,42,0.06)"
+            };
             }
             .mbmSegBtn{
               flex:1;
@@ -2413,8 +2505,8 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
                             effectiveLock === "block"
                               ? "Block Booking is active. Only Block Booking is allowed."
                               : effectiveLock === "subscription"
-                              ? "Subscription is active. Only Subscription Booking is allowed."
-                              : "Direct Booking is the only allowed option for this student.",
+                                ? "Subscription is active. Only Subscription Booking is allowed."
+                                : "Direct Booking is the only allowed option for this student.",
                         });
                         setPaymentType(effectiveLock || "direct");
                         return;
@@ -2491,9 +2583,8 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
                       type="button"
                       role="radio"
                       aria-checked={paymentStatus === "Paid"}
-                      className={`mbmSegBtn ${
-                        paymentStatus === "Paid" ? "mbmSegBtnActivePrimary" : ""
-                      }`}
+                      className={`mbmSegBtn ${paymentStatus === "Paid" ? "mbmSegBtnActivePrimary" : ""
+                        }`}
                       onClick={() => setPaymentStatus("Paid")}
                     >
                       Paid
@@ -2502,9 +2593,8 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
                       type="button"
                       role="radio"
                       aria-checked={paymentStatus === "Unpaid"}
-                      className={`mbmSegBtn ${
-                        paymentStatus === "Unpaid" ? "mbmSegBtnActivePrimary" : ""
-                      }`}
+                      className={`mbmSegBtn ${paymentStatus === "Unpaid" ? "mbmSegBtnActivePrimary" : ""
+                        }`}
                       onClick={() => setPaymentStatus("Unpaid")}
                     >
                       Unpaid
@@ -2513,9 +2603,8 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
                       type="button"
                       role="radio"
                       aria-checked={paymentStatus === "Free"}
-                      className={`mbmSegBtn ${
-                        paymentStatus === "Free" ? "mbmSegBtnActivePrimary" : ""
-                      }`}
+                      className={`mbmSegBtn ${paymentStatus === "Free" ? "mbmSegBtnActivePrimary" : ""
+                        }`}
                       onClick={() => setPaymentStatus("Free")}
                     >
                       Free
@@ -2597,8 +2686,44 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
                       className="form-control mbmControl"
                       value={customSlotEnd}
                       onChange={(e) => {
+                        const nextEnd = e.target.value;
                         setCustomSlotError("");
-                        setCustomSlotEnd(e.target.value);
+
+                        const start = toHHMM(customSlotStart);
+                        const end = toHHMM(nextEnd);
+                        const dateStr = String(customSlotDate || "").trim();
+                        const bookingTz =
+                          String(customSlotTz || "").trim() || "UTC";
+
+                        if (
+                          normalizeSessionType(sessionType) === "Online" &&
+                          start &&
+                          end &&
+                          dateStr
+                        ) {
+                          const durationMinutes = getSlotDurationMinutes(
+                            dateStr,
+                            start,
+                            end,
+                            bookingTz
+                          );
+
+                          if (durationMinutes > 60) {
+                            setCustomSlotError(
+                              "Custom slot can be a maximum of 1 hour for online sessions."
+                            );
+
+                            Swal.fire({
+                              icon: "warning",
+                              title: "Max 1 Hour",
+                              text:
+                                "Custom slot cannot be longer than 1 hour for online sessions.",
+                            });
+                            return;
+                          }
+                        }
+
+                        setCustomSlotEnd(nextEnd);
                       }}
                     />
                   </div>
@@ -2648,8 +2773,8 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
                       {selectedSlot.kind === "group"
                         ? "[Group]"
                         : selectedSlot.kind === "custom"
-                        ? `[Custom - ${selectedSlot.bookingTz}]`
-                        : "[One to One]"}
+                          ? `[Custom - ${selectedSlot.bookingTz}]`
+                          : "[One to One]"}
                     </span>
                   ) : (
                     <span style={{ color: "var(--mbm-muted)" }}>None</span>

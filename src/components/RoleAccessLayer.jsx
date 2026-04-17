@@ -1,11 +1,96 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import axios from "axios";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import moment from "moment-timezone";
 import { getAllBookings } from "../api/getAllBookings";
+import { getToken } from "../api/getToken";
 import ManualBookingModal from "./ManualBookingModal";
 import RescheduleBookingModal from "./RescheduleBookingModal";
+
+const UPDATE_DYNAMIC_DATA_URL =
+  "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=update_dynamic_data";
+
+const API_HEADERS = {
+  projectid: "1",
+  userid: "test",
+  password: "test",
+  "x-api-key": "abc123456789",
+  "Content-Type": "application/json",
+};
+
+const PAYMENT_STATUS_OPTIONS = ["Paid", "Unpaid", "Free"];
+const SESSION_TYPE_OPTIONS = ["Online", "In-Person"];
+
+const DarkSelectEditor = ({ value, options, onChange, loading }) => {
+  return (
+    <div className="lyl-select-wrap">
+      <select
+        className="lyl-select"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={loading}
+      >
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+};
+
+const ConfirmActionModal = ({ open, title, message, confirmText, cancelText, onConfirm, onClose, loading }) => {
+  if (!open) return null;
+
+  return (
+    <div className="lyl-modal-overlay" onClick={loading ? undefined : onClose}>
+      <div className="lyl-modal-card" onClick={(e) => e.stopPropagation()}>
+        <div className="lyl-modal-icon">!</div>
+        <h4 className="lyl-modal-title">{title}</h4>
+        <p className="lyl-modal-text">{message}</p>
+
+        <div className="lyl-modal-actions">
+          <button
+            type="button"
+            className="lyl-btn lyl-btn-secondary"
+            onClick={onClose}
+            disabled={loading}
+          >
+            {cancelText || "Cancel"}
+          </button>
+          <button
+            type="button"
+            className="lyl-btn lyl-btn-primary"
+            onClick={onConfirm}
+            disabled={loading}
+          >
+            {loading ? "Updating..." : confirmText || "Confirm"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const AlertToast = ({ alertData, onClose }) => {
+  if (!alertData?.open) return null;
+
+  return (
+    <div className={`lyl-toast ${alertData.type === "success" ? "success" : "error"}`}>
+      <div className="lyl-toast-content">
+        <div className="lyl-toast-title">{alertData.title}</div>
+        <div className="lyl-toast-message">{alertData.message}</div>
+      </div>
+
+      <button type="button" className="lyl-toast-close" onClick={onClose}>
+        ×
+      </button>
+    </div>
+  );
+};
 
 const RoleAccessLayer = () => {
   const [rows, setRows] = useState([]);
@@ -32,13 +117,46 @@ const RoleAccessLayer = () => {
   const [isRescheduleOpen, setIsRescheduleOpen] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState(null);
 
-  const TZ = "Asia/Karachi";
+  const [savingMap, setSavingMap] = useState({});
+  const [confirmModal, setConfirmModal] = useState({
+    open: false,
+    item: null,
+    field: "",
+    newValue: "",
+    title: "",
+    message: "",
+  });
+  const [confirmLoading, setConfirmLoading] = useState(false);
+  const [amountDraftMap, setAmountDraftMap] = useState({});
+
+  const [alertData, setAlertData] = useState({
+    open: false,
+    type: "success",
+    title: "",
+    message: "",
+  });
+
+  const TZ = "Asia/Dubai";
 
   const norm = (v) => String(v ?? "").toLowerCase().trim();
+
+  const showAlert = (type, title, message) => {
+    setAlertData({
+      open: true,
+      type,
+      title,
+      message,
+    });
+
+    setTimeout(() => {
+      setAlertData((prev) => ({ ...prev, open: false }));
+    }, 3000);
+  };
 
   const getBookDateValue = (item) => item?.bookdate || item?.booking_date || "";
   const getSlotStartValue = (item) => item?.slot_start || item?.booking_start_time || "";
   const getSlotEndValue = (item) => item?.slot_end || item?.booking_end_time || "";
+  const getBookingId = (item) => item?.bookingid ?? item?.booking_id ?? item?.id ?? "";
 
   const getSessionTypeKey = (value) => {
     const t = norm(value).replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
@@ -47,6 +165,37 @@ const RoleAccessLayer = () => {
     if (t === "online") return "online";
 
     return t;
+  };
+
+  const getSessionTypeDisplay = (value) => {
+    const t = norm(value).replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+
+    if (t === "in person") return "In-Person";
+    if (t === "online") return "Online";
+
+    return "Online";
+  };
+
+  const getPaymentStatusDisplay = (value) => {
+    const s = norm(value);
+
+    if (s === "paid") return "Paid";
+    if (s === "unpaid") return "Unpaid";
+    if (s === "free") return "Free";
+
+    return "Unpaid";
+  };
+
+  const getInpersonStatusDisplay = (value) => {
+    const s = norm(value);
+
+    if (s === "upcoming") return "Upcoming";
+    if (s === "ongoing") return "Ongoing";
+    if (s === "completed") return "Completed";
+    if (s === "cancelled") return "Cancelled";
+    if (s === "missed") return "Missed";
+
+    return "";
   };
 
   const isInPersonSession = (item) => getSessionTypeKey(item?.session_type) === "in-person";
@@ -125,6 +274,12 @@ const RoleAccessLayer = () => {
   };
 
   const getBookingStatus = (item) => {
+    const inpersonDbStatus = getInpersonStatusDisplay(item?.inperson_status);
+
+    if (isInPersonSession(item) && inpersonDbStatus) {
+      return norm(inpersonDbStatus);
+    }
+
     const now = getNow();
 
     const date = getBookDateValue(item);
@@ -141,9 +296,6 @@ const RoleAccessLayer = () => {
 
     if (endDT) {
       if (now.isAfter(endDT)) {
-        // IMPORTANT:
-        // In-person booking => always completed after time passes
-        // Online booking => completed only if recording exists, otherwise missed
         if (inPerson) return "completed";
         return hasRecording ? "completed" : "missed";
       }
@@ -175,6 +327,7 @@ const RoleAccessLayer = () => {
     if (s === "completed") return "bg-success";
     if (s === "ongoing") return "bg-info";
     if (s === "missed") return "bg-danger";
+    if (s === "cancelled") return "bg-danger";
     return "bg-warning text-dark";
   };
 
@@ -186,20 +339,6 @@ const RoleAccessLayer = () => {
     return "bg-secondary";
   };
 
-  const getPaymentStatusBadgeClass = (status) => {
-    const s = norm(status);
-    if (s === "paid") return "bg-success";
-    if (s === "unpaid") return "bg-danger";
-    return "bg-secondary";
-  };
-
-  const getSessionTypeBadgeClass = (type) => {
-    const t = getSessionTypeKey(type);
-    if (t === "in-person") return "bg-dark";
-    if (t === "online") return "bg-info";
-    return "bg-secondary";
-  };
-
   const getBookingTypeBadgeClass = (type) => {
     const t = norm(type);
     if (t === "manual") return "bg-primary";
@@ -207,13 +346,18 @@ const RoleAccessLayer = () => {
     return "bg-secondary";
   };
 
-  const getAmountText = (item) => {
-    const raw = item?.booking_amount ?? 0;
+  const getAmountValue = (item) => {
+    const raw = item?.booking_amount ?? item?.amount ?? 0;
     const n = Number(String(raw ?? "0").replace(/,/g, "").trim());
-    const val = Number.isFinite(n) ? n : 0;
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const getAmountText = (item) => {
+    const val = getAmountValue(item);
     return `AED ${val.toFixed(2)}`;
   };
 
+  const isDirectBooking = (item) => norm(item?.payment_type) === "direct";
   const formatTime = (t) => {
     if (!t) return "-";
     const m = moment(t, ["HH:mm:ss", "HH:mm"], true);
@@ -244,6 +388,242 @@ const RoleAccessLayer = () => {
     return out;
   };
 
+  const getTokenValue = async () => {
+    const tokenResponse = await getToken();
+
+    if (typeof tokenResponse === "string") return tokenResponse;
+    if (typeof tokenResponse?.token === "string") return tokenResponse.token;
+    if (typeof tokenResponse?.data?.token === "string") return tokenResponse.data.token;
+    if (typeof tokenResponse?.data?.data?.token === "string") return tokenResponse.data.data.token;
+
+    return "";
+  };
+
+  const setFieldSaving = (bookingId, field, isSaving) => {
+    const key = `${bookingId}_${field}`;
+    setSavingMap((prev) => ({
+      ...prev,
+      [key]: isSaving,
+    }));
+  };
+
+  const isFieldSaving = (bookingId, field) => {
+    const key = `${bookingId}_${field}`;
+    return !!savingMap[key];
+  };
+
+  const patchRow = (bookingId, patch) => {
+    setRows((prev) =>
+      prev.map((row) =>
+        String(getBookingId(row)) === String(bookingId)
+          ? {
+            ...row,
+            ...patch,
+          }
+          : row
+      )
+    );
+  };
+
+  const updateDynamicBookingData = async (item, updates = {}) => {
+    const bookingId = getBookingId(item);
+
+    if (!bookingId) {
+      throw new Error("Booking ID nahi mila.");
+    }
+
+    const token = await getTokenValue();
+
+    if (!token) {
+      throw new Error("Token nahi mila.");
+    }
+
+    const conditionId = /^\d+$/.test(String(bookingId)) ? Number(bookingId) : bookingId;
+
+    const updateData = {};
+
+    if (Object.prototype.hasOwnProperty.call(updates, "payment_status")) {
+      updateData.payment_status = updates.payment_status;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(updates, "sessionType")) {
+      updateData.sessionType = updates.sessionType;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(updates, "amount")) {
+      updateData.amount = updates.amount;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      throw new Error("Update data nahi mila.");
+    }
+
+    const payload = {
+      token,
+      tablename: "bookteacher",
+      conditions: [
+        {
+          id: conditionId,
+        },
+      ],
+      updatedata: [updateData],
+    };
+
+    const response = await axios.post(UPDATE_DYNAMIC_DATA_URL, payload, {
+      headers: API_HEADERS,
+    });
+
+    if (response?.data?.statusCode !== 200) {
+      throw new Error(response?.data?.message || "Update failed");
+    }
+
+    return response.data;
+  };
+
+  const openConfirmModal = (item, field, newValue) => {
+    if (field === "payment_status") {
+      const currentValue = getPaymentStatusDisplay(item?.payment_status);
+      if (currentValue === newValue) return;
+
+      setConfirmModal({
+        open: true,
+        item,
+        field,
+        newValue,
+        title: "Update Payment Status",
+        message: `Are you sure you want to change payment status from "${currentValue}" to "${newValue}"?`,
+      });
+      return;
+    }
+
+    if (field === "session_type") {
+      const currentValue = getSessionTypeDisplay(item?.session_type);
+      if (currentValue === newValue) return;
+
+      setConfirmModal({
+        open: true,
+        item,
+        field,
+        newValue,
+        title: "Update Session Type",
+        message: `Are you sure you want to change session type from "${currentValue}" to "${newValue}"?`,
+      });
+      return;
+    }
+
+    if (field === "amount") {
+      const currentValue = getAmountValue(item);
+      const nextValue = Number(String(newValue ?? "0").replace(/,/g, "").trim());
+
+      if (!Number.isFinite(nextValue) || nextValue < 0) {
+        showAlert("error", "Invalid Amount", "Please enter a valid amount.");
+        return;
+      }
+
+      if (currentValue === nextValue) return;
+
+      setConfirmModal({
+        open: true,
+        item,
+        field,
+        newValue: nextValue,
+        title: "Update Amount",
+        message: `Are you sure you want to change amount from "AED ${currentValue.toFixed(
+          2
+        )}" to "AED ${nextValue.toFixed(2)}"?`,
+      });
+    }
+  };
+
+  const closeConfirmModal = () => {
+    if (confirmLoading) return;
+    setConfirmModal({
+      open: false,
+      item: null,
+      field: "",
+      newValue: "",
+      title: "",
+      message: "",
+    });
+  };
+
+  const handleConfirmUpdate = async () => {
+    const { item, field, newValue } = confirmModal;
+
+    if (!item || !field || newValue === "" || newValue === null || newValue === undefined) return;
+
+    const bookingId = getBookingId(item);
+    if (!bookingId) {
+      showAlert("error", "Update Failed", "Booking ID nahi mila.");
+      closeConfirmModal();
+      return;
+    }
+
+    setConfirmLoading(true);
+    setFieldSaving(bookingId, field, true);
+
+    const previousValue =
+      field === "payment_status"
+        ? getPaymentStatusDisplay(item?.payment_status)
+        : field === "session_type"
+          ? getSessionTypeDisplay(item?.session_type)
+          : getAmountValue(item);
+
+    const optimisticPatch =
+      field === "payment_status"
+        ? { payment_status: newValue }
+        : field === "session_type"
+          ? { session_type: newValue }
+          : { booking_amount: newValue };
+
+    patchRow(bookingId, optimisticPatch);
+
+    try {
+      await updateDynamicBookingData(
+        {
+          ...item,
+          ...optimisticPatch,
+        },
+        field === "payment_status"
+          ? { payment_status: newValue }
+          : field === "session_type"
+            ? { sessionType: newValue }
+            : { amount: newValue }
+      );
+
+      if (field === "amount") {
+        setAmountDraftMap((prev) => ({
+          ...prev,
+          [bookingId]: newValue,
+        }));
+      }
+
+      showAlert("success", "Updated Successfully", `${confirmModal.title} done successfully.`);
+      closeConfirmModal();
+    } catch (error) {
+      patchRow(
+        bookingId,
+        field === "payment_status"
+          ? { payment_status: previousValue }
+          : field === "session_type"
+            ? { session_type: previousValue }
+            : { booking_amount: previousValue }
+      );
+
+      if (field === "amount") {
+        setAmountDraftMap((prev) => ({
+          ...prev,
+          [bookingId]: previousValue,
+        }));
+      }
+
+      showAlert("error", "Update Failed", error?.message || "Something went wrong.");
+    } finally {
+      setConfirmLoading(false);
+      setFieldSaving(bookingId, field, false);
+    }
+  };
+
   const fetchBookings = useCallback(async () => {
     setInitialLoading(true);
     setLoadError("");
@@ -254,12 +634,12 @@ const RoleAccessLayer = () => {
       const raw = Array.isArray(data)
         ? data
         : Array.isArray(data?.data)
-        ? data.data
-        : Array.isArray(data?.getall_bookings)
-        ? data.getall_bookings
-        : Array.isArray(data?.getallbookings)
-        ? data.getallbookings
-        : [];
+          ? data.data
+          : Array.isArray(data?.getall_bookings)
+            ? data.getall_bookings
+            : Array.isArray(data?.getallbookings)
+              ? data.getallbookings
+              : [];
 
       const deduped = dedupeBookings(raw);
 
@@ -273,7 +653,7 @@ const RoleAccessLayer = () => {
     } catch (err) {
       console.error("getAllBookings failed:", err);
       setRows([]);
-      setLoadError("Bookings load nahi ho rahi. API/Network check karo.");
+      setLoadError("Bookings are not loading. Please check the Network.");
     } finally {
       setInitialLoading(false);
     }
@@ -341,8 +721,8 @@ const RoleAccessLayer = () => {
         item?.studentname || "",
         item?.teachername || "",
         item?.payment_type || "",
-        item?.payment_status || "",
-        item?.session_type || "",
+        getPaymentStatusDisplay(item?.payment_status),
+        getSessionTypeDisplay(item?.session_type),
         item?.booking_type || "",
         getAmountText(item),
         bookingStatus,
@@ -356,8 +736,10 @@ const RoleAccessLayer = () => {
       const matchesSearch = !sTerm || fullText.includes(sTerm);
       const matchesPayment = !pFilter || norm(item?.payment_type) === pFilter;
       const matchesStatus = !bFilter || norm(bookingStatus) === bFilter;
-      const matchesPaymentStatus = !psFilter || norm(item?.payment_status) === psFilter;
-      const matchesSessionType = !stFilter || getSessionTypeKey(item?.session_type) === stFilter;
+      const matchesPaymentStatus =
+        !psFilter || norm(getPaymentStatusDisplay(item?.payment_status)) === psFilter;
+      const matchesSessionType =
+        !stFilter || getSessionTypeKey(item?.session_type) === stFilter;
       const matchesBookingType = !btFilter || norm(item?.booking_type) === btFilter;
 
       const itemDate = parseBookDate(getBookDateValue(item));
@@ -414,8 +796,8 @@ const RoleAccessLayer = () => {
         "Slot End": formatTime(getSlotEndValue(item)),
         Amount: getAmountText(item),
         "Payment Type": item?.payment_type || "-",
-        "Payment Status": item?.payment_status || "-",
-        "Session Type": item?.session_type || "-",
+        "Payment Status": getPaymentStatusDisplay(item?.payment_status) || "-",
+        "Session Type": getSessionTypeDisplay(item?.session_type) || "-",
         "Booking Type": item?.booking_type || "-",
         Status: status ? status.charAt(0).toUpperCase() + status.slice(1) : "-",
       };
@@ -461,8 +843,8 @@ const RoleAccessLayer = () => {
         formatTime(getSlotEndValue(item)),
         getAmountText(item),
         item?.payment_type || "-",
-        item?.payment_status || "-",
-        item?.session_type || "-",
+        getPaymentStatusDisplay(item?.payment_status) || "-",
+        getSessionTypeDisplay(item?.session_type) || "-",
         item?.booking_type || "-",
         status ? status.charAt(0).toUpperCase() + status.slice(1) : "-",
       ];
@@ -475,6 +857,7 @@ const RoleAccessLayer = () => {
       styles: { fontSize: 8 },
       headStyles: { fontSize: 8 },
     });
+
     doc.save("bookings.pdf");
   };
 
@@ -498,6 +881,234 @@ const RoleAccessLayer = () => {
 
   return (
     <div className="card h-100 p-0 radius-12">
+      <style>{`
+        .lyl-select-wrap {
+          position: relative;
+          min-width: 170px;
+        }
+
+       .lyl-select {
+  width: 100%;
+  height: 46px;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  border: 1px solid #2d7ff9;
+  border-radius: 16px;
+  padding: 0 42px 0 16px;
+  background: #22324a;
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 700;
+  outline: none;
+  box-shadow: none;
+  transition: all 0.2s ease;
+}
+
+        .lyl-select:hover {
+          border-color: #2f83ff;
+          box-shadow:
+            inset 0 0 0 1px rgba(255,255,255,0.03),
+            0 10px 22px rgba(0,0,0,0.2);
+        }
+
+        .lyl-select-wrap::after {
+          content: "";
+          position: absolute;
+          right: 16px;
+          top: 50%;
+          width: 10px;
+          height: 10px;
+          border-right: 2px solid rgba(255,255,255,0.9);
+          border-bottom: 2px solid rgba(255,255,255,0.9);
+          transform: translateY(-65%) rotate(45deg);
+          pointer-events: none;
+        }
+
+        .lyl-select:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
+        .lyl-cell-note {
+          margin-top: 7px;
+          font-size: 11px;
+          color: #8aa0bf;
+          font-weight: 600;
+        }
+
+        .lyl-modal-overlay {
+          position: fixed;
+          inset: 0;
+          z-index: 1200;
+          background: rgba(1, 9, 20, 0.72);
+          backdrop-filter: blur(6px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 20px;
+        }
+
+        .lyl-modal-card {
+          width: 100%;
+          max-width: 430px;
+          background: linear-gradient(180deg, #0a1d38 0%, #08162a 100%);
+          border: 1px solid rgba(52, 123, 255, 0.28);
+          border-radius: 24px;
+          padding: 28px 24px 22px;
+          box-shadow:
+            0 24px 70px rgba(0,0,0,0.42),
+            inset 0 0 0 1px rgba(255,255,255,0.02);
+          text-align: center;
+          color: #ffffff;
+        }
+
+        .lyl-modal-icon {
+          width: 62px;
+          height: 62px;
+          border-radius: 50%;
+          margin: 0 auto 16px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 28px;
+          font-weight: 800;
+          color: #ffffff;
+          background: linear-gradient(180deg, #1d73ff 0%, #1558c8 100%);
+          box-shadow: 0 14px 30px rgba(29, 115, 255, 0.25);
+        }
+
+        .lyl-modal-title {
+          margin: 0 0 10px;
+          font-size: 22px;
+          font-weight: 800;
+          color: #ffffff;
+        }
+
+        .lyl-modal-text {
+          margin: 0;
+          color: #aec1dc;
+          font-size: 14px;
+          line-height: 1.65;
+        }
+
+        .lyl-modal-actions {
+          display: flex;
+          gap: 12px;
+          margin-top: 24px;
+          justify-content: center;
+        }
+
+        .lyl-btn {
+          min-width: 128px;
+          height: 46px;
+          border: 0;
+          border-radius: 14px;
+          font-weight: 700;
+          font-size: 14px;
+          transition: all 0.2s ease;
+        }
+
+        .lyl-btn-primary {
+          color: #fff;
+          background: linear-gradient(180deg, #1d73ff 0%, #1459ca 100%);
+          box-shadow: 0 12px 24px rgba(29, 115, 255, 0.22);
+        }
+
+        .lyl-btn-secondary {
+          color: #d7e4f7;
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .lyl-btn:disabled {
+          opacity: 0.65;
+          cursor: not-allowed;
+        }
+
+        .lyl-toast {
+          position: fixed;
+          top: 20px;
+          right: 20px;
+          z-index: 1300;
+          min-width: 320px;
+          max-width: 420px;
+          border-radius: 18px;
+          padding: 16px 18px;
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 14px;
+          color: #fff;
+          box-shadow: 0 18px 48px rgba(0,0,0,0.3);
+          border: 1px solid rgba(255,255,255,0.08);
+          backdrop-filter: blur(6px);
+        }
+
+        .lyl-toast.success {
+          background: linear-gradient(180deg, rgba(11, 78, 49, 0.97) 0%, rgba(8, 52, 34, 0.97) 100%);
+        }
+
+        .lyl-toast.error {
+          background: linear-gradient(180deg, rgba(110, 19, 30, 0.97) 0%, rgba(71, 12, 19, 0.97) 100%);
+        }
+
+        .lyl-toast-title {
+          font-size: 15px;
+          font-weight: 800;
+          margin-bottom: 3px;
+        }
+
+        .lyl-toast-message {
+          font-size: 13px;
+          line-height: 1.5;
+          color: rgba(255,255,255,0.88);
+        }
+
+        .lyl-toast-close {
+          border: 0;
+          background: transparent;
+          color: #ffffff;
+          font-size: 22px;
+          line-height: 1;
+          padding: 0;
+          opacity: 0.85;
+        }
+
+        .lyl-recording-modal {
+          background: linear-gradient(180deg, #09192f 0%, #071425 100%);
+          border: 1px solid rgba(52, 123, 255, 0.22);
+          border-radius: 18px;
+          padding: 16px;
+          box-shadow: 0 24px 60px rgba(0,0,0,0.35);
+        }
+
+        .lyl-recording-title {
+          color: #ffffff;
+          font-weight: 700;
+        }
+
+        .lyl-recording-close {
+          border-radius: 12px;
+        }
+      `}</style>
+
+      <AlertToast
+        alertData={alertData}
+        onClose={() => setAlertData((prev) => ({ ...prev, open: false }))}
+      />
+
+      <ConfirmActionModal
+        open={confirmModal.open}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        confirmText="Yes, Update"
+        cancelText="Cancel"
+        onConfirm={handleConfirmUpdate}
+        onClose={closeConfirmModal}
+        loading={confirmLoading}
+      />
+
       <div className="card-header border-bottom bg-base py-16 px-24 d-flex align-items-center flex-wrap gap-3 justify-content-between">
         <div className="d-flex align-items-center flex-wrap gap-3">
           <input
@@ -514,6 +1125,7 @@ const RoleAccessLayer = () => {
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
           />
+
           <input
             type="date"
             className="form-control w-auto"
@@ -547,6 +1159,7 @@ const RoleAccessLayer = () => {
             <option value="">Payment Status: All</option>
             <option value="paid">Paid</option>
             <option value="unpaid">Unpaid</option>
+            <option value="free">Free</option>
           </select>
 
           <select
@@ -593,6 +1206,7 @@ const RoleAccessLayer = () => {
             <option value="completed">Completed</option>
             <option value="ongoing">Ongoing</option>
             <option value="missed">Missed</option>
+            <option value="cancelled">Cancelled</option>
           </select>
 
           <button
@@ -615,6 +1229,7 @@ const RoleAccessLayer = () => {
           <button onClick={exportToExcel} className="btn btn-success btn-sm">
             Excel Export
           </button>
+
           <button onClick={exportToPDF} className="btn btn-danger btn-sm">
             PDF Export
           </button>
@@ -692,6 +1307,13 @@ const RoleAccessLayer = () => {
                   const recUrl = normalizeRecordingUrl(item?.recording_s3_url);
                   const bd = parseBookDate(getBookDateValue(item));
                   const isDisabled = isRescheduleDisabled(item);
+                  const bookingId = getBookingId(item);
+
+                  const paymentSaving = isFieldSaving(bookingId, "payment_status");
+                  const sessionSaving = isFieldSaving(bookingId, "session_type");
+
+                  const currentPaymentStatus = getPaymentStatusDisplay(item?.payment_status);
+                  const currentSessionType = getSessionTypeDisplay(item?.session_type);
 
                   return (
                     <tr key={makeRowKey(item)}>
@@ -700,9 +1322,8 @@ const RoleAccessLayer = () => {
                       <td>
                         <button
                           type="button"
-                          className={`btn btn-sm ${
-                            isDisabled ? "btn-outline-secondary" : "btn-outline-primary"
-                          }`}
+                          className={`btn btn-sm ${isDisabled ? "btn-outline-secondary" : "btn-outline-primary"
+                            }`}
                           onClick={() => {
                             if (!isDisabled) openRescheduleModal(item);
                           }}
@@ -740,7 +1361,46 @@ const RoleAccessLayer = () => {
                       <td>{item?.teachername || "-"}</td>
                       <td>{formatTime(getSlotStartValue(item))}</td>
                       <td>{formatTime(getSlotEndValue(item))}</td>
-                      <td>{getAmountText(item)}</td>
+                      <td>
+                        {isDirectBooking(item) ? (
+                          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              className="form-control form-control-sm"
+                              style={{ width: "110px" }}
+                              value={amountDraftMap[bookingId] ?? getAmountValue(item)}
+                              disabled={isFieldSaving(bookingId, "amount")}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setAmountDraftMap((prev) => ({
+                                  ...prev,
+                                  [bookingId]: value,
+                                }));
+                              }}
+                            />
+
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-outline-primary"
+                              disabled={isFieldSaving(bookingId, "amount")}
+                              onClick={() => {
+                                const value = amountDraftMap[bookingId] ?? getAmountValue(item);
+                                openConfirmModal(item, "amount", value);
+                              }}
+                            >
+                              Save
+                            </button>
+                          </div>
+                        ) : (
+                          getAmountText(item)
+                        )}
+
+                        {isFieldSaving(bookingId, "amount") ? (
+                          <div className="lyl-cell-note">Updating...</div>
+                        ) : null}
+                      </td>
 
                       <td>
                         <span className={`badge ${getPaymentTypeBadgeClass(item?.payment_type)}`}>
@@ -749,15 +1409,23 @@ const RoleAccessLayer = () => {
                       </td>
 
                       <td>
-                        <span className={`badge ${getPaymentStatusBadgeClass(item?.payment_status)}`}>
-                          {item?.payment_status || "-"}
-                        </span>
+                        <DarkSelectEditor
+                          value={currentPaymentStatus}
+                          options={PAYMENT_STATUS_OPTIONS}
+                          loading={paymentSaving}
+                          onChange={(value) => openConfirmModal(item, "payment_status", value)}
+                        />
+                        {paymentSaving ? <div className="lyl-cell-note">Updating...</div> : null}
                       </td>
 
                       <td>
-                        <span className={`badge ${getSessionTypeBadgeClass(item?.session_type)}`}>
-                          {item?.session_type || "-"}
-                        </span>
+                        <DarkSelectEditor
+                          value={currentSessionType}
+                          options={SESSION_TYPE_OPTIONS}
+                          loading={sessionSaving}
+                          onChange={(value) => openConfirmModal(item, "session_type", value)}
+                        />
+                        {sessionSaving ? <div className="lyl-cell-note">Updating...</div> : null}
                       </td>
 
                       <td>
@@ -800,19 +1468,19 @@ const RoleAccessLayer = () => {
       {isRecordingOpen && (
         <div
           className="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
-          style={{ background: "rgba(0,0,0,0.6)", zIndex: 1050 }}
+          style={{ background: "rgba(0,0,0,0.68)", zIndex: 1050 }}
           role="dialog"
           aria-modal="true"
           onClick={closeRecording}
         >
           <div
-            className="bg-white radius-12 p-16"
+            className="lyl-recording-modal"
             style={{ width: "min(900px, 92vw)" }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="d-flex justify-content-between align-items-center mb-2">
-              <h6 className="mb-0">Recording</h6>
-              <button className="btn btn-sm btn-outline-secondary" onClick={closeRecording}>
+              <h6 className="mb-0 lyl-recording-title">Recording</h6>
+              <button className="btn btn-sm btn-outline-light lyl-recording-close" onClick={closeRecording}>
                 Close
               </button>
             </div>
@@ -822,10 +1490,10 @@ const RoleAccessLayer = () => {
                 src={activeRecordingUrl}
                 controls
                 autoPlay
-                style={{ width: "100%", maxHeight: "70vh", background: "#000" }}
+                style={{ width: "100%", maxHeight: "70vh", background: "#000", borderRadius: "12px" }}
               />
             ) : (
-              <div className="text-center py-5">Recording not available</div>
+              <div className="text-center py-5 text-white">Recording not available</div>
             )}
           </div>
         </div>

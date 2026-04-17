@@ -53,6 +53,15 @@ const STATUS_OPTIONS = [
   },
 ];
 
+const USER_RESPONSE_OPTIONS = [
+  { label: "Interested", value: "Interested" },
+  { label: "Not Interested", value: "Not Interested" },
+  { label: "No Response", value: "No Response" },
+  { label: "Follow Up Required", value: "Follow Up Required" },
+  { label: "Call Back Later", value: "Call Back Later" },
+  { label: "Wrong Number", value: "Wrong Number" },
+];
+
 const EMPTY_FORM = {
   lead_source: "",
   client_name: "",
@@ -61,8 +70,11 @@ const EMPTY_FORM = {
   child_name: "",
   year_group: "",
   whatsapp_message_sent: false,
+  whatsapp_user_response: "",
   email_sent: false,
+  email_user_response: "",
   phone_call: false,
+  phone_user_response: "",
   go_study_member_leading: "",
   notes: "",
   status: "contact_made",
@@ -94,9 +106,28 @@ const createFallbackId = () => {
   return `lead-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 };
 
+const parseDateValue = (value) => {
+  if (!value) return null;
+  const raw = String(value).trim();
+  const normalized = raw.includes("T") ? raw : raw.replace(" ", "T");
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
 const getSafeTime = (value) => {
-  const time = new Date(value).getTime();
-  return Number.isNaN(time) ? 0 : time;
+  const date = parseDateValue(value);
+  return date ? date.getTime() : 0;
+};
+
+const formatDisplayDate = (value) => {
+  const date = parseDateValue(value);
+  if (!date) return "-";
+
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(date);
 };
 
 const formatDateTimeForApi = (date = new Date()) => {
@@ -129,8 +160,11 @@ const normalizeLead = (item) => {
     child_name: item?.child_name || "",
     year_group: item?.year_group || "",
     whatsapp_message_sent: toBoolean(item?.whatsapp_message_sent),
+    whatsapp_user_response: item?.whatsapp_user_response || "",
     email_sent: toBoolean(item?.email_sent),
+    email_user_response: item?.email_user_response || "",
     phone_call: toBoolean(item?.phone_call),
+    phone_user_response: item?.phone_user_response || "",
     go_study_member_leading: item?.go_study_member_leading || "",
     notes: item?.notes || "",
     status: item?.status || "contact_made",
@@ -163,6 +197,8 @@ const getSourceClass = (source) => {
 const getYesNoClass = (value) =>
   value ? "lc-badge lc-badge-success" : "lc-badge lc-badge-danger";
 
+const renderUserResponse = (value) => value?.trim() || "-";
+
 const buildAddLeadPayload = (token, formData) => ({
   token,
   tablename: "leads",
@@ -173,8 +209,17 @@ const buildAddLeadPayload = (token, formData) => ({
   child_name: formData.child_name?.trim() || "",
   year_group: formData.year_group || "",
   whatsapp_message_sent: toApiFlag(formData.whatsapp_message_sent),
+  whatsapp_user_response: formData.whatsapp_message_sent
+    ? formData.whatsapp_user_response || ""
+    : "",
   email_sent: toApiFlag(formData.email_sent),
+  email_user_response: formData.email_sent
+    ? formData.email_user_response || ""
+    : "",
   phone_call: toApiFlag(formData.phone_call),
+  phone_user_response: formData.phone_call
+    ? formData.phone_user_response || ""
+    : "",
   go_study_member_leading: formData.go_study_member_leading || "",
   notes: formData.notes?.trim() || "",
   status: formData.status || "contact_made",
@@ -197,8 +242,17 @@ const buildUpdateLeadPayload = (token, leadId, formData) => ({
       child_name: formData.child_name?.trim() || "",
       year_group: formData.year_group || "",
       whatsapp_message_sent: toApiFlag(formData.whatsapp_message_sent),
+      whatsapp_user_response: formData.whatsapp_message_sent
+        ? formData.whatsapp_user_response || ""
+        : "",
       email_sent: toApiFlag(formData.email_sent),
+      email_user_response: formData.email_sent
+        ? formData.email_user_response || ""
+        : "",
       phone_call: toApiFlag(formData.phone_call),
+      phone_user_response: formData.phone_call
+        ? formData.phone_user_response || ""
+        : "",
       go_study_member_leading: formData.go_study_member_leading || "",
       notes: formData.notes?.trim() || "",
       status: formData.status || "contact_made",
@@ -389,7 +443,7 @@ const themeStyles = `
 
   .lead-centre-theme .lc-table {
     width: 100%;
-    min-width: 1750px;
+    min-width: 2350px;
     margin-bottom: 0;
     color: var(--lc-text);
     table-layout: fixed;
@@ -437,6 +491,7 @@ const themeStyles = `
   }
 
   .lead-centre-theme .lc-col-sl { width: 70px; min-width: 70px; }
+  .lead-centre-theme .lc-col-date { width: 130px; min-width: 130px; }
   .lead-centre-theme .lc-col-source { width: 150px; min-width: 150px; }
   .lead-centre-theme .lc-col-name { width: 180px; min-width: 180px; }
   .lead-centre-theme .lc-col-email { width: 235px; min-width: 235px; }
@@ -444,6 +499,7 @@ const themeStyles = `
   .lead-centre-theme .lc-col-child { width: 170px; min-width: 170px; }
   .lead-centre-theme .lc-col-year { width: 140px; min-width: 140px; }
   .lead-centre-theme .lc-col-flag { width: 95px; min-width: 95px; text-align: center; }
+  .lead-centre-theme .lc-col-response { width: 185px; min-width: 185px; }
   .lead-centre-theme .lc-col-member { width: 170px; min-width: 170px; }
   .lead-centre-theme .lc-col-notes { width: 240px; min-width: 240px; }
   .lead-centre-theme .lc-col-status { width: 190px; min-width: 190px; }
@@ -618,7 +674,24 @@ const LeadFormModal = ({
   if (!isOpen) return null;
 
   const setField = (key, value) => {
-    setFormData((prev) => ({ ...prev, [key]: value }));
+    setFormData((prev) => {
+      const next = { ...prev, [key]: value };
+
+      if (key === "whatsapp_message_sent" && !value) {
+        next.whatsapp_user_response = "";
+      }
+
+      if (key === "email_sent" && !value) {
+        next.email_user_response = "";
+      }
+
+      if (key === "phone_call" && !value) {
+        next.phone_user_response = "";
+      }
+
+      return next;
+    });
+
     setErrors((prev) => ({ ...prev, [key]: "" }));
   };
 
@@ -794,6 +867,29 @@ const LeadFormModal = ({
               </div>
 
               <div className="col-md-4">
+                <label className="lc-label">WhatsApp User Response</label>
+                <select
+                  className="lc-select"
+                  value={formData.whatsapp_user_response}
+                  onChange={(e) =>
+                    setField("whatsapp_user_response", e.target.value)
+                  }
+                  disabled={submitting || !formData.whatsapp_message_sent}
+                >
+                  <option value="">
+                    {formData.whatsapp_message_sent
+                      ? "Select response"
+                      : "Enable WhatsApp first"}
+                  </option>
+                  {USER_RESPONSE_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="col-md-4">
                 <label className="lc-label">Email Sent</label>
                 <select
                   className="lc-select"
@@ -809,6 +905,25 @@ const LeadFormModal = ({
               </div>
 
               <div className="col-md-4">
+                <label className="lc-label">Email User Response</label>
+                <select
+                  className="lc-select"
+                  value={formData.email_user_response}
+                  onChange={(e) => setField("email_user_response", e.target.value)}
+                  disabled={submitting || !formData.email_sent}
+                >
+                  <option value="">
+                    {formData.email_sent ? "Select response" : "Enable Email first"}
+                  </option>
+                  {USER_RESPONSE_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="col-md-4">
                 <label className="lc-label">Phone Call</label>
                 <select
                   className="lc-select"
@@ -820,6 +935,25 @@ const LeadFormModal = ({
                 >
                   <option value="false">No</option>
                   <option value="true">Yes</option>
+                </select>
+              </div>
+
+              <div className="col-md-4">
+                <label className="lc-label">Phone User Response</label>
+                <select
+                  className="lc-select"
+                  value={formData.phone_user_response}
+                  onChange={(e) => setField("phone_user_response", e.target.value)}
+                  disabled={submitting || !formData.phone_call}
+                >
+                  <option value="">
+                    {formData.phone_call ? "Select response" : "Enable Phone Call first"}
+                  </option>
+                  {USER_RESPONSE_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -1067,10 +1201,14 @@ const LeadCentreLayer = () => {
         item.client_phone,
         item.child_name,
         item.notes,
+        item.whatsapp_user_response,
+        item.email_user_response,
+        item.phone_user_response,
         item.lead_source,
         item.status,
         item.go_study_member_leading,
         item.year_group,
+        item.created_at,
       ]
         .join(" ")
         .toLowerCase();
@@ -1164,17 +1302,16 @@ const LeadCentreLayer = () => {
         confirmButtonText: "OK",
       });
     } catch (err) {
-      console.error(isEditMode ? "Update lead error:" : "Add lead error:", err);
+      console.error("Save lead error:", err);
+
+      Swal.close();
 
       const message =
         err?.response?.data?.message ||
         err?.message ||
-        `Something went wrong while ${
-          isEditMode ? "updating" : "saving"
-        } the lead.`;
+        "Something went wrong while saving the lead.";
 
       setError(message);
-      Swal.close();
 
       await Swal.fire({
         icon: "error",
@@ -1188,12 +1325,22 @@ const LeadCentreLayer = () => {
   };
 
   const handleDeleteLead = async (lead) => {
+    const leadId = Number(lead?.id);
+
+    if (!leadId) {
+      await Swal.fire({
+        icon: "error",
+        title: "Invalid Lead",
+        text: "Unable to delete this lead because the ID is invalid.",
+        confirmButtonText: "OK",
+      });
+      return;
+    }
+
     const result = await Swal.fire({
       icon: "warning",
       title: "Delete Lead?",
-      text: `Are you sure you want to delete "${
-        lead?.client_name || "this lead"
-      }"? This action will delete the record from the list.`,
+      text: `Are you sure you want to delete ${lead?.client_name || "this lead"}?`,
       showCancelButton: true,
       confirmButtonText: "Yes, Delete",
       cancelButtonText: "Cancel",
@@ -1203,12 +1350,12 @@ const LeadCentreLayer = () => {
     if (!result.isConfirmed) return;
 
     try {
-      setDeletingLeadId(lead?.id);
+      setDeletingLeadId(leadId);
       setError("");
 
       Swal.fire({
         title: "Deleting Lead...",
-        text: "Please wait while the lead is being removed.",
+        text: "Please wait while the lead is being deleted.",
         allowOutsideClick: false,
         allowEscapeKey: false,
         didOpen: () => {
@@ -1216,20 +1363,21 @@ const LeadCentreLayer = () => {
         },
       });
 
-      await deleteLead(lead.id);
-
-      setRows((prev) => prev.filter((item) => item.id !== lead.id));
+      await deleteLead(leadId);
+      await fetchLeads({ silent: true });
 
       Swal.close();
 
       await Swal.fire({
         icon: "success",
         title: "Lead Deleted Successfully",
-        text: "The lead has been deleted",
+        text: "The lead has been deleted successfully.",
         confirmButtonText: "OK",
       });
     } catch (err) {
       console.error("Delete lead error:", err);
+
+      Swal.close();
 
       const message =
         err?.response?.data?.message ||
@@ -1237,7 +1385,6 @@ const LeadCentreLayer = () => {
         "Something went wrong while deleting the lead.";
 
       setError(message);
-      Swal.close();
 
       await Swal.fire({
         icon: "error",
@@ -1253,6 +1400,7 @@ const LeadCentreLayer = () => {
   const exportToExcel = () => {
     const data = filteredData.map((item, i) => ({
       "S.L": i + 1,
+      Date: formatDisplayDate(item.created_at),
       "Lead Source": getOptionLabel(LEAD_SOURCE_OPTIONS, item.lead_source),
       "Client Name": item.client_name || "-",
       "Client Email": item.client_email || "-",
@@ -1260,8 +1408,11 @@ const LeadCentreLayer = () => {
       "Name of Child": item.child_name || "-",
       "Year Group": getOptionLabel(YEAR_GROUP_OPTIONS, item.year_group),
       "WhatsApp Message Sent": item.whatsapp_message_sent ? "Yes" : "No",
+      "WhatsApp User Response": renderUserResponse(item.whatsapp_user_response),
       "Email Sent": item.email_sent ? "Yes" : "No",
+      "Email User Response": renderUserResponse(item.email_user_response),
       "Phone Call": item.phone_call ? "Yes" : "No",
+      "Phone User Response": renderUserResponse(item.phone_user_response),
       "GoStudy Member Leading": getOptionLabel(
         MEMBER_OPTIONS,
         item.go_study_member_leading
@@ -1287,6 +1438,7 @@ const LeadCentreLayer = () => {
 
     const columns = [
       "S.L",
+      "Date",
       "Lead Source",
       "Client Name",
       "Client Email",
@@ -1294,14 +1446,18 @@ const LeadCentreLayer = () => {
       "Child Name",
       "Year Group",
       "WA Sent",
+      "WA Response",
       "Email Sent",
+      "Email Response",
       "Phone Call",
+      "Phone Response",
       "Leading",
       "Status",
     ];
 
     const body = filteredData.map((item, i) => [
       i + 1,
+      formatDisplayDate(item.created_at),
       getOptionLabel(LEAD_SOURCE_OPTIONS, item.lead_source),
       item.client_name || "-",
       item.client_email || "-",
@@ -1309,8 +1465,11 @@ const LeadCentreLayer = () => {
       item.child_name || "-",
       getOptionLabel(YEAR_GROUP_OPTIONS, item.year_group),
       item.whatsapp_message_sent ? "Yes" : "No",
+      renderUserResponse(item.whatsapp_user_response),
       item.email_sent ? "Yes" : "No",
+      renderUserResponse(item.email_user_response),
       item.phone_call ? "Yes" : "No",
+      renderUserResponse(item.phone_user_response),
       getOptionLabel(MEMBER_OPTIONS, item.go_study_member_leading),
       getOptionLabel(STATUS_OPTIONS, item.status),
     ]);
@@ -1431,7 +1590,7 @@ const LeadCentreLayer = () => {
               <input
                 type="text"
                 className="lc-input"
-                placeholder="Search name, email, phone, child..."
+                placeholder="Search name, email, phone, child, notes, responses..."
                 value={searchTerm}
                 onChange={(e) => {
                   setSearchTerm(e.target.value);
@@ -1516,6 +1675,7 @@ const LeadCentreLayer = () => {
                     <thead>
                       <tr>
                         <th className="lc-col-sl">S.L</th>
+                        <th className="lc-col-date">Date</th>
                         <th className="lc-col-source">Lead Source</th>
                         <th className="lc-col-name">Client Name</th>
                         <th className="lc-col-email">Client Email</th>
@@ -1523,8 +1683,11 @@ const LeadCentreLayer = () => {
                         <th className="lc-col-child">Name of Child</th>
                         <th className="lc-col-year">Year Group</th>
                         <th className="lc-col-flag">WhatsApp</th>
+                        <th className="lc-col-response">WA Response</th>
                         <th className="lc-col-flag">Email</th>
+                        <th className="lc-col-response">Email Response</th>
                         <th className="lc-col-flag">Phone Call</th>
+                        <th className="lc-col-response">Phone Response</th>
                         <th className="lc-col-member">Leading Member</th>
                         <th className="lc-col-notes">Notes</th>
                         <th className="lc-col-status">Status</th>
@@ -1535,7 +1698,7 @@ const LeadCentreLayer = () => {
                     <tbody>
                       {currentItems.length === 0 ? (
                         <tr>
-                          <td colSpan={14} className="text-center py-4">
+                          <td colSpan={18} className="text-center py-4">
                             No lead records found.
                           </td>
                         </tr>
@@ -1544,6 +1707,10 @@ const LeadCentreLayer = () => {
                           <tr key={String(item.id)}>
                             <td className="lc-col-sl lc-nowrap">
                               {indexOfFirstItem + index + 1}
+                            </td>
+
+                            <td className="lc-col-date lc-nowrap">
+                              {formatDisplayDate(item.created_at)}
                             </td>
 
                             <td className="lc-col-source lc-nowrap">
@@ -1588,16 +1755,28 @@ const LeadCentreLayer = () => {
                               </span>
                             </td>
 
+                            <td className="lc-col-response lc-wrap">
+                              {renderUserResponse(item.whatsapp_user_response)}
+                            </td>
+
                             <td className="lc-col-flag">
                               <span className={getYesNoClass(item.email_sent)}>
                                 {item.email_sent ? "Yes" : "No"}
                               </span>
                             </td>
 
+                            <td className="lc-col-response lc-wrap">
+                              {renderUserResponse(item.email_user_response)}
+                            </td>
+
                             <td className="lc-col-flag">
                               <span className={getYesNoClass(item.phone_call)}>
                                 {item.phone_call ? "Yes" : "No"}
                               </span>
+                            </td>
+
+                            <td className="lc-col-response lc-wrap">
+                              {renderUserResponse(item.phone_user_response)}
                             </td>
 
                             <td className="lc-col-member lc-nowrap">

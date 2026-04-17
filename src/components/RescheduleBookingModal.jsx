@@ -169,7 +169,7 @@ const extractIanaTimezone = (...candidates) => {
 
 const getSafeTimezone = (tz) => {
   const resolved = extractIanaTimezone(tz);
-  return resolved || "Asia/Karachi";
+  return resolved || "Asia/Dubai";
 };
 
 const formatClock = (value) => {
@@ -449,7 +449,7 @@ const normalizeAvailability = (profileData) => {
   );
 };
 
-const normalizeTeacherBookedSlots = (storedProcResponse, fallbackTimezone = "Asia/Karachi") => {
+const normalizeTeacherBookedSlots = (storedProcResponse, fallbackTimezone = "Asia/Dubai") => {
   const raw = Array.isArray(storedProcResponse?.data)
     ? storedProcResponse.data
     : Array.isArray(storedProcResponse?.data?.data)
@@ -485,11 +485,14 @@ const RescheduleBookingModal = ({
   onClose,
   onSuccess,
   booking,
-  timezone = "Asia/Karachi",
+  timezone = "Asia/Dubai",
 }) => {
   const [selectedSubjectId, setSelectedSubjectId] = useState("");
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedSlot, setSelectedSlot] = useState(null);
+  const [useCustomSlot, setUseCustomSlot] = useState(false);
+  const [customStartTime, setCustomStartTime] = useState("");
+  const [customEndTime, setCustomEndTime] = useState("");
   const [selectedTimezone, setSelectedTimezone] = useState(getSafeTimezone(timezone));
   const [selectedWeekStart, setSelectedWeekStart] = useState(null);
 
@@ -511,7 +514,7 @@ const RescheduleBookingModal = ({
     let active = true;
 
     const defaultTimezone = getSafeTimezone(
-      booking?.studentTime_zone || timezone || "Asia/Karachi"
+      booking?.studentTime_zone || timezone || "Asia/Dubai"
     );
 
     const currentWeek = getWeekStart(moment.tz(defaultTimezone), defaultTimezone);
@@ -520,6 +523,9 @@ const RescheduleBookingModal = ({
     setSelectedWeekStart(currentWeek);
     setSelectedDate(getDefaultVisibleDateForWeek(currentWeek, defaultTimezone));
     setSelectedSlot(null);
+    setUseCustomSlot(false);
+    setCustomStartTime("");
+    setCustomEndTime("");
     setProfileError("");
     setSubmitError("");
     setBookedSlotsWarning("");
@@ -532,7 +538,7 @@ const RescheduleBookingModal = ({
         booking?.studentTime_zone,
         booking?.teacherTime_zone,
         timezone,
-        "Asia/Karachi",
+        "Asia/Dubai",
       ])
     );
     setSelectedSubjectId(String(firstFilled(booking?.subjectid, booking?.subjectname)));
@@ -558,7 +564,7 @@ const RescheduleBookingModal = ({
 
         const normalizedTimezones = normalizeTimezoneOptions(
           timezonesRes.status === "fulfilled" ? timezonesRes.value : null,
-          [booking?.studentTime_zone, booking?.teacherTime_zone, timezone, "Asia/Karachi"]
+          [booking?.studentTime_zone, booking?.teacherTime_zone, timezone, "Asia/Dubai"]
         );
 
         setTimezoneOptions(normalizedTimezones);
@@ -661,7 +667,7 @@ const RescheduleBookingModal = ({
       timezoneById[String(profile?.timezoneid)] ||
       booking?.teacherTime_zone ||
       timezone ||
-      "Asia/Karachi";
+      "Asia/Dubai";
 
     return getSafeTimezone(zone);
   }, [teacherProfileData, timezoneById, booking, timezone]);
@@ -683,7 +689,7 @@ const RescheduleBookingModal = ({
     const bookingDate = booking?.bookdate || booking?.booking_date || "";
     const parsed = parseBookingDate(
       bookingDate,
-      booking?.studentTime_zone || timezone || "Asia/Karachi"
+      booking?.studentTime_zone || timezone || "Asia/Dubai"
     );
     return parsed ? parsed.format("DD MMM YYYY") : "-";
   }, [booking, timezone]);
@@ -850,7 +856,7 @@ const RescheduleBookingModal = ({
   ]);
 
   useEffect(() => {
-    if (!selectedSlot || !selectedDate) return;
+    if (useCustomSlot || !selectedSlot || !selectedDate) return;
 
     const stillExists = (slotsMap[selectedDate] || []).some(
       (slot) =>
@@ -862,7 +868,7 @@ const RescheduleBookingModal = ({
     if (!stillExists || selectedSlot?.isBooked) {
       setSelectedSlot(null);
     }
-  }, [slotsMap, selectedDate, selectedSlot]);
+  }, [slotsMap, selectedDate, selectedSlot, useCustomSlot]);
 
   const goPrevWeek = () => {
     if (!canGoPrevWeek) return;
@@ -922,18 +928,29 @@ const RescheduleBookingModal = ({
 
     setSelectedDate(day.format("YYYY-MM-DD"));
     setSelectedSlot(slot);
+    setUseCustomSlot(false);
+    setCustomStartTime("");
+    setCustomEndTime("");
     setSelectedWeekStart(getWeekStart(day, selectedTimezone));
     setSubmitError("");
   };
 
+  const customSlotLabel = useMemo(() => {
+    if (!useCustomSlot) return selectedSlot?.label || "-";
+    if (customStartTime && customEndTime) return `${customStartTime} - ${customEndTime}`;
+    return "Custom slot";
+  }, [useCustomSlot, customStartTime, customEndTime, selectedSlot]);
+
   const canSubmit = Boolean(
     selectedSubjectId &&
       selectedDate &&
-      selectedSlot &&
-      !selectedSlot?.isBooked &&
       selectedTimezoneId &&
       !profileLoading &&
-      !submitting
+      !submitting &&
+      (
+        (!useCustomSlot && selectedSlot && !selectedSlot?.isBooked) ||
+        (useCustomSlot && customStartTime && customEndTime)
+      )
   );
 
   const handleSubmit = async () => {
@@ -942,13 +959,18 @@ const RescheduleBookingModal = ({
       return;
     }
 
-    if (!selectedSlot) {
-      setSubmitError("Please select a slot.");
+    if (!useCustomSlot && !selectedSlot) {
+      setSubmitError("Please select a slot ya custom slot enter karein.");
       return;
     }
 
-    if (selectedSlot?.isBooked) {
+    if (!useCustomSlot && selectedSlot?.isBooked) {
       setSubmitError("Booked slot select nahi ho sakta.");
+      return;
+    }
+
+    if (useCustomSlot && (!customStartTime || !customEndTime)) {
+      setSubmitError("Custom start aur end time required hai.");
       return;
     }
 
@@ -968,8 +990,45 @@ const RescheduleBookingModal = ({
     try {
       const headers = await buildApiHeaders();
 
-      const startMoment = moment.parseZone(selectedSlot.start).tz(selectedTimezone);
-      const endMoment = moment.parseZone(selectedSlot.end).tz(selectedTimezone);
+      let startMoment;
+      let endMoment;
+
+      if (useCustomSlot) {
+        startMoment = moment.tz(
+          `${selectedDate} ${customStartTime}`,
+          "YYYY-MM-DD HH:mm",
+          true,
+          selectedTimezone
+        );
+
+        endMoment = moment.tz(
+          `${selectedDate} ${customEndTime}`,
+          "YYYY-MM-DD HH:mm",
+          true,
+          selectedTimezone
+        );
+
+        if (!startMoment.isValid() || !endMoment.isValid()) {
+          setSubmitError("Custom slot time invalid hai.");
+          setSubmitting(false);
+          return;
+        }
+
+        if (!endMoment.isAfter(startMoment)) {
+          setSubmitError("End time start time se baad honi chahiye.");
+          setSubmitting(false);
+          return;
+        }
+
+        if (startMoment.isSameOrBefore(moment.tz(selectedTimezone))) {
+          setSubmitError("Past time select nahi ho sakta.");
+          setSubmitting(false);
+          return;
+        }
+      } else {
+        startMoment = moment.parseZone(selectedSlot.start).tz(selectedTimezone);
+        endMoment = moment.parseZone(selectedSlot.end).tz(selectedTimezone);
+      }
 
       const body = {
         bookingId: booking?.bookingid,
@@ -1290,7 +1349,7 @@ const RescheduleBookingModal = ({
                 <span style={{ fontSize: "15px", color: theme.warning }}>◔</span>
                 <span style={{ color: theme.muted, fontSize: "12px" }}>Time Slot:</span>
                 <strong style={{ color: theme.heading, fontSize: "13px" }}>
-                  {selectedSlot?.label || "-"}
+                  {customSlotLabel}
                 </strong>
               </div>
             </div>
@@ -1568,6 +1627,159 @@ const RescheduleBookingModal = ({
             })}
           </div>
         )}
+
+        <div
+          className="mb-4"
+          style={{
+            border: `1px solid ${theme.border}`,
+            borderRadius: "12px",
+            background: theme.sectionBg,
+            padding: "14px",
+          }}
+        >
+          <div className="d-flex align-items-center justify-content-between gap-3 flex-wrap">
+            <div>
+              <div
+                style={{
+                  color: theme.heading,
+                  fontSize: "14px",
+                  fontWeight: 700,
+                }}
+              >
+                Custom Slot
+              </div>
+              <div style={{ color: theme.muted, fontSize: "12px" }}>
+                If you do not want to select a listed slot, set the start and end time manually here.
+              </div>
+            </div>
+
+            <div className="d-flex align-items-center gap-2">
+              <button
+                type="button"
+                aria-label="Enable custom slot"
+                aria-pressed={useCustomSlot}
+                onClick={() => {
+                  if (submitting) return;
+                  setUseCustomSlot((prev) => !prev);
+                  setSelectedSlot(null);
+                  setSubmitError("");
+                }}
+                disabled={submitting}
+                style={{
+                  width: "52px",
+                  height: "30px",
+                  border: "none",
+                  borderRadius: "999px",
+                  background: useCustomSlot ? theme.primary : "#94a3b8",
+                  position: "relative",
+                  padding: 0,
+                  cursor: submitting ? "not-allowed" : "pointer",
+                  opacity: submitting ? 0.7 : 1,
+                  transition: "all 0.2s ease",
+                  boxShadow: "inset 0 0 0 1px rgba(15, 23, 42, 0.08)",
+                }}
+              >
+                <span
+                  style={{
+                    position: "absolute",
+                    top: "3px",
+                    left: useCustomSlot ? "25px" : "3px",
+                    width: "24px",
+                    height: "24px",
+                    borderRadius: "50%",
+                    background: "#fff",
+                    boxShadow: "0 2px 6px rgba(15, 23, 42, 0.22)",
+                    transition: "all 0.2s ease",
+                  }}
+                />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (submitting) return;
+                  setUseCustomSlot((prev) => !prev);
+                  setSelectedSlot(null);
+                  setSubmitError("");
+                }}
+                disabled={submitting}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  color: theme.heading,
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  padding: 0,
+                  cursor: submitting ? "not-allowed" : "pointer",
+                }}
+              >
+                Enable custom slot
+              </button>
+            </div>
+          </div>
+
+          {useCustomSlot ? (
+            <div className="row g-3 mt-1">
+              <div className="col-md-4">
+                <label
+                  className="form-label"
+                  style={{ color: theme.muted, fontSize: "12px", fontWeight: 700 }}
+                >
+                  Date
+                </label>
+                <input
+                  type="date"
+                  className="form-control theme-native-control"
+                  value={selectedDate}
+                  min={minSelectableDate}
+                  onChange={handleDateInputChange}
+                  disabled={submitting}
+                  style={{ height: "38px", borderRadius: "8px", fontSize: "13px" }}
+                />
+              </div>
+
+              <div className="col-md-4">
+                <label
+                  className="form-label"
+                  style={{ color: theme.muted, fontSize: "12px", fontWeight: 700 }}
+                >
+                  Start Time
+                </label>
+                <input
+                  type="time"
+                  className="form-control theme-native-control"
+                  value={customStartTime}
+                  onChange={(e) => {
+                    setCustomStartTime(e.target.value);
+                    setSubmitError("");
+                  }}
+                  disabled={submitting}
+                  style={{ height: "38px", borderRadius: "8px", fontSize: "13px" }}
+                />
+              </div>
+
+              <div className="col-md-4">
+                <label
+                  className="form-label"
+                  style={{ color: theme.muted, fontSize: "12px", fontWeight: 700 }}
+                >
+                  End Time
+                </label>
+                <input
+                  type="time"
+                  className="form-control theme-native-control"
+                  value={customEndTime}
+                  onChange={(e) => {
+                    setCustomEndTime(e.target.value);
+                    setSubmitError("");
+                  }}
+                  disabled={submitting}
+                  style={{ height: "38px", borderRadius: "8px", fontSize: "13px" }}
+                />
+              </div>
+            </div>
+          ) : null}
+        </div>
 
         <div className="d-flex justify-content-between gap-3 flex-wrap">
           <button

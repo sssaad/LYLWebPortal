@@ -449,6 +449,46 @@ const UnitCountFive = () => {
               </div>
             </div>
 
+            <div className="card p-3 radius-8 shadow-none bg-gradient-dark-start-2 mb-12">
+              <div className="card-body p-0">
+                <div className="d-flex align-items-center gap-2 mb-14">
+                  <span className="w-48-px h-48-px bg-base text-warning text-2xl d-flex justify-content-center align-items-center rounded-circle">
+                    <i className="ri-close-circle-line" />
+                  </span>
+                  <div>
+                    <span className="fw-medium text-secondary-light text-lg">Unpaid Bookings</span>
+                  </div>
+                </div>
+
+                <div className="d-flex justify-content-between align-items-center flex-wrap gap-12">
+                  <h5 className="fw-semibold mb-0">
+                    AED {aed(dashboardData?.total_unpaid_amount)}
+                  </h5>
+
+                  <div className="d-flex align-items-center gap-8">
+                    <span
+                      className="text-white fw-semibold d-inline-flex align-items-center justify-content-center"
+                      style={{
+                        minWidth: '24px',
+                        height: '24px',
+                        padding: '0 8px',
+                        background: '#f92c08',
+                        borderRadius: '8px',
+                        fontSize: '13px',
+                        lineHeight: 1,
+                      }}
+                    >
+                      {dashboardData?.currentmonth_unpaid_booking_count ?? 0}
+                    </span>
+
+                    <span className="text-secondary-light fw-medium text-sm">
+                      Unpaid Bookings
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className="card p-3 radius-8 shadow-none bg-gradient-dark-start-4 mb-0">
               <div className="card-body p-0">
                 <div className="d-flex align-items-center gap-2 mb-12">
