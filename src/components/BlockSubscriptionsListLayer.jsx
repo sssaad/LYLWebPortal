@@ -1,11 +1,15 @@
 import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import moment from "moment";
+import Swal from "sweetalert2";
 import { getToken } from "../api/getToken";
 import CreateBlockSubscriptionModal from "./CreateBlockSubscriptionModal";
 
 const API_URL =
   "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=runStoredProcedure";
+
+const UPDATE_DYNAMIC_DATA_URL =
+  "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=update_dynamic_data";
 
 const headers = {
   projectid: "1",
@@ -30,6 +34,8 @@ const BlockSubscriptionsListLayer = () => {
   const [currentPage, setCurrentPage] = useState(1);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [priceDraftMap, setPriceDraftMap] = useState({});
+  const [savingPriceMap, setSavingPriceMap] = useState({});
 
   const itemsPerPage = 10;
 
@@ -50,7 +56,8 @@ const BlockSubscriptionsListLayer = () => {
       setLoading(true);
       setError("");
 
-      const token = await getToken();
+      const token = await getTokenValue();
+
       if (!token) {
         setError("Token missing");
         setSubscriptions([]);
@@ -92,6 +99,199 @@ const BlockSubscriptionsListLayer = () => {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(x)}`;
+  };
+
+  const getTokenValue = async () => {
+    const tokenResponse = await getToken();
+
+    if (typeof tokenResponse === "string") return tokenResponse;
+    if (typeof tokenResponse?.token === "string") return tokenResponse.token;
+    if (typeof tokenResponse?.data?.token === "string") return tokenResponse.data.token;
+    if (typeof tokenResponse?.data?.data?.token === "string") {
+      return tokenResponse.data.data.token;
+    }
+
+    return "";
+  };
+
+  const getBlockSubscriptionId = (s) => {
+    return s?.id ?? s?.block_subscription_id ?? s?.blockSubscriptionId ?? "";
+  };
+
+  const isPriceSaving = (subscriptionId) => {
+    return !!savingPriceMap[String(subscriptionId)];
+  };
+
+  const setPriceSaving = (subscriptionId, saving) => {
+    setSavingPriceMap((prev) => ({
+      ...prev,
+      [String(subscriptionId)]: saving,
+    }));
+  };
+
+  const patchSubscriptionPrice = (subscriptionId, newPrice) => {
+    setSubscriptions((prev) =>
+      prev.map((row) =>
+        String(getBlockSubscriptionId(row)) === String(subscriptionId)
+          ? {
+            ...row,
+            price: newPrice,
+          }
+          : row
+      )
+    );
+  };
+
+  const updateBlockSubscriptionPrice = async (item, newPrice) => {
+    const subscriptionId = getBlockSubscriptionId(item);
+
+    if (!subscriptionId) {
+      throw new Error("Block subscription ID not found.");
+    }
+
+    const priceValue = Number(String(newPrice ?? "0").replace(/,/g, "").trim());
+
+    if (!Number.isFinite(priceValue) || priceValue < 0) {
+      throw new Error("Please enter a valid price.");
+    }
+
+    const token = await getTokenValue();
+
+    if (!token) {
+      throw new Error("Token not found.");
+    }
+
+    const conditionId = /^\d+$/.test(String(subscriptionId))
+      ? Number(subscriptionId)
+      : subscriptionId;
+
+    const payload = {
+      token,
+      tablename: "block_subscription",
+      conditions: [
+        {
+          id: conditionId,
+        },
+      ],
+      updatedata: [
+        {
+          price: priceValue,
+        },
+      ],
+    };
+
+    const response = await axios.post(UPDATE_DYNAMIC_DATA_URL, payload, {
+      headers,
+    });
+
+    if (response?.data?.statusCode !== 200) {
+      throw new Error(response?.data?.message || "Price update failed.");
+    }
+
+    return response.data;
+  };
+
+  const handleSavePrice = async (item) => {
+    const subscriptionId = getBlockSubscriptionId(item);
+
+    if (!subscriptionId) {
+      Swal.fire({
+        icon: "error",
+        title: "ID Missing",
+        text: "Block subscription ID not found.",
+        confirmButtonText: "OK",
+      });
+      return;
+    }
+
+    const currentPrice = getNetPaid(item);
+    const draftPrice = priceDraftMap[subscriptionId] ?? currentPrice;
+
+    const nextPrice = Number(String(draftPrice ?? "0").replace(/,/g, "").trim());
+
+    if (!Number.isFinite(nextPrice) || nextPrice < 0) {
+      Swal.fire({
+        icon: "error",
+        title: "Invalid Price",
+        text: "Please enter a valid price.",
+        confirmButtonText: "OK",
+      });
+      return;
+    }
+
+    if (currentPrice === nextPrice) {
+      Swal.fire({
+        icon: "info",
+        title: "No Changes",
+        text: "Price is already the same.",
+        confirmButtonText: "OK",
+      });
+      return;
+    }
+
+    const result = await Swal.fire({
+      icon: "warning",
+      title: "Update Price?",
+      html: `
+      <div style="text-align:center; line-height:1.7;">
+        <div>Are you sure you want to update this block subscription price?</div>
+        <div style="margin-top:10px;">
+          <strong>Current:</strong> ${formatAED(currentPrice)}<br/>
+          <strong>New:</strong> ${formatAED(nextPrice)}
+        </div>
+      </div>
+    `,
+      showCancelButton: true,
+      confirmButtonText: "Yes, Update",
+      cancelButtonText: "Cancel",
+      confirmButtonColor: "#3085d6",
+      cancelButtonColor: "#6c757d",
+      reverseButtons: true,
+    });
+
+    if (!result.isConfirmed) return;
+
+    setPriceSaving(subscriptionId, true);
+
+    const previousPrice = currentPrice;
+
+    // Optimistic UI update
+    patchSubscriptionPrice(subscriptionId, nextPrice);
+
+    try {
+      await updateBlockSubscriptionPrice(item, nextPrice);
+
+      setPriceDraftMap((prev) => ({
+        ...prev,
+        [subscriptionId]: nextPrice,
+      }));
+
+      await Swal.fire({
+        icon: "success",
+        title: "Updated Successfully",
+        text: "Block subscription price has been updated successfully.",
+        confirmButtonText: "OK",
+        timer: 1800,
+        timerProgressBar: true,
+      });
+    } catch (err) {
+      // Rollback if API fails
+      patchSubscriptionPrice(subscriptionId, previousPrice);
+
+      setPriceDraftMap((prev) => ({
+        ...prev,
+        [subscriptionId]: previousPrice,
+      }));
+
+      Swal.fire({
+        icon: "error",
+        title: "Update Failed",
+        text: err?.message || "Something went wrong while updating price.",
+        confirmButtonText: "OK",
+      });
+    } finally {
+      setPriceSaving(subscriptionId, false);
+    }
   };
 
   const getUserId = (s) => s?.userid ?? s?.userId ?? "—";
@@ -199,11 +399,9 @@ const BlockSubscriptionsListLayer = () => {
     const term = (searchTerm || "").toLowerCase().trim();
 
     return (subscriptions || []).filter((item) => {
-      const fullText = `${getName(item)} ${getStudentLogin(item)} ${
-        item?.code ?? ""
-      } ${getPhoneText(item)} ${item?.parentemail || ""} ${item?.package ?? ""} ${
-        item?.price ?? ""
-      } ${item?.discount ?? ""} ${getStatus(item)}`
+      const fullText = `${getName(item)} ${getStudentLogin(item)} ${item?.code ?? ""
+        } ${getPhoneText(item)} ${item?.parentemail || ""} ${item?.package ?? ""} ${item?.price ?? ""
+        } ${item?.discount ?? ""} ${getStatus(item)}`
         .toLowerCase()
         .trim();
 
@@ -212,7 +410,7 @@ const BlockSubscriptionsListLayer = () => {
       const matchesStatus =
         statusFilter === "" ||
         String(getStatus(item)).toLowerCase() ===
-          String(statusFilter).toLowerCase();
+        String(statusFilter).toLowerCase();
 
       const cd = getPurchaseDateRaw(item);
       const itemDate = cd ? new Date(String(cd).replace(".000000", "")) : null;
@@ -486,9 +684,9 @@ const BlockSubscriptionsListLayer = () => {
                     const pct =
                       totalCredits > 0
                         ? Math.min(
-                            100,
-                            Math.max(0, (usedCredits / totalCredits) * 100)
-                          )
+                          100,
+                          Math.max(0, (usedCredits / totalCredits) * 100)
+                        )
                         : 0;
 
                     return (
@@ -551,8 +749,46 @@ const BlockSubscriptionsListLayer = () => {
 
                         <td>{formatAED(getGrossAmount(item))}</td>
                         <td>{formatAED(getDiscountAmount(item))}</td>
-                        <td style={{ fontWeight: 700 }}>
-                          {formatAED(getNetPaid(item))}
+                        <td style={{ minWidth: 190 }}>
+                          {(() => {
+                            const subscriptionId = getBlockSubscriptionId(item);
+                            const saving = isPriceSaving(subscriptionId);
+
+                            return (
+                              <div>
+                                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    className="form-control form-control-sm"
+                                    style={{ width: 110 }}
+                                    value={priceDraftMap[subscriptionId] ?? getNetPaid(item)}
+                                    disabled={saving}
+                                    onChange={(e) => {
+                                      setPriceDraftMap((prev) => ({
+                                        ...prev,
+                                        [subscriptionId]: e.target.value,
+                                      }));
+                                    }}
+                                  />
+
+                                  <button
+                                    type="button"
+                                    className="btn btn-sm btn-outline-primary"
+                                    disabled={saving}
+                                    onClick={() => handleSavePrice(item)}
+                                  >
+                                    {saving ? "Saving..." : "Save"}
+                                  </button>
+                                </div>
+
+                                <div className="sub-muted mt-1">
+                                  Current: {formatAED(getNetPaid(item))}
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </td>
 
                         <td>{item?.code ?? "—"}</td>
@@ -614,4 +850,4 @@ const BlockSubscriptionsListLayer = () => {
   );
 };
 
-export default BlockSubscriptionsListLayer;
+export default BlockSubscriptionsListLayer; 

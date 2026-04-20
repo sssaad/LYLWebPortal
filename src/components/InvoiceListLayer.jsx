@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Icon } from "@iconify/react/dist/iconify.js";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import Swal from "sweetalert2";
 import { getToken } from "../api/getToken";
 
@@ -9,6 +9,9 @@ const API_GET_URL =
 
 const API_DELETE_URL =
   "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=delete_dynamic";
+
+const API_PROC_URL =
+  "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=runStoredProcedure";
 
 const BASE_HEADERS = {
   projectid: "1",
@@ -19,6 +22,8 @@ const BASE_HEADERS = {
 };
 
 const InvoiceListLayer = () => {
+  const navigate = useNavigate();
+
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -32,6 +37,9 @@ const InvoiceListLayer = () => {
 
   // ✅ delete loading per row
   const [deletingId, setDeletingId] = useState(null);
+
+  // ✅ duplicate loading per row
+  const [duplicatingId, setDuplicatingId] = useState(null);
 
   // pagination config (hidden)
   const perPage = 10;
@@ -80,9 +88,11 @@ const InvoiceListLayer = () => {
     if (!res.ok) {
       throw new Error(json?.message || "API Error");
     }
+
     if (json?.statusCode !== 200) {
       throw new Error(json?.message || "Request failed");
     }
+
     return json;
   };
 
@@ -130,7 +140,32 @@ const InvoiceListLayer = () => {
       conditions: [{ id }],
     });
 
-    return json; // { statusCode, message, data: { id } }
+    return json;
+  };
+
+  // ✅ Duplicate invoice API
+  const duplicateInvoice = async (row) => {
+    const id = row?.id;
+    if (!id) throw new Error("Invoice ID missing");
+
+    const token = await getAuthToken();
+
+    const headers = {
+      ...BASE_HEADERS,
+      ...(token ? { token } : {}),
+    };
+
+    // ✅ Payload:
+    // {
+    //   procedureName: "duplicate_invoice",
+    //   parameters: [id]
+    // }
+    const json = await postJson(API_PROC_URL, headers, {
+      procedureName: "duplicate_invoice",
+      parameters: [id],
+    });
+
+    return json;
   };
 
   useEffect(() => {
@@ -206,7 +241,9 @@ const InvoiceListLayer = () => {
       await Swal.fire({
         icon: "success",
         title: "Deleted",
-        text: invoiceNo ? `Invoice ${invoiceNo} deleted successfully.` : "Invoice deleted successfully.",
+        text: invoiceNo
+          ? `Invoice ${invoiceNo} deleted successfully.`
+          : "Invoice deleted successfully.",
       });
 
       // ✅ refresh list (safe)
@@ -222,6 +259,76 @@ const InvoiceListLayer = () => {
     }
   };
 
+  // ✅ Duplicate confirmation + API call
+  const handleDuplicate = async (row) => {
+    try {
+      const invoiceNo = row?.invoice_no || "this invoice";
+      const id = row?.id;
+
+      const result = await Swal.fire({
+        icon: "question",
+        title: "Duplicate Invoice?",
+        html: `Are you sure you want to duplicate <b>${invoiceNo}</b>?`,
+        showCancelButton: true,
+        confirmButtonText: "Yes, Duplicate",
+        cancelButtonText: "Cancel",
+        reverseButtons: true,
+        focusCancel: true,
+      });
+
+      if (!result.isConfirmed) return;
+
+      setDuplicatingId(id || "duplicating");
+
+      Swal.fire({
+        title: "Duplicating...",
+        text: "Please wait",
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        didOpen: () => Swal.showLoading(),
+      });
+
+      const json = await duplicateInvoice(row);
+
+      Swal.close();
+
+      // ✅ refresh list after duplicate
+      await fetchInvoices();
+
+      const newInvoice = Array.isArray(json?.data) ? json.data[0] : null;
+
+      // ✅ Agar backend SELECT return kare to Open Copy ka option show hoga
+      // ✅ Agar data [] aaye but DB copy ho jaye to simple success show hoga
+      const successResult = await Swal.fire({
+        icon: "success",
+        title: "Duplicated",
+        text: newInvoice?.invoice_no
+          ? `Invoice duplicated successfully: ${newInvoice.invoice_no}`
+          : "Invoice duplicated successfully.",
+        showCancelButton: Boolean(newInvoice?.id),
+        confirmButtonText: newInvoice?.id ? "Open Copy" : "OK",
+        cancelButtonText: "Stay Here",
+        reverseButtons: true,
+      });
+
+      if (successResult.isConfirmed && newInvoice?.id) {
+        navigate("/invoice-preview", {
+          state: { invoice: { id: newInvoice.id } },
+        });
+      }
+    } catch (e) {
+      Swal.close();
+
+      await Swal.fire({
+        icon: "error",
+        title: "Duplicate Failed",
+        text: e?.message || "Something went wrong",
+      });
+    } finally {
+      setDuplicatingId(null);
+    }
+  };
+
   return (
     <div className="card">
       <div className="card-header d-flex flex-wrap align-items-center justify-content-between gap-3">
@@ -233,7 +340,13 @@ const InvoiceListLayer = () => {
             onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
             title="Sort by Issue Date"
           >
-            <Icon icon={sortDir === "desc" ? "mdi:sort-descending" : "mdi:sort-ascending"} />
+            <Icon
+              icon={
+                sortDir === "desc"
+                  ? "mdi:sort-descending"
+                  : "mdi:sort-ascending"
+              }
+            />
             {sortDir === "desc" ? "Desc" : "Asc"}
           </button>
 
@@ -301,7 +414,14 @@ const InvoiceListLayer = () => {
             ) : (
               paginated.map((r, idx) => {
                 const sl = (page - 1) * perPage + idx + 1;
-                const isDeleting = deletingId != null && (deletingId === r?.id || deletingId === "deleting");
+
+                const isDeleting =
+                  deletingId != null &&
+                  (deletingId === r?.id || deletingId === "deleting");
+
+                const isDuplicating =
+                  duplicatingId != null &&
+                  (duplicatingId === r?.id || duplicatingId === "duplicating");
 
                 return (
                   <tr key={r.id || `${r.invoice_no}-${idx}`}>
@@ -323,26 +443,33 @@ const InvoiceListLayer = () => {
                     <td>{fmtDate(r.issue_date)}</td>
 
                     <td>{fmtAmount(r.currency, r.total)}</td>
+
                     <td>
                       {(() => {
                         const rawStatus = String(r.status || "").toLowerCase();
                         const normalizedStatus =
-                          rawStatus === "pending" ? "unpaid" : rawStatus || "-";
+                          rawStatus === "pending"
+                            ? "unpaid"
+                            : rawStatus || "-";
 
                         const statusClass =
                           normalizedStatus === "paid"
                             ? "bg-success-focus text-success-main"
                             : normalizedStatus === "unpaid"
-                              ? "bg-danger-focus text-danger-main"
-                              : "bg-secondary-light text-secondary-main";
+                            ? "bg-danger-focus text-danger-main"
+                            : "bg-secondary-light text-secondary-main";
 
                         return (
-                          <span className={`px-12 py-4 rounded-pill fw-medium ${statusClass}`}>
-                            {normalizedStatus.charAt(0).toUpperCase() + normalizedStatus.slice(1)}
+                          <span
+                            className={`px-12 py-4 rounded-pill fw-medium ${statusClass}`}
+                          >
+                            {normalizedStatus.charAt(0).toUpperCase() +
+                              normalizedStatus.slice(1)}
                           </span>
                         );
                       })()}
                     </td>
+
                     <td>
                       <Link
                         to="/invoice-preview"
@@ -362,14 +489,37 @@ const InvoiceListLayer = () => {
                         <Icon icon="lucide:edit" />
                       </Link>
 
+                      {/* ✅ Duplicate Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleDuplicate(r)}
+                        disabled={isDuplicating || isDeleting}
+                        className="w-32-px h-32-px me-8 bg-info-focus text-info-main rounded-circle d-inline-flex align-items-center justify-content-center border-0"
+                        title={isDuplicating ? "Duplicating..." : "Duplicate Invoice"}
+                      >
+                        <Icon
+                          icon={
+                            isDuplicating
+                              ? "mdi:loading"
+                              : "mdi:content-copy"
+                          }
+                        />
+                      </button>
+
                       <button
                         type="button"
                         onClick={() => handleDelete(r)}
-                        disabled={isDeleting}
+                        disabled={isDeleting || isDuplicating}
                         className="w-32-px h-32-px me-8 bg-danger-focus text-danger-main rounded-circle d-inline-flex align-items-center justify-content-center border-0"
                         title={isDeleting ? "Deleting..." : "Delete"}
                       >
-                        <Icon icon={isDeleting ? "mdi:loading" : "mingcute:delete-2-line"} />
+                        <Icon
+                          icon={
+                            isDeleting
+                              ? "mdi:loading"
+                              : "mingcute:delete-2-line"
+                          }
+                        />
                       </button>
                     </td>
                   </tr>
@@ -402,15 +552,20 @@ const InvoiceListLayer = () => {
                   <button
                     type="button"
                     onClick={() => setPage(p)}
-                    className={`page-link fw-medium radius-4 border-0 px-10 py-10 d-flex align-items-center justify-content-center h-32-px me-8 w-32-px ${p === page ? "bg-primary-600 text-white" : "bg-primary-50 text-secondary-light"
-                      }`}
+                    className={`page-link fw-medium radius-4 border-0 px-10 py-10 d-flex align-items-center justify-content-center h-32-px me-8 w-32-px ${
+                      p === page
+                        ? "bg-primary-600 text-white"
+                        : "bg-primary-50 text-secondary-light"
+                    }`}
                   >
                     {p}
                   </button>
                 </li>
               ))}
 
-            <li className={`page-item ${page === totalPages ? "disabled" : ""}`}>
+            <li
+              className={`page-item ${page === totalPages ? "disabled" : ""}`}
+            >
               <button
                 className="page-link text-secondary-light fw-medium radius-4 border-0 px-10 py-10 d-flex align-items-center justify-content-center h-32-px me-8 w-32-px bg-base"
                 onClick={goNext}

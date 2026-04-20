@@ -21,7 +21,6 @@ const API_HEADERS = {
 
 const PAYMENT_STATUS_OPTIONS = ["Paid", "Unpaid", "Free"];
 const INPERSON_STATUS_OPTIONS = [
-  "Auto",
   "Upcoming",
   "Ongoing",
   "Completed",
@@ -317,6 +316,10 @@ const InpersonBookingLayer = () => {
     return norm(calculateInpersonAutoStatus(item));
   };
 
+  const getInpersonDropdownValue = (item) => {
+    return getStatusLabel(getBookingStatus(item));
+  };
+
   const isRescheduleDisabled = (item) => {
     const manualStatus = norm(item?.inperson_status);
     const statusMode = norm(item?.inperson_status_mode || "auto");
@@ -558,10 +561,7 @@ const InpersonBookingLayer = () => {
     }
 
     if (field === "inperson_status") {
-      const currentValue =
-        item?.inperson_status_mode === "manual"
-          ? getInpersonStatusDisplay(item?.inperson_status)
-          : "Auto";
+      const currentValue = getInpersonDropdownValue(item);
 
       if (currentValue === newValue) return;
 
@@ -1408,19 +1408,11 @@ const InpersonBookingLayer = () => {
 
                       <td>
                         <DarkSelectEditor
-                          value={
-                            item?.inperson_status_mode === "manual"
-                              ? getInpersonStatusDisplay(item?.inperson_status)
-                              : "Auto"
-                          }
+                          value={getInpersonDropdownValue(item)}
                           options={INPERSON_STATUS_OPTIONS}
                           loading={isFieldSaving(bookingId, "inperson_status")}
                           onChange={(value) => openConfirmModal(item, "inperson_status", value)}
                         />
-
-                        <div className="lyl-cell-note">
-                          Current: {getStatusLabel(status)}
-                        </div>
 
                         {isFieldSaving(bookingId, "inperson_status") ? (
                           <div className="lyl-cell-note">Updating...</div>
