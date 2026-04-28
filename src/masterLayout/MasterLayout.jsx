@@ -222,7 +222,13 @@ const MasterLayout = ({ children }) => {
             <li>
               <NavLink to="/session-feedbacks" className={({ isActive }) => (isActive ? "active-page" : "")}>
                 <Icon icon="mdi:message-text-outline" className="menu-icon" />
-                <span>Session Feedbacks</span>
+                <span>Performance Feedbacks</span>
+              </NavLink>
+            </li>
+             <li>
+              <NavLink to="/teacher-reviews" className={({ isActive }) => (isActive ? "active-page" : "")}>
+                <Icon icon="mdi:message-text-outline" className="menu-icon" />
+                <span>Teacher Reviews</span>
               </NavLink>
             </li>
             <li>

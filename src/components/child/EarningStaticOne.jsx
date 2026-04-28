@@ -5,6 +5,8 @@ import { getMonthwiseRevenue } from '../../api/getMonthwiseRevenue';
 
 const EarningStaticOne = () => {
     const [loading, setLoading] = useState(true);
+    const [totalRevenue, setTotalRevenue] = useState(0);
+
     const [chartData, setChartData] = useState({
         series: [{ name: 'Revenue', data: [] }],
         options: {
@@ -20,37 +22,72 @@ const EarningStaticOne = () => {
             xaxis: { categories: [] },
             yaxis: { title: { text: '' } },
             title: { text: '', align: 'left' },
+            tooltip: {
+                y: {
+                    formatter: function (val) {
+                        return "AED " + Number(val).toLocaleString();
+                    }
+                }
+            }
         },
     });
 
     useEffect(() => {
-    const fetchData = async () => {
-        const revenue = await getMonthwiseRevenue();
-        if (revenue) {
-            const months = revenue.map(item => item.month);
-            const totals = revenue.map(item => parseFloat(item.total_revenue));
+        const fetchData = async () => {
+            try {
+                const revenue = await getMonthwiseRevenue();
 
-            setChartData(prev => ({
-                ...prev,
-                series: [{ name: 'Revenue', data: totals }],
-                options: {
-                    ...prev.options,
-                    xaxis: { categories: months },
-                    tooltip: {
-                        y: {
-                            formatter: function (val) {
-                                return "AED " + val;
-                            }
+                if (revenue && Array.isArray(revenue)) {
+                    const monthOrder = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+                    // current month index from browser date
+                    // Jan = 0, Feb = 1, ..., Dec = 11
+                    const currentMonthIndex = new Date().getMonth();
+
+                    // Total row alag nikal lo
+                    const totalRow = revenue.find(
+                        item => item.month?.toLowerCase() === 'total'
+                    );
+
+                    // Sirf valid months lo, Total ko exclude karo
+                    // aur current month tak hi show karo
+                    const filteredRevenue = revenue.filter(item => {
+                        const monthIndex = monthOrder.indexOf(item.month);
+                        return monthIndex !== -1 && monthIndex <= currentMonthIndex;
+                    });
+
+                    // month order ke hisaab se sort bhi kar do
+                    const sortedRevenue = filteredRevenue.sort(
+                        (a, b) => monthOrder.indexOf(a.month) - monthOrder.indexOf(b.month)
+                    );
+
+                    const months = sortedRevenue.map(item => item.month);
+                    const totals = sortedRevenue.map(item => parseFloat(item.total_revenue) || 0);
+
+                    setChartData(prev => ({
+                        ...prev,
+                        series: [{ name: 'Revenue', data: totals }],
+                        options: {
+                            ...prev.options,
+                            xaxis: { categories: months },
                         }
-                    }
-                }
-            }));
-        }
-        setLoading(false);
-    };
-    fetchData();
-}, []);
+                    }));
 
+                    // Agar API total bhej rahi hai to woh use karo
+                    // warna fallback mein visible months ka sum use ho jaye
+                    setTotalRevenue(
+                        totalRow ? parseFloat(totalRow.total_revenue) || 0 : totals.reduce((a, b) => a + b, 0)
+                    );
+                }
+            } catch (error) {
+                console.error('Error fetching monthwise revenue:', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchData();
+    }, []);
 
     if (loading) {
         return (
@@ -84,7 +121,9 @@ const EarningStaticOne = () => {
                                 Monthly Earning Overview
                             </span>
                         </div>
-                        <span className="px-3 py-1 border border-secondary-light rounded-pill text-sm fw-medium text-secondary-light">Monthly</span>
+                        <span className="px-3 py-1 border border-secondary-light rounded-pill text-sm fw-medium text-secondary-light">
+                            Monthly
+                        </span>
                     </div>
 
                     <div className="mt-20 d-flex justify-content-center flex-wrap gap-3">
@@ -97,7 +136,7 @@ const EarningStaticOne = () => {
                                     Total Revenue
                                 </span>
                                 <h6 className="text-md fw-semibold mb-0">
-                                    AED {chartData.series[0].data.reduce((a, b) => a + b, 0)}
+                                    AED {Number(totalRevenue).toLocaleString()}
                                 </h6>
                             </div>
                         </div>

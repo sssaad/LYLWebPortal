@@ -16,6 +16,7 @@ import HomePageSix from "./pages/HomePageSix";
 // All Other Pages
 import EmailPage from "./pages/EmailPage";
 import FeedbackPage from "./pages/FeedbackPage";
+import StudentfeedbackPage from "./pages/StudentfeedbackPage";
 import AddUserPage from "./pages/AddUserPage";
 import AlertPage from "./pages/AlertPage";
 import AssignRolePage from "./pages/AssignRolePage";
@@ -149,6 +150,7 @@ function App() {
         {[
           ["/email", EmailPage],
           ["/session-feedbacks", FeedbackPage],
+          ["/teacher-reviews", StudentfeedbackPage],
           ["/add-user", AddUserPage],
           ["/alert", AlertPage],
           ["/assign-role", AssignRolePage],
