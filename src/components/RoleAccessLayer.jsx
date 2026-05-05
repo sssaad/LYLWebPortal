@@ -317,9 +317,32 @@ const RoleAccessLayer = () => {
   };
 
   const isRescheduleDisabled = (item) => {
-    const bd = parseBookDate(getBookDateValue(item));
+    const status = getBookingStatus(item);
+
+    // ✅ missed, completed, cancelled pe hamesha disable
+    if (["missed", "completed", "cancelled"].includes(norm(status))) {
+      return true;
+    }
+
+    const date = getBookDateValue(item);
+    const start = getSlotStartValue(item);
+
+    if (!date) return false;
+
+    const now = getNow();
+
+    // ✅ agar slot start time available hai to session start hote hi disable
+    const startDT = start ? parseDateTime(date, start) : null;
+
+    if (startDT) {
+      return now.isSameOrAfter(startDT);
+    }
+
+    // ✅ fallback: agar start time nahi hai to past date pe disable
+    const bd = parseBookDate(date);
     if (!bd) return false;
-    return bd.isBefore(getNow(), "day");
+
+    return bd.isBefore(now, "day");
   };
 
   const getBookingStatusBadgeClass = (status) => {
@@ -1328,7 +1351,11 @@ const RoleAccessLayer = () => {
                             if (!isDisabled) openRescheduleModal(item);
                           }}
                           disabled={isDisabled}
-                          title={isDisabled ? "Past bookings cannot be rescheduled" : "Reschedule booking"}
+                          title={
+                            isDisabled
+                              ? "This booking cannot be rescheduled after session start time or missed status"
+                              : "Reschedule booking"
+                          }
                           style={{
                             minWidth: "110px",
                             borderRadius: "8px",

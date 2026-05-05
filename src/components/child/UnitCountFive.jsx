@@ -229,12 +229,20 @@ const UnitCountFive = () => {
 
         if (!alive) return;
 
-        if (countsResult.status === 'fulfilled') {
-          setDashboardData(countsResult.value?.get_dashboardcounts || countsResult.value || {});
-        } else {
-          console.error('Dashboard counts error:', countsResult.reason);
-          setDashboardData({});
-        }
+       if (countsResult.status === 'fulfilled') {
+  const data =
+    countsResult.value?.get_dashboardcounts ||
+    countsResult.value ||
+    {};
+
+  setDashboardData({
+    ...data,
+    total_unpaid_booking_count: Number(data?.total_unpaid_booking_count || 0),
+  });
+} else {
+  console.error('Dashboard counts error:', countsResult.reason);
+  setDashboardData({});
+}
 
         if (monthlyResult.status === 'fulfilled') {
           setMonthlyUsers(normalizeMonthlyUsers(monthlyResult.value));
@@ -344,10 +352,9 @@ const UnitCountFive = () => {
   }, [selectedRole]);
 
   const getToggleButtonClass = (isActive) =>
-    `px-3 py-1 border rounded-pill text-sm fw-medium ${
-      isActive
-        ? 'text-white'
-        : 'border-secondary-light text-secondary-light bg-transparent'
+    `px-3 py-1 border rounded-pill text-sm fw-medium ${isActive
+      ? 'text-white'
+      : 'border-secondary-light text-secondary-light bg-transparent'
     }`;
 
   if (loading) {
@@ -478,7 +485,7 @@ const UnitCountFive = () => {
                         lineHeight: 1,
                       }}
                     >
-                      {dashboardData?.currentmonth_unpaid_booking_count ?? 0}
+                      {Number(dashboardData?.total_unpaid_booking_count || 0)}
                     </span>
 
                     <span className="text-secondary-light fw-medium text-sm">
@@ -574,9 +581,9 @@ const UnitCountFive = () => {
                             style={
                               isActive
                                 ? {
-                                    backgroundColor: role.color,
-                                    borderColor: role.color,
-                                  }
+                                  backgroundColor: role.color,
+                                  borderColor: role.color,
+                                }
                                 : {}
                             }
                           >
