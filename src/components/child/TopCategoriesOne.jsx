@@ -66,7 +66,7 @@ const TopCategoriesOne = () => {
   
     // 👇 keep rest of your mapping code as is
 
-            subjects.map((subject, index) => (
+           subjects.slice(0, 5).map((subject, index) => (
               <div
                 key={index}
                 className="d-flex align-items-center justify-content-between gap-3 mb-24"
