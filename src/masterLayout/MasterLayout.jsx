@@ -118,8 +118,8 @@ const MasterLayout = ({ children }) => {
           sidebarActive
             ? "sidebar active"
             : mobileMenu
-            ? "sidebar sidebar-open"
-            : "sidebar"
+              ? "sidebar sidebar-open"
+              : "sidebar"
         }
       >
         <button onClick={mobileMenuControl} type="button" className="sidebar-close-btn">
@@ -183,6 +183,15 @@ const MasterLayout = ({ children }) => {
                 <span>In-Person Bookings</span>
               </NavLink>
             </li>
+            {/* <li>
+              <NavLink
+                to="/group-live-sessions"
+                className={({ isActive }) => (isActive ? "active-page" : "")}
+              >
+                <Icon icon="mdi:account-group-outline" className="menu-icon" />
+                <span>Live Group Sessions</span>
+              </NavLink>
+            </li> */}
             <li>
               <NavLink to="/subscription" className={({ isActive }) => (isActive ? "active-page" : "")}>
                 <Icon icon="material-symbols:subscriptions-outline" className="menu-icon" />
@@ -225,7 +234,7 @@ const MasterLayout = ({ children }) => {
                 <span>Performance Feedbacks</span>
               </NavLink>
             </li>
-             <li>
+            <li>
               <NavLink to="/teacher-reviews" className={({ isActive }) => (isActive ? "active-page" : "")}>
                 <Icon icon="mdi:message-text-outline" className="menu-icon" />
                 <span>Teacher Reviews</span>

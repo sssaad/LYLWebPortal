@@ -36,15 +36,17 @@ const TeacherPayoutListPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // ✅ Total Revenue (Dashboard API: totalpayments)
+  // ✅ Dashboard API values
   const [totalRevenue, setTotalRevenue] = useState(0);
+  const [totalProfitApi, setTotalProfitApi] = useState(0);
+  const [totalTutorPayout, setTotalTutorPayout] = useState(0);
 
   // filters
   const [searchTerm, setSearchTerm] = useState("");
-  const [paidFilter, setPaidFilter] = useState(""); // All / Paid / Unpaid
-  const [methodFilter, setMethodFilter] = useState(""); // All / Cash / Bank / Online
-  const [startDate, setStartDate] = useState(""); // YYYY-MM-DD
-  const [endDate, setEndDate] = useState(""); // YYYY-MM-DD
+  const [paidFilter, setPaidFilter] = useState("");
+  const [methodFilter, setMethodFilter] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
 
   const itemsPerPage = 10;
@@ -58,6 +60,7 @@ const TeacherPayoutListPage = () => {
 
   useEffect(() => {
     isMountedRef.current = true;
+
     return () => {
       isMountedRef.current = false;
       if (fetchAbortRef.current) fetchAbortRef.current.abort();
@@ -79,6 +82,7 @@ const TeacherPayoutListPage = () => {
 
   const clearTokenIfLooksInvalid = (msg) => {
     const m = String(msg || "").toLowerCase();
+
     if (
       m.includes("token") ||
       m.includes("unauthorized") ||
@@ -96,32 +100,37 @@ const TeacherPayoutListPage = () => {
     `row_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 
   const parseSqlLikeDateTime = (s) => {
-    // supports: "YYYY-MM-DD", "YYYY-MM-DD HH:mm:ss", ISO
     if (!s) return null;
+
     const str = String(s).trim();
     if (!str) return null;
 
     const normalized = str.includes(" ") ? str.replace(" ", "T") : str;
     const d = new Date(normalized);
+
     return Number.isNaN(d.getTime()) ? null : d;
   };
 
   const ymdLocalStart = (ymd) => {
     if (!ymd) return null;
+
     const d = new Date(`${ymd}T00:00:00`);
     return Number.isNaN(d.getTime()) ? null : d;
   };
 
   const ymdLocalEnd = (ymd) => {
     if (!ymd) return null;
+
     const d = new Date(`${ymd}T23:59:59.999`);
     return Number.isNaN(d.getTime()) ? null : d;
   };
 
   const fmtDate = (d) => {
     if (!d) return "—";
+
     const dd = parseSqlLikeDateTime(d);
     if (!dd) return "—";
+
     return new Intl.DateTimeFormat("en-GB", {
       day: "2-digit",
       month: "short",
@@ -129,24 +138,20 @@ const TeacherPayoutListPage = () => {
     }).format(dd);
   };
 
-  // ✅ Moment time formatter (robust)
   const fmtTime = (t) => {
     if (!t) return "—";
 
     const s = String(t).trim();
     if (!s) return "—";
 
-    // handle cases:
-    // "14:30", "14:30:00", "2:30 PM", "02:30 pm", etc
     const m = moment(s, ["HH:mm:ss", "HH:mm", "h:mm A", "hh:mm A"], true);
 
     if (m.isValid()) {
-      // change to "HH:mm" if you want 24-hour
       return m.format("hh:mm A");
     }
 
-    // fallback: try slicing if it's like "14:30:00"
     if (s.length >= 5) return s.slice(0, 5);
+
     return s;
   };
 
@@ -159,14 +164,17 @@ const TeacherPayoutListPage = () => {
 
   const toYMD = (v) => {
     if (!v) return "";
+
     const s = String(v).trim();
     if (!s) return "";
 
     if (s.includes(" ")) return s.split(" ")[0];
+
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
 
     const d = new Date(s);
     if (Number.isNaN(d.getTime())) return "";
+
     return d.toISOString().slice(0, 10);
   };
 
@@ -185,27 +193,49 @@ const TeacherPayoutListPage = () => {
 
   const toAmountString2dpOrNull = (v) => {
     if (v === null || v === undefined) return null;
+
     const s = String(v).trim();
-    if (!s) return null; // empty => null
+    if (!s) return null;
+
     const n = parseAmount(s);
+
     return Number.isFinite(n) ? n.toFixed(2) : null;
   };
 
-  // ========= Dashboard Total Revenue (totalpayments) =========
+  // ========= Dashboard Total Revenue + Total Profit + Tutor Payout =========
   const fetchTotalRevenue = async () => {
     try {
       const res = await getDashboardCounts();
 
-      // ✅ handle both shapes: nested OR already-flat
       const counts = res?.get_dashboardcounts || res;
 
       const rev = parseAmount(counts?.totalpayments);
+
+      // ✅ Direct API profit
+      const profit = parseAmount(
+        counts?.totalprofit ??
+          counts?.total_profit ??
+          counts?.profit ??
+          counts?.totalProfit ??
+          0
+      );
+
+      // ✅ Direct API tutor payout amount
+      const tutorPayout = parseAmount(counts?.total_tutor_payout_aed);
+
       if (!isMountedRef.current) return;
+
       setTotalRevenue(rev);
+      setTotalProfitApi(profit);
+      setTotalTutorPayout(tutorPayout);
     } catch (e) {
-      console.error("Total revenue fetch error:", e);
+      console.error("Total revenue/profit/payout fetch error:", e);
+
       if (!isMountedRef.current) return;
+
       setTotalRevenue(0);
+      setTotalProfitApi(0);
+      setTotalTutorPayout(0);
     }
   };
 
@@ -213,6 +243,7 @@ const TeacherPayoutListPage = () => {
   const fetchTeacherPayouts = async () => {
     try {
       if (fetchAbortRef.current) fetchAbortRef.current.abort();
+
       const controller = new AbortController();
       fetchAbortRef.current = controller;
 
@@ -220,14 +251,20 @@ const TeacherPayoutListPage = () => {
       setError("");
 
       const token = await ensureToken();
+
       if (!token) {
         if (!isMountedRef.current) return;
+
         setRows([]);
         setError("Token missing");
         return;
       }
 
-      const body = { token, tablename: "teacher_payouts" };
+      const body = {
+        token,
+        tablename: "teacher_payouts",
+      };
+
       const res = await axios.post(GET_URL, body, {
         headers,
         signal: controller.signal,
@@ -239,7 +276,6 @@ const TeacherPayoutListPage = () => {
         const teacher_payout_id = safeId(x?.teacher_payout_id);
         const booking_id = safeId(x?.booking_id);
 
-        // stable unique key for UI + updates + radio groups
         const _key = teacher_payout_id || booking_id || makeFallbackKey();
 
         const isTutorPaid = String(x?.is_tutor_paid ?? "0") === "1";
@@ -260,7 +296,6 @@ const TeacherPayoutListPage = () => {
 
           session_fee_aed: x?.session_fee_aed ?? "0",
 
-          // editable fields
           payment_amount_aed:
             x?.tutor_payout_aed !== null &&
             x?.tutor_payout_aed !== undefined &&
@@ -272,7 +307,6 @@ const TeacherPayoutListPage = () => {
           paid_on: toYMD(x?.tutor_paid_on) || "",
           payout_method: x?.payout_method ? String(x.payout_method) : "",
 
-          // ui meta
           _dirty: false,
           _saving: false,
           _rowError: "",
@@ -280,6 +314,7 @@ const TeacherPayoutListPage = () => {
       });
 
       if (!isMountedRef.current) return;
+
       setRows(mapped);
       setCurrentPage(1);
     } catch (err) {
@@ -291,10 +326,12 @@ const TeacherPayoutListPage = () => {
       clearTokenIfLooksInvalid(msg);
 
       if (!isMountedRef.current) return;
+
       setRows([]);
       setError(msg);
     } finally {
       if (!isMountedRef.current) return;
+
       setLoading(false);
     }
   };
@@ -306,7 +343,11 @@ const TeacherPayoutListPage = () => {
   }, []);
 
   // ========= EDIT =========
-  const markDirty = (r) => ({ ...r, _dirty: true, _rowError: "" });
+  const markDirty = (r) => ({
+    ...r,
+    _dirty: true,
+    _rowError: "",
+  });
 
   const updatePaymentAmount = (_key, val) => {
     setRows((prev) =>
@@ -358,15 +399,20 @@ const TeacherPayoutListPage = () => {
     );
   };
 
-  // ========= SAVE (update_dynamic_data) =========
+  // ========= SAVE =========
   const buildConditions = (row) => {
     const conditions = [];
 
     if (safeId(row?.teacher_payout_id)) {
-      conditions.push({ teacher_payout_id: String(row.teacher_payout_id) });
+      conditions.push({
+        teacher_payout_id: String(row.teacher_payout_id),
+      });
     }
+
     if (safeId(row?.booking_id)) {
-      conditions.push({ booking_id: String(row.booking_id) });
+      conditions.push({
+        booking_id: String(row.booking_id),
+      });
     }
 
     return conditions;
@@ -383,11 +429,13 @@ const TeacherPayoutListPage = () => {
         row._key,
         "No unique id found (teacher_payout_id / booking_id). Cannot update."
       );
+
       Swal.fire({
         icon: "error",
         title: "Save Failed",
         text: "No unique id found (teacher_payout_id / booking_id). Cannot update.",
       });
+
       return;
     }
 
@@ -395,8 +443,7 @@ const TeacherPayoutListPage = () => {
       Swal.fire({
         icon: "warning",
         title: "Warning",
-        text:
-          "teacher_payout_id missing. Saving with booking_id only (may update multiple rows if duplicates exist).",
+        text: "teacher_payout_id missing. Saving with booking_id only may update multiple rows if duplicates exist.",
         timer: 2200,
         showConfirmButton: false,
       });
@@ -404,11 +451,13 @@ const TeacherPayoutListPage = () => {
 
     if (isPaid && !row.paid_on) {
       setRowError(row._key, "Paid on date is required when status is Paid.");
+
       Swal.fire({
         icon: "warning",
         title: "Missing Paid Date",
         text: "Paid on date is required when status is Paid.",
       });
+
       return;
     }
 
@@ -422,9 +471,11 @@ const TeacherPayoutListPage = () => {
       );
 
       const token = await ensureToken();
+
       if (!token) throw new Error("Token missing");
 
       const conditions = buildConditions(row);
+
       if (!conditions.length) throw new Error("No valid conditions to update");
 
       const payload = {
@@ -457,7 +508,12 @@ const TeacherPayoutListPage = () => {
       setRows((prev) =>
         prev.map((r) =>
           r._key === row._key
-            ? { ...r, _saving: false, _dirty: false, _rowError: "" }
+            ? {
+                ...r,
+                _saving: false,
+                _dirty: false,
+                _rowError: "",
+              }
             : r
         )
       );
@@ -469,11 +525,13 @@ const TeacherPayoutListPage = () => {
         timer: 1400,
         showConfirmButton: false,
       });
+
+      // ✅ Save ke baad dashboard API refresh taake Total Paid Amount update ho jaye
+      fetchTotalRevenue();
     } catch (err) {
       if (err?.name === "CanceledError" || err?.code === "ERR_CANCELED") return;
 
-      const msg =
-        err?.response?.data?.message || err?.message || "Save failed";
+      const msg = err?.response?.data?.message || err?.message || "Save failed";
 
       clearTokenIfLooksInvalid(msg);
 
@@ -481,7 +539,13 @@ const TeacherPayoutListPage = () => {
 
       setRows((prev) =>
         prev.map((r) =>
-          r._key === row._key ? { ...r, _saving: false, _rowError: msg } : r
+          r._key === row._key
+            ? {
+                ...r,
+                _saving: false,
+                _rowError: msg,
+              }
+            : r
         )
       );
 
@@ -509,11 +573,13 @@ const TeacherPayoutListPage = () => {
     const toD = endDate ? ymdLocalEnd(endDate) : null;
 
     const filtered = (rows || []).filter((x) => {
-      const fullText = `${x?.booking_id ?? ""} ${x?.teacher_name ?? ""} ${x?.student_name ?? ""} ${
-        x?.subject_name ?? ""
-      } ${x?.booking_date ?? ""} ${x?.slot_start ?? ""} ${x?.slot_end ?? ""} ${
-        x?.paid_status ?? ""
-      } ${x?.payout_method ?? ""}`
+      const fullText = `${x?.booking_id ?? ""} ${x?.teacher_name ?? ""} ${
+        x?.student_name ?? ""
+      } ${x?.subject_name ?? ""} ${x?.booking_date ?? ""} ${
+        x?.slot_start ?? ""
+      } ${x?.slot_end ?? ""} ${x?.paid_status ?? ""} ${
+        x?.payout_method ?? ""
+      }`
         .toLowerCase()
         .trim();
 
@@ -536,10 +602,11 @@ const TeacherPayoutListPage = () => {
       const fromMatch = fromD ? (itemDate ? itemDate >= fromD : false) : true;
       const toMatch = toD ? (itemDate ? itemDate <= toD : false) : true;
 
-      return matchesSearch && matchesPaid && matchesMethod && fromMatch && toMatch;
+      return (
+        matchesSearch && matchesPaid && matchesMethod && fromMatch && toMatch
+      );
     });
 
-    // ✅ SORT: latest date first (current date on top)
     return filtered.slice().sort((a, b) => {
       const da = parseSqlLikeDateTime(a?.booking_date);
       const db = parseSqlLikeDateTime(b?.booking_date);
@@ -547,30 +614,37 @@ const TeacherPayoutListPage = () => {
       const ta = da ? da.getTime() : -Infinity;
       const tb = db ? db.getTime() : -Infinity;
 
-      return tb - ta; // DESC
+      return tb - ta;
     });
   }, [rows, searchTerm, paidFilter, methodFilter, startDate, endDate]);
 
   const summary = useMemo(() => {
     const total = filteredData.length;
+
     const paid = filteredData.filter(
       (x) => String(x?.paid_status).toLowerCase() === "paid"
     ).length;
+
     const unpaid = total - paid;
 
-    const totalPayment = filteredData.reduce(
-      (sum, x) => sum + parseAmount(x?.payment_amount_aed),
-      0
-    );
+    // ✅ Total Paid Amount direct dashboard API se aa raha hai
+    const totalPayment = Number(totalTutorPayout) || 0;
 
-    // ✅ Profit = Total Revenue - Total Paid Amount
-    const totalProfit = (Number(totalRevenue) || 0) - (Number(totalPayment) || 0);
+    // ✅ Profit direct dashboard API se aa raha hai
+    const totalProfit = Number(totalProfitApi) || 0;
 
-    return { total, paid, unpaid, totalProfit, totalPayment };
-  }, [filteredData, totalRevenue]);
+    return {
+      total,
+      paid,
+      unpaid,
+      totalProfit,
+      totalPayment,
+    };
+  }, [filteredData, totalProfitApi, totalTutorPayout]);
 
   // ========= pagination =========
   const totalPages = Math.max(1, Math.ceil(filteredData.length / itemsPerPage));
+
   useEffect(() => {
     setCurrentPage((p) => Math.min(Math.max(1, p), totalPages));
   }, [totalPages]);
@@ -606,7 +680,6 @@ const TeacherPayoutListPage = () => {
         .date-input { min-width: 160px; }
         .method-select { min-width: 140px; }
 
-        /* ✅ Dark theme date input + disabled fix */
         [data-bs-theme="dark"] .date-input,
         [data-theme="dark"] .date-input,
         .dark .date-input {
@@ -615,6 +688,7 @@ const TeacherPayoutListPage = () => {
           color: rgba(255,255,255,0.92) !important;
           color-scheme: dark;
         }
+
         [data-bs-theme="dark"] .date-input:disabled,
         [data-theme="dark"] .date-input:disabled,
         .dark .date-input:disabled {
@@ -624,6 +698,7 @@ const TeacherPayoutListPage = () => {
           opacity: 1 !important;
           -webkit-text-fill-color: rgba(255,255,255,0.45) !important;
         }
+
         [data-bs-theme="dark"] .date-input::-webkit-calendar-picker-indicator,
         [data-theme="dark"] .date-input::-webkit-calendar-picker-indicator,
         .dark .date-input::-webkit-calendar-picker-indicator {
@@ -631,7 +706,11 @@ const TeacherPayoutListPage = () => {
           opacity: 0.9;
         }
 
-        .row-error { color: #dc3545; font-size: 12px; margin-top: 6px; }
+        .row-error {
+          color: #dc3545;
+          font-size: 12px;
+          margin-top: 6px;
+        }
       `}</style>
 
       {/* Header */}
@@ -656,8 +735,9 @@ const TeacherPayoutListPage = () => {
               setStartDate(e.target.value);
               setCurrentPage(1);
             }}
-            title="From (booking date)"
+            title="From booking date"
           />
+
           <input
             type="date"
             className="form-control w-auto"
@@ -666,7 +746,7 @@ const TeacherPayoutListPage = () => {
               setEndDate(e.target.value);
               setCurrentPage(1);
             }}
-            title="To (booking date)"
+            title="To booking date"
           />
 
           <select
@@ -692,11 +772,13 @@ const TeacherPayoutListPage = () => {
           >
             <option value="">Method: All</option>
             <option value="Cash">Cash</option>
-            <option value="Bank">Bank</option>
             <option value="Online">Online</option>
           </select>
 
-          <button onClick={resetFilters} className="btn btn-outline-secondary btn-sm">
+          <button
+            onClick={resetFilters}
+            className="btn btn-outline-secondary btn-sm"
+          >
             Reset Filters
           </button>
         </div>
@@ -717,12 +799,14 @@ const TeacherPayoutListPage = () => {
       <div className="card-body p-24">
         {error ? <div className="alert alert-danger mb-3">{error}</div> : null}
 
-        {/* Summary (Design same + Total Revenue after Paid/Unpaid) */}
+        {/* Summary */}
         <div className="row g-3 mb-3">
           <div className="col-12 col-md-3">
             <div className="sub-card">
               <div className="sub-muted">Total</div>
-              <div style={{ fontSize: 22, fontWeight: 700 }}>{summary.total}</div>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>
+                {summary.total}
+              </div>
             </div>
           </div>
 
@@ -735,7 +819,6 @@ const TeacherPayoutListPage = () => {
             </div>
           </div>
 
-          {/* ✅ Total Revenue box (after Paid/Unpaid) */}
           <div className="col-12 col-md-3">
             <div className="sub-card">
               <div className="sub-muted">Total Revenue</div>
@@ -754,7 +837,6 @@ const TeacherPayoutListPage = () => {
             </div>
           </div>
 
-          {/* ✅ Total Paid Amount (same box, same design) */}
           <div className="col-12 col-md-3">
             <div className="sub-card">
               <div className="sub-muted">Total Paid Amount</div>
@@ -799,7 +881,9 @@ const TeacherPayoutListPage = () => {
                   <td colSpan={14} className="text-center">
                     <div className="py-4">
                       <div style={{ fontWeight: 700 }}>No records found.</div>
-                      <div className="sub-muted">Try clearing filters or search.</div>
+                      <div className="sub-muted">
+                        Try clearing filters or search.
+                      </div>
                     </div>
                   </td>
                 </tr>
@@ -812,16 +896,16 @@ const TeacherPayoutListPage = () => {
                     <tr key={x._key}>
                       <td>{indexOfFirstItem + index + 1}</td>
 
-                      <td className="mono cell-strong">{x.booking_id || "—"}</td>
+                      <td className="mono cell-strong">
+                        {x.booking_id || "—"}
+                      </td>
+
                       <td className="cell-strong">{x.teacher_name}</td>
                       <td>{x.student_name}</td>
                       <td>{x.subject_name}</td>
                       <td>{fmtDate(x.booking_date)}</td>
-
-                      {/* ✅ Moment formatted time */}
                       <td className="mono">{fmtTime(x.slot_start)}</td>
                       <td className="mono">{fmtTime(x.slot_end)}</td>
-
                       <td>{money(parseAmount(x.session_fee_aed))}</td>
 
                       <td>
@@ -836,6 +920,7 @@ const TeacherPayoutListPage = () => {
                             updatePaymentAmount(x._key, e.target.value)
                           }
                         />
+
                         {x._rowError ? (
                           <div className="row-error">{x._rowError}</div>
                         ) : null}
@@ -852,6 +937,7 @@ const TeacherPayoutListPage = () => {
                               checked={isPaid}
                               onChange={() => updatePaidStatus(x._key, "Paid")}
                             />
+
                             <label
                               className="form-check-label"
                               htmlFor={`paid-yes-${x._key}`}
@@ -867,8 +953,11 @@ const TeacherPayoutListPage = () => {
                               name={radioName}
                               id={`paid-no-${x._key}`}
                               checked={!isPaid}
-                              onChange={() => updatePaidStatus(x._key, "Unpaid")}
+                              onChange={() =>
+                                updatePaidStatus(x._key, "Unpaid")
+                              }
                             />
+
                             <label
                               className="form-check-label"
                               htmlFor={`paid-no-${x._key}`}
@@ -886,6 +975,7 @@ const TeacherPayoutListPage = () => {
                           >
                             {x.paid_status}
                           </span>
+
                           {x._dirty ? (
                             <span className="badge bg-warning text-dark ms-2">
                               Unsaved
