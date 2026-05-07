@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
-import moment from "moment";
+import moment from "moment-timezone";
 import Swal from "sweetalert2";
 import { Icon } from "@iconify/react";
 import { getToken } from "../api/getToken";
 import CreateLiveGroupModal from "./CreateLiveGroupModal";
+import CreateGroupBatchBookingModal from "./CreateGroupBatchBookingModal";
 
 const RUN_STORED_PROCEDURE_URL =
   "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=runStoredProcedure";
@@ -21,6 +22,7 @@ const API_HEADERS = {
 };
 
 const STATUS_OPTIONS = ["active", "completed", "cancelled"];
+const PORTAL_TIMEZONE = "Asia/Dubai";
 
 const resolveToken = (tokenRes) => {
   if (typeof tokenRes === "string") return tokenRes;
@@ -65,6 +67,57 @@ const formatTime = (value) => {
   const m = moment(clean, ["HH:mm:ss", "HH:mm"], true);
 
   return m.isValid() ? m.format("hh:mm A") : clean;
+};
+
+const normaliseTime = (value = "") => {
+  const clean = String(value || "").split(".")[0].trim();
+  if (!clean) return "";
+
+  const parsed = moment(clean, ["HH:mm:ss", "HH:mm", "hh:mm A"], true);
+  return parsed.isValid() ? parsed.format("HH:mm:ss") : clean;
+};
+
+const convertSessionToPortalTimezone = (session) => {
+  const sourceTimezone =
+    session?.timezone_location || session?.timezone || "Asia/Dubai";
+
+  const sourceDate = session?.session_date || "";
+  const sourceStart = normaliseTime(session?.slot_start || "");
+  const sourceEnd = normaliseTime(session?.slot_end || "");
+
+  if (!sourceDate || !sourceStart || !sourceEnd) {
+    return {
+      date: formatDate(sourceDate),
+      slot: `${formatTime(sourceStart)} - ${formatTime(sourceEnd)}`,
+    };
+  }
+
+  const start = moment.tz(
+    `${sourceDate} ${sourceStart}`,
+    "YYYY-MM-DD HH:mm:ss",
+    sourceTimezone
+  );
+
+  const end = moment.tz(
+    `${sourceDate} ${sourceEnd}`,
+    "YYYY-MM-DD HH:mm:ss",
+    sourceTimezone
+  );
+
+  if (!start.isValid() || !end.isValid()) {
+    return {
+      date: formatDate(sourceDate),
+      slot: `${formatTime(sourceStart)} - ${formatTime(sourceEnd)}`,
+    };
+  }
+
+  const portalStart = start.clone().tz(PORTAL_TIMEZONE);
+  const portalEnd = end.clone().tz(PORTAL_TIMEZONE);
+
+  return {
+    date: portalStart.format("DD MMM YYYY"),
+    slot: `${portalStart.format("hh:mm A")} - ${portalEnd.format("hh:mm A")}`,
+  };
 };
 
 const getStatusBadgeClass = (status) => {
@@ -323,10 +376,6 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
           color: #ffffff;
         }
 
-        .gl-mobile-class-card {
-          display: none;
-        }
-
         @media (max-width: 1199px) {
           .gl-class-row {
             grid-template-columns: 48px 1fr 1.2fr 1fr 1fr 1fr 80px 80px 100px;
@@ -344,35 +393,13 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
             font-size: 30px;
           }
 
-          .gl-classes-desktop {
+          .gl-class-row {
+            grid-template-columns: 1fr;
+            gap: 8px;
+          }
+
+          .gl-class-head {
             display: none;
-          }
-
-          .gl-mobile-class-card {
-            display: block;
-          }
-
-          .gl-mobile-session {
-            border-bottom: 1px solid rgba(148, 163, 184, 0.14);
-            padding: 16px;
-            background: #243247;
-          }
-
-          .gl-mobile-session:last-child {
-            border-bottom: 0;
-          }
-
-          .gl-mobile-label {
-            color: #9fb0c8;
-            font-size: 12px;
-            font-weight: 800;
-            margin-bottom: 3px;
-          }
-
-          .gl-mobile-value {
-            color: #ffffff;
-            font-size: 14px;
-            font-weight: 800;
           }
         }
 
@@ -471,25 +498,27 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
               <span className="badge bg-primary">{sessions.length} Classes</span>
             </div>
 
-            <div className="gl-classes-desktop">
-              <div className="gl-class-row gl-class-head">
-                <div>S.L</div>
-                <div>Subject</div>
-                <div>Title</div>
-                <div>Teacher</div>
-                <div>Date</div>
-                <div>Slot</div>
-                <div>Capacity</div>
-                <div>Booked</div>
-                <div>Status</div>
-              </div>
+            <div className="gl-class-row gl-class-head">
+              <div>S.L</div>
+              <div>Subject</div>
+              <div>Title</div>
+              <div>Teacher</div>
+              <div>Date</div>
+              <div>Slot</div>
+              <div>Capacity</div>
+              <div>Booked</div>
+              <div>Status</div>
+            </div>
 
-              {sessions.length === 0 ? (
-                <div className="p-4 text-center gl-class-muted">
-                  No classes added for this programme.
-                </div>
-              ) : (
-                sessions.map((session, index) => (
+            {sessions.length === 0 ? (
+              <div className="p-4 text-center gl-class-muted">
+                No classes added for this programme.
+              </div>
+            ) : (
+              sessions.map((session, index) => {
+                const converted = convertSessionToPortalTimezone(session);
+
+                return (
                   <div className="gl-class-row" key={session?.id || index}>
                     <div className="gl-class-cell">{index + 1}</div>
 
@@ -503,14 +532,9 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
                       {session?.teacher_name || "-"}
                     </div>
 
-                    <div className="gl-class-cell">
-                      {formatDate(session?.session_date)}
-                    </div>
+                    <div className="gl-class-cell">{converted.date}</div>
 
-                    <div className="gl-class-cell">
-                      {formatTime(session?.slot_start)} -{" "}
-                      {formatTime(session?.slot_end)}
-                    </div>
+                    <div className="gl-class-cell">{converted.slot}</div>
 
                     <div className="gl-class-cell">
                       {session?.capacity || "-"}
@@ -530,83 +554,9 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
                       </span>
                     </div>
                   </div>
-                ))
-              )}
-            </div>
-
-            <div className="gl-mobile-class-card">
-              {sessions.length === 0 ? (
-                <div className="p-4 text-center gl-class-muted">
-                  No classes added for this programme.
-                </div>
-              ) : (
-                sessions.map((session, index) => (
-                  <div className="gl-mobile-session" key={session?.id || index}>
-                    <div className="d-flex justify-content-between align-items-start gap-3 mb-3">
-                      <div>
-                        <div className="gl-mobile-label">Class {index + 1}</div>
-                        <div className="gl-mobile-value">
-                          {session?.subjectname || "-"}
-                        </div>
-                      </div>
-
-                      <span
-                        className={`badge ${getStatusBadgeClass(
-                          session?.status
-                        )}`}
-                      >
-                        {session?.status || "-"}
-                      </span>
-                    </div>
-
-                    <div className="row g-3">
-                      <div className="col-12">
-                        <div className="gl-mobile-label">Title</div>
-                        <div className="gl-mobile-value">
-                          {session?.title || "-"}
-                        </div>
-                      </div>
-
-                      <div className="col-6">
-                        <div className="gl-mobile-label">Teacher</div>
-                        <div className="gl-mobile-value">
-                          {session?.teacher_name || "-"}
-                        </div>
-                      </div>
-
-                      <div className="col-6">
-                        <div className="gl-mobile-label">Date</div>
-                        <div className="gl-mobile-value">
-                          {formatDate(session?.session_date)}
-                        </div>
-                      </div>
-
-                      <div className="col-6">
-                        <div className="gl-mobile-label">Slot</div>
-                        <div className="gl-mobile-value">
-                          {formatTime(session?.slot_start)} -{" "}
-                          {formatTime(session?.slot_end)}
-                        </div>
-                      </div>
-
-                      <div className="col-3">
-                        <div className="gl-mobile-label">Cap.</div>
-                        <div className="gl-mobile-value">
-                          {session?.capacity || "-"}
-                        </div>
-                      </div>
-
-                      <div className="col-3">
-                        <div className="gl-mobile-label">Booked</div>
-                        <div className="gl-mobile-value">
-                          {session?.booked_count ?? 0}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
+                );
+              })
+            )}
           </div>
         </div>
 
@@ -637,6 +587,10 @@ const GroupLiveSessionsLayer = () => {
 
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [selectedProgrammeDetails, setSelectedProgrammeDetails] =
+    useState(null);
+
+  const [bookingOpen, setBookingOpen] = useState(false);
+  const [selectedProgrammeForBooking, setSelectedProgrammeForBooking] =
     useState(null);
 
   const buildHeaders = async () => {
@@ -809,9 +763,9 @@ const GroupLiveSessionsLayer = () => {
       prev.map((row) =>
         idSet.has(String(row?.id))
           ? {
-              ...row,
-              status: nextStatus,
-            }
+            ...row,
+            status: nextStatus,
+          }
           : row
       )
     );
@@ -844,7 +798,7 @@ const GroupLiveSessionsLayer = () => {
     if (Number(response?.data?.statusCode) !== 200) {
       throw new Error(
         response?.data?.message ||
-          `Session ID ${sessionId} status update failed.`
+        `Session ID ${sessionId} status update failed.`
       );
     }
 
@@ -1019,6 +973,16 @@ const GroupLiveSessionsLayer = () => {
     setDetailsOpen(false);
   };
 
+  const openBookingModal = (programme) => {
+    setSelectedProgrammeForBooking(programme);
+    setBookingOpen(true);
+  };
+
+  const closeBookingModal = () => {
+    setSelectedProgrammeForBooking(null);
+    setBookingOpen(false);
+  };
+
   return (
     <div className="card h-100 p-0 radius-12">
       <style>{`
@@ -1075,13 +1039,6 @@ const GroupLiveSessionsLayer = () => {
           white-space: nowrap;
         }
 
-        .gl-status-locked {
-          font-size: 12px;
-          color: var(--bs-secondary-color);
-          font-weight: 700;
-          margin-top: 5px;
-        }
-
         [data-bs-theme="dark"] .gl-programme-title,
         [data-theme="dark"] .gl-programme-title,
         .dark .gl-programme-title,
@@ -1096,11 +1053,7 @@ const GroupLiveSessionsLayer = () => {
         [data-bs-theme="dark"] .gl-batch-text,
         [data-theme="dark"] .gl-batch-text,
         .dark .gl-batch-text,
-        body.dark .gl-batch-text,
-        [data-bs-theme="dark"] .gl-status-locked,
-        [data-theme="dark"] .gl-status-locked,
-        .dark .gl-status-locked,
-        body.dark .gl-status-locked {
+        body.dark .gl-batch-text {
           color: #b8c4d6 !important;
         }
 
@@ -1234,6 +1187,7 @@ const GroupLiveSessionsLayer = () => {
                     ).toLowerCase();
 
                     const isCompleted = currentStatus === "completed";
+                    const isActive = currentStatus === "active";
 
                     return (
                       <tr key={groupKey}>
@@ -1249,6 +1203,7 @@ const GroupLiveSessionsLayer = () => {
                               95
                             )}
                           </div>
+
                           {programme.createddate ? (
                             <div className="gl-batch-text">
                               Batch: {formatDate(programme.createddate)}
@@ -1264,11 +1219,10 @@ const GroupLiveSessionsLayer = () => {
 
                         <td>
                           <span
-                            className={`badge ${
-                              Number(programme.total_classes) >= 3
+                            className={`badge ${Number(programme.total_classes) >= 3
                                 ? "bg-success"
                                 : "bg-warning text-dark"
-                            }`}
+                              }`}
                           >
                             {programme.total_classes} / 3
                           </span>
@@ -1338,14 +1292,27 @@ const GroupLiveSessionsLayer = () => {
                         </td>
 
                         <td>
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-primary d-inline-flex align-items-center gap-1"
-                            onClick={() => openDetailsModal(programme)}
-                          >
-                            <Icon icon="mdi:eye-outline" />
-                            View
-                          </button>
+                          <div className="d-flex gap-2 flex-wrap">
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-primary d-inline-flex align-items-center gap-1"
+                              onClick={() => openDetailsModal(programme)}
+                            >
+                              <Icon icon="mdi:eye-outline" />
+                              View
+                            </button>
+
+                            {isActive ? (
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-success d-inline-flex align-items-center gap-1"
+                                onClick={() => openBookingModal(programme)}
+                              >
+                                <Icon icon="mdi:calendar-plus-outline" />
+                                Book
+                              </button>
+                            ) : null}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -1361,6 +1328,17 @@ const GroupLiveSessionsLayer = () => {
         open={detailsOpen}
         programme={selectedProgrammeDetails}
         onClose={closeDetailsModal}
+      />
+
+      <CreateGroupBatchBookingModal
+        open={bookingOpen}
+        programme={selectedProgrammeForBooking}
+        onClose={closeBookingModal}
+        onSuccess={(data) => {
+          console.log("GROUP BOOKING CREATED FROM MODAL =>", data);
+          closeBookingModal();
+          fetchGroupLiveSessions();
+        }}
       />
 
       <CreateLiveGroupModal

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import moment from "moment";
 import { getToken } from "../api/getToken";
+import { getTimezonesLookup } from "../api/getTimezonesLookup";
 
 const RUN_STORED_PROCEDURE_URL =
   "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=runStoredProcedure";
@@ -105,10 +106,29 @@ const getSubjectId = (item) => item?.subjectid ?? item?.id ?? item?.value;
 const getSubjectName = (item) =>
   item?.subjectname || item?.name || item?.label || "";
 
+const getTimezoneId = (item) =>
+  item?.id ?? item?.timezoneid ?? item?.timezoneId ?? "";
+
+const getTimezoneValue = (item) =>
+  item?.timezone || item?.name || item?.value || "";
+
+const getTimezoneLabel = (item) => {
+  const id = getTimezoneId(item);
+  const value = getTimezoneValue(item);
+
+  if (!value) return "";
+
+  return id ? `${value} (ID: ${id})` : value;
+};
+
 const makeEmptyClass = (index) => ({
   class_no: index + 1,
   subjectid: "",
   teacherid: "",
+
+  teacher_timezoneid: "",
+  teacher_timezone_location: "",
+
   session_date: "",
   slot_start: "",
   slot_end: "",
@@ -121,6 +141,7 @@ const makeEmptyClass = (index) => ({
 const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
   const [programmes, setProgrammes] = useState([]);
   const [teachers, setTeachers] = useState([]);
+  const [timezones, setTimezones] = useState([]);
 
   const [form, setForm] = useState({
     programme_id: "",
@@ -176,20 +197,57 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
     return getArrayFromResponse(response.data);
   };
 
+  const normalizeTimezones = (rows) => {
+    if (!Array.isArray(rows)) return [];
+
+    const seen = new Set();
+
+    return rows
+      .map((item) => {
+        const id = getTimezoneId(item);
+        const value = getTimezoneValue(item);
+
+        return {
+          ...item,
+          id,
+          timezoneid: id,
+          timezone: value,
+          label: getTimezoneLabel(item),
+        };
+      })
+      .filter((item) => item.timezone)
+      .filter((item) => {
+        const key = `${item.timezoneid}-${item.timezone}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  };
+
   const loadLookups = async () => {
     setLookupsLoading(true);
     setError("");
 
     try {
-      const [programmeRows, teacherRows] = await Promise.all([
+      const [programmeRows, teacherRows, timezoneRes] = await Promise.all([
         runStoredProcedure(PROGRAMME_PROCEDURE),
         runStoredProcedure(TEACHER_PROCEDURE),
+        getTimezonesLookup(),
       ]);
 
       setProgrammes(programmeRows || []);
       setTeachers(teacherRows || []);
+
+      if (timezoneRes?.statusCode === 200 && Array.isArray(timezoneRes?.data)) {
+        setTimezones(normalizeTimezones(timezoneRes.data));
+      } else {
+        setTimezones([]);
+      }
     } catch (err) {
       console.error("Create live group lookup failed:", err);
+      setProgrammes([]);
+      setTeachers([]);
+      setTimezones([]);
       setError(err?.message || "Dropdown data load nahi hua.");
     } finally {
       setLookupsLoading(false);
@@ -309,6 +367,73 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
     return Array.from(uniq.values());
   };
 
+  const getTimezoneById = (timezoneId) => {
+    const id = String(timezoneId || "").trim();
+
+    if (!id) return null;
+
+    return timezones.find((tz) => String(getTimezoneId(tz)) === id) || null;
+  };
+
+  const getTimezoneByValue = (timezoneValue) => {
+    const value = String(timezoneValue || "").trim();
+
+    if (!value) return null;
+
+    return (
+      timezones.find((tz) => String(getTimezoneValue(tz)).trim() === value) ||
+      null
+    );
+  };
+
+  const extractTeacherTimezone = (profileData) => {
+    const profile =
+      Array.isArray(profileData?.profile) && profileData.profile.length
+        ? profileData.profile[0]
+        : profileData;
+
+    const timezoneIdFromProfile =
+      profile?.timezoneid || profile?.timezone_id || profile?.timezoneId || "";
+
+    const timezoneLocationFromProfile =
+      profile?.timezone_location ||
+      profile?.timezone ||
+      profile?.userTimezone ||
+      "";
+
+    if (timezoneIdFromProfile) {
+      const matchedById = getTimezoneById(timezoneIdFromProfile);
+
+      if (matchedById) {
+        return {
+          timezoneid: String(getTimezoneId(matchedById)),
+          timezone_location: getTimezoneValue(matchedById),
+        };
+      }
+    }
+
+    if (timezoneLocationFromProfile) {
+      const matchedByValue = getTimezoneByValue(timezoneLocationFromProfile);
+
+      if (matchedByValue) {
+        return {
+          timezoneid: String(getTimezoneId(matchedByValue)),
+          timezone_location: getTimezoneValue(matchedByValue),
+        };
+      }
+
+      return {
+        timezoneid: "",
+        timezone_location: timezoneLocationFromProfile,
+      };
+    }
+
+    return {
+      timezoneid: "",
+      timezone_location: "",
+    };
+  };
+
   const getSubjectByClassItem = (classItem) => {
     return (classItem?.subjectOptions || []).find(
       (s) => String(getSubjectId(s)) === String(classItem.subjectid)
@@ -333,6 +458,8 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
         teacherid: "",
         subjectid: "",
         title: "",
+        teacher_timezoneid: "",
+        teacher_timezone_location: "",
         subjectOptions: [],
         subjectLoading: false,
         subjectError: "",
@@ -344,6 +471,8 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
       teacherid,
       subjectid: "",
       title: "",
+      teacher_timezoneid: "",
+      teacher_timezone_location: "",
       subjectOptions: [],
       subjectLoading: true,
       subjectError: "",
@@ -368,6 +497,7 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
 
       const profileData = response?.data?.data || {};
       const subjectOptions = normalizeTeacherSubjects(profileData);
+      const teacherTimezone = extractTeacherTimezone(profileData);
 
       const firstSubject = subjectOptions?.[0] || null;
       const firstSubjectId = firstSubject
@@ -382,6 +512,9 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
           : "Is teacher ke subjects nahi milay.",
         subjectid: firstSubjectId,
         title: "",
+
+        teacher_timezoneid: teacherTimezone.timezoneid,
+        teacher_timezone_location: teacherTimezone.timezone_location,
       });
     } catch (err) {
       console.error("Teacher subjects load failed:", err);
@@ -392,6 +525,8 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
         subjectError: err?.message || "Teacher subjects load nahi huay.",
         subjectid: "",
         title: "",
+        teacher_timezoneid: "",
+        teacher_timezone_location: "",
       });
     }
   };
@@ -414,6 +549,17 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
     );
   };
 
+  const handleTimezoneChange = (index, timezoneId) => {
+    const selectedTimezone = getTimezoneById(timezoneId);
+
+    setClassPatch(index, {
+      teacher_timezoneid: timezoneId,
+      teacher_timezone_location: selectedTimezone
+        ? getTimezoneValue(selectedTimezone)
+        : "",
+    });
+  };
+
   const getTeacherById = (teacherid) =>
     teachers.find((t) => String(getTeacherId(t)) === String(teacherid));
 
@@ -434,6 +580,11 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
       const label = `Class ${i + 1}`;
 
       if (!item.teacherid) return `${label}: Teacher select karo.`;
+
+      if (!item.teacher_timezoneid || !item.teacher_timezone_location) {
+        return `${label}: Teacher timezone select karo.`;
+      }
+
       if (item.subjectLoading) return `${label}: Subject loading ho raha hai.`;
 
       if (item.subjectError && !item.subjectOptions?.length) {
@@ -470,6 +621,10 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
         title: item.title || buildSessionTitle(item, index),
         subjectid: Number(item.subjectid),
         teacherid: Number(item.teacherid),
+
+        timezoneid: Number(item.teacher_timezoneid),
+        timezone_location: item.teacher_timezone_location,
+
         session_date: item.session_date,
         slot_start: formatTimeForDb(item.slot_start),
         slot_end: formatTimeForDb(item.slot_end),
@@ -532,6 +687,8 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
       const insertRows = buildInsertRows();
       const insertedResponses = [];
 
+      console.log("GROUP LIVE SESSION INSERT ROWS =>", insertRows);
+
       for (let i = 0; i < insertRows.length; i += 1) {
         const row = insertRows[i];
 
@@ -584,6 +741,8 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
           item.slot_start && item.slot_end
             ? `${item.slot_start} - ${item.slot_end}`
             : "",
+        timezone: item.teacher_timezone_location || "",
+        timezoneid: item.teacher_timezoneid || "",
       };
     });
   }, [classes, teachers, selectedProgrammeName]);
@@ -802,6 +961,13 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
           margin-top: 6px;
         }
 
+        .gl-timezone-note {
+          color: #86efac;
+          font-size: 12px;
+          font-weight: 750;
+          margin-top: 6px;
+        }
+
         .gl-preview-card {
           border: 1px solid rgba(148, 163, 184, 0.18);
           border-radius: 18px;
@@ -995,6 +1161,15 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
                           ? ` • ${getSubjectName(subject)}`
                           : ""}
                       </div>
+
+                      {item.teacher_timezone_location ? (
+                        <div className="gl-timezone-note">
+                          Timezone: {item.teacher_timezone_location}
+                          {item.teacher_timezoneid
+                            ? ` (ID: ${item.teacher_timezoneid})`
+                            : ""}
+                        </div>
+                      ) : null}
                     </div>
 
                     <span className="badge bg-primary">Required</span>
@@ -1069,6 +1244,45 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
                             {item.subjectError}
                           </div>
                         ) : null}
+                      </div>
+
+                      <div className="col-lg-4 col-md-12">
+                        <label className="form-label">Teacher Timezone</label>
+                        <select
+                          className="form-select"
+                          value={item.teacher_timezoneid || ""}
+                          onChange={(e) =>
+                            handleTimezoneChange(index, e.target.value)
+                          }
+                          disabled={loading || lookupsLoading}
+                        >
+                          <option value="">Select Timezone</option>
+
+                          {timezones.map((tz) => {
+                            const tzId = getTimezoneId(tz);
+                            const tzValue = getTimezoneValue(tz);
+                            const tzLabel = getTimezoneLabel(tz);
+
+                            return (
+                              <option key={`${tzId}-${tzValue}`} value={tzId}>
+                                {tzLabel}
+                              </option>
+                            );
+                          })}
+                        </select>
+
+                        {item.teacher_timezone_location ? (
+                          <div className="gl-timezone-note">
+                            Selected: {item.teacher_timezone_location}
+                            {item.teacher_timezoneid
+                              ? ` (ID: ${item.teacher_timezoneid})`
+                              : ""}
+                          </div>
+                        ) : (
+                          <div className="gl-subject-error">
+                            Please select teacher timezone.
+                          </div>
+                        )}
                       </div>
 
                       <div className="col-lg-4 col-md-12">
@@ -1157,7 +1371,8 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
                 <div className="gl-preview-line" key={item.index}>
                   <strong>Class {item.index + 1}:</strong> {item.title || "-"} |{" "}
                   {item.teacherName || "-"} | {item.date || "-"} |{" "}
-                  {item.time || "-"}
+                  {item.time || "-"} | {item.timezone || "Timezone not selected"}
+                  {item.timezoneid ? ` | Timezone ID: ${item.timezoneid}` : ""}
                 </div>
               ))}
             </div>
