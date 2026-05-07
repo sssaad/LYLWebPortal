@@ -108,7 +108,7 @@ import VoiceGeneratorPage from "./pages/VoiceGeneratorPage";
 import WalletPage from "./pages/WalletPage";
 import WidgetsPage from "./pages/WidgetsPage";
 import WizardPage from "./pages/WizardPage";
-// import GroupLiveSessionsPage from "./pages/GroupLiveSessionsPage";
+import GroupLiveSessionsPage from "./pages/GroupLiveSessionsPage";
 
 function App() {
   return (
@@ -218,7 +218,7 @@ function App() {
           ["/progress", ProgressPage],
           ["/radio", RadioPage],
           ["/bookings", RoleAccessPage],
-          // ["/group-live-sessions", GroupLiveSessionsPage],
+          ["/group-live-sessions", GroupLiveSessionsPage],
           ["/direct-bookings", DirectBookingPage],
           ["/inperson-bookings", InpersonBookingPage],
           ["/leads-centre", LeadCentrePage],
