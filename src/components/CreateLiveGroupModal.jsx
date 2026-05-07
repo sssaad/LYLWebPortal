@@ -6,8 +6,8 @@ import { getToken } from "../api/getToken";
 const RUN_STORED_PROCEDURE_URL =
   "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=runStoredProcedure";
 
-const INSERT_DYNAMIC_DATA_URL =
-  "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=insert_dynamic_data";
+const ADD_DYNAMIC_DATA_URL =
+  "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=add_dynamic_data";
 
 const TEACHER_PROFILE_URL =
   "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=teacher_profile";
@@ -50,6 +50,38 @@ const getArrayFromResponse = (res) => {
   }
 
   return [];
+};
+
+const isSuccessResponse = (response) => {
+  const data = response?.data || {};
+
+  if (Number(response?.status) >= 200 && Number(response?.status) < 300) {
+    if (
+      data?.error ||
+      Number(data?.statusCode) === 400 ||
+      Number(data?.statusCode) === 401 ||
+      Number(data?.statusCode) === 403 ||
+      Number(data?.statusCode) === 404 ||
+      Number(data?.statusCode) === 500
+    ) {
+      return false;
+    }
+
+    if (
+      data?.success === true ||
+      Number(data?.statusCode) === 200 ||
+      Number(data?.statusCode) === 201 ||
+      String(data?.status || "").toLowerCase() === "success" ||
+      String(data?.message || "").toLowerCase().includes("success") ||
+      String(data?.message || "").toLowerCase().includes("insert")
+    ) {
+      return true;
+    }
+
+    return true;
+  }
+
+  return false;
 };
 
 const formatTimeForDb = (value) => {
@@ -199,7 +231,7 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
     }));
 
     setClasses((prev) =>
-      prev.map((item, index) => {
+      prev.map((item) => {
         if (item.title) return item;
 
         const subject = (item?.subjectOptions || []).find(
@@ -428,8 +460,12 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
   };
 
   const buildInsertRows = () => {
+    const batchCreatedDate = moment().format("YYYY-MM-DD HH:mm:ss");
+
     return classes.map((item, index) => {
       return {
+        tablename: "group_live_sessions",
+
         programme_id: Number(form.programme_id),
         title: item.title || buildSessionTitle(item, index),
         subjectid: Number(item.subjectid),
@@ -439,14 +475,31 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
         slot_end: formatTimeForDb(item.slot_end),
         capacity: Number(form.capacity || 10),
 
-        classid: "",
-        roomid: "",
-        classhostlink: "",
-        classcommonlink: "",
+        classid: null,
+        roomid: null,
+        classhostlink: null,
+        classcommonlink: null,
 
         status: form.status || "active",
+        createddate: batchCreatedDate,
       };
     });
+  };
+
+  const addDynamicData = async (rowPayload, headers) => {
+    const response = await axios.post(ADD_DYNAMIC_DATA_URL, rowPayload, {
+      headers,
+    });
+
+    if (!isSuccessResponse(response)) {
+      throw new Error(
+        response?.data?.message ||
+          response?.data?.error ||
+          "Live group session insert nahi hua."
+      );
+    }
+
+    return response?.data;
   };
 
   const handleSubmit = async (e) => {
@@ -471,28 +524,36 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
         throw new Error("Token nahi mila.");
       }
 
-      const insertRows = buildInsertRows();
-
-      const payload = {
+      const headers = {
+        ...API_HEADERS,
         token,
-        tablename: "group_live_sessions",
-        insertdata: insertRows,
       };
 
-      const response = await axios.post(INSERT_DYNAMIC_DATA_URL, payload, {
-        headers: API_HEADERS,
-      });
+      const insertRows = buildInsertRows();
+      const insertedResponses = [];
 
-      if (Number(response?.data?.statusCode) !== 200) {
-        throw new Error(
-          response?.data?.message || "Live group sessions create nahi huay."
-        );
+      for (let i = 0; i < insertRows.length; i += 1) {
+        const row = insertRows[i];
+
+        try {
+          const res = await addDynamicData(row, headers);
+          insertedResponses.push(res);
+        } catch (insertErr) {
+          throw new Error(
+            `Class ${i + 1} insert failed: ${
+              insertErr?.message || "Unknown error"
+            }`
+          );
+        }
       }
 
-      setSuccessMsg("Live group sessions created successfully.");
+      setSuccessMsg("3 live group sessions created successfully.");
 
       setTimeout(() => {
-        onSuccess?.();
+        onSuccess?.({
+          insertedRows: insertRows,
+          insertedResponses,
+        });
         onClose?.();
       }, 700);
     } catch (err) {
@@ -546,7 +607,9 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
 
         .gl-create-modal {
           width: min(1180px, 98vw);
-          max-height: 94vh;
+          height: min(94vh, 920px);
+          display: flex;
+          flex-direction: column;
           overflow: hidden;
           border-radius: 22px;
           border: 1px solid rgba(148, 163, 184, 0.24);
@@ -556,6 +619,7 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
         }
 
         .gl-create-header {
+          flex-shrink: 0;
           padding: 24px 26px;
           border-bottom: 1px solid rgba(148, 163, 184, 0.20);
           background: linear-gradient(135deg, #1d2b3f 0%, #26384f 100%);
@@ -589,6 +653,7 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
           align-items: center;
           justify-content: center;
           transition: all 0.2s ease;
+          cursor: pointer;
         }
 
         .gl-create-close:hover {
@@ -597,10 +662,23 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
           color: #ffffff;
         }
 
+        .gl-create-close:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
+        .gl-create-form {
+          flex: 1 1 auto;
+          min-height: 0;
+          display: flex;
+          flex-direction: column;
+        }
+
         .gl-create-body {
-          max-height: calc(94vh - 172px);
+          flex: 1 1 auto;
+          min-height: 0;
           overflow-y: auto;
-          padding: 24px 26px;
+          padding: 24px 26px 28px;
           background: #243247;
         }
 
@@ -618,9 +696,13 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
         }
 
         .gl-create-footer {
+          flex-shrink: 0;
           padding: 16px 26px;
           border-top: 1px solid rgba(148, 163, 184, 0.20);
           background: #202e42;
+          position: sticky;
+          bottom: 0;
+          z-index: 2;
         }
 
         .gl-create-body .form-label {
@@ -650,6 +732,12 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
           border-color: #3b82f6;
           background: #1b2738;
           color: #ffffff;
+        }
+
+        .gl-create-body .form-control:disabled,
+        .gl-create-body .form-select:disabled {
+          opacity: 0.75;
+          cursor: not-allowed;
         }
 
         .gl-create-body .form-select option {
@@ -768,11 +856,21 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
         }
 
         @media (max-width: 767px) {
+          .gl-create-modal {
+            width: 100%;
+            height: 94vh;
+            border-radius: 18px;
+          }
+
           .gl-create-header,
           .gl-create-body,
           .gl-create-footer {
             padding-left: 16px;
             padding-right: 16px;
+          }
+
+          .gl-create-body {
+            padding-bottom: 20px;
           }
 
           .gl-create-title {
@@ -781,6 +879,16 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
 
           .gl-class-body {
             padding: 16px;
+          }
+
+          .gl-create-footer {
+            padding-top: 14px;
+            padding-bottom: 14px;
+          }
+
+          .gl-submit-btn,
+          .gl-cancel-btn {
+            width: 100%;
           }
         }
       `}</style>
@@ -804,7 +912,7 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
           </button>
         </div>
 
-        <form onSubmit={handleSubmit}>
+        <form className="gl-create-form" onSubmit={handleSubmit}>
           <div className="gl-create-body">
             {error ? (
               <div className="alert alert-danger gl-alert py-2">{error}</div>
@@ -817,9 +925,7 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
             ) : null}
 
             {lookupsLoading ? (
-              <div className="alert alert-info gl-alert py-2">
-                loading...
-              </div>
+              <div className="alert alert-info gl-alert py-2">Loading...</div>
             ) : null}
 
             <div className="gl-top-card">
@@ -1057,7 +1163,7 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
             </div>
           </div>
 
-          <div className="gl-create-footer d-flex justify-content-end gap-2">
+          <div className="gl-create-footer d-flex justify-content-end gap-2 flex-wrap">
             <button
               type="button"
               className="gl-cancel-btn"

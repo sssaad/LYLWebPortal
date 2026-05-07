@@ -183,7 +183,7 @@ const MasterLayout = ({ children }) => {
                 <span>In-Person Bookings</span>
               </NavLink>
             </li>
-            {/* <li>
+            <li>
               <NavLink
                 to="/group-live-sessions"
                 className={({ isActive }) => (isActive ? "active-page" : "")}
@@ -191,7 +191,7 @@ const MasterLayout = ({ children }) => {
                 <Icon icon="mdi:account-group-outline" className="menu-icon" />
                 <span>Live Group Sessions</span>
               </NavLink>
-            </li> */}
+            </li>
             <li>
               <NavLink to="/subscription" className={({ isActive }) => (isActive ? "active-page" : "")}>
                 <Icon icon="material-symbols:subscriptions-outline" className="menu-icon" />
