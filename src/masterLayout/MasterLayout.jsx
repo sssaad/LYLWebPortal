@@ -253,6 +253,15 @@ const MasterLayout = ({ children }) => {
               </NavLink>
             </li>
             <li>
+              <NavLink
+                to="/registration-requests"
+                className={({ isActive }) => (isActive ? "active-page" : "")}
+              >
+                <Icon icon="mdi:account-plus-outline" className="menu-icon" />
+                <span>Registration Requests</span>
+              </NavLink>
+            </li>
+            <li>
               <NavLink to="/setting" className={({ isActive }) => (isActive ? "active-page" : "")}>
                 <Icon icon="icon-park-outline:setting-two" className="menu-icon" />
                 <span>Settings</span>

@@ -297,7 +297,10 @@ const RoleAccessLayer = () => {
     if (endDT) {
       if (now.isAfter(endDT)) {
         if (inPerson) return "completed";
-        return hasRecording ? "completed" : "missed";
+
+        const teacherFeedbackDone = Number(item?.has_teacher_feedback || 0) === 1;
+
+        return hasRecording || teacherFeedbackDone ? "completed" : "missed";
       }
 
       if (startDT && now.isSameOrAfter(startDT) && now.isSameOrBefore(endDT)) {
@@ -310,7 +313,10 @@ const RoleAccessLayer = () => {
     const dayEnd = parseDateTime(date, "23:59:59");
     if (dayEnd && now.isAfter(dayEnd)) {
       if (inPerson) return "completed";
-      return hasRecording ? "completed" : "missed";
+
+      const teacherFeedbackDone = Number(item?.has_teacher_feedback || 0) === 1;
+
+      return hasRecording || teacherFeedbackDone ? "completed" : "missed";
     }
 
     return "upcoming";

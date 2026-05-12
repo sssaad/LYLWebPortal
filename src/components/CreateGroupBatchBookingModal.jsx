@@ -275,14 +275,36 @@ const CreateGroupBatchBookingModal = ({
   }, [timezones, studentTz]);
 
   const getTimezoneIdByValue = (tzValue) => {
-    const opt = timezoneOptions.find(
-      (o) => String(o.value) === String(tzValue)
+  const cleanValue = String(tzValue || "").trim();
+
+  const opt = timezoneOptions.find(
+    (o) => String(o.value || "").trim() === cleanValue
+  );
+
+  const id = opt?.timezoneid;
+
+  if (id !== null && id !== undefined && id !== "") {
+    return String(id);
+  }
+
+  if (cleanValue === DEFAULT_PORTAL_DISPLAY_TIMEZONE) {
+    const dubaiOpt = timezoneOptions.find(
+      (o) =>
+        String(o.value || "").trim() === DEFAULT_PORTAL_DISPLAY_TIMEZONE ||
+        String(o.label || "").trim() === DEFAULT_PORTAL_DISPLAY_TIMEZONE
     );
 
-    const id = opt?.timezoneid;
+    if (
+      dubaiOpt?.timezoneid !== null &&
+      dubaiOpt?.timezoneid !== undefined &&
+      dubaiOpt?.timezoneid !== ""
+    ) {
+      return String(dubaiOpt.timezoneid);
+    }
+  }
 
-    return id === null || id === undefined || id === "" ? "" : String(id);
-  };
+  return "";
+};
 
   const getTimezoneValueById = (timezoneId) => {
     const id = String(timezoneId ?? "").trim();
@@ -409,6 +431,11 @@ const CreateGroupBatchBookingModal = ({
   const handleStudentChange = (value) => {
     setStudentId(value);
     setError("");
+
+    console.log("SELECTED STUDENT RAW =>", {
+  value,
+  student: students.find((s) => String(getStudentId(s)) === String(value)),
+});
 
     const student = students.find(
       (s) => String(getStudentId(s)) === String(value)

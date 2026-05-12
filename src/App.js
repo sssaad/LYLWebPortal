@@ -109,6 +109,8 @@ import WalletPage from "./pages/WalletPage";
 import WidgetsPage from "./pages/WidgetsPage";
 import WizardPage from "./pages/WizardPage";
 import GroupLiveSessionsPage from "./pages/GroupLiveSessionsPage";
+import RegistrationRequestsPage from "./pages/RegistrationRequestsPage";
+import WeeklyTimetablePage from "./pages/WeeklyTimetablePage";
 
 function App() {
   return (
@@ -222,6 +224,7 @@ function App() {
           ["/direct-bookings", DirectBookingPage],
           ["/inperson-bookings", InpersonBookingPage],
           ["/leads-centre", LeadCentrePage],
+          ["/registration-requests", RegistrationRequestsPage],
           ["/star-rating", StarRatingPage],
           ["/starred", StarredPage],
           ["/switch", SwitchPage],
@@ -245,6 +248,7 @@ function App() {
           ["/wallet", WalletPage],
           ["/widgets", WidgetsPage],
           ["/wizard", WizardPage],
+          ["/weekly-timetable", WeeklyTimetablePage],
         ].map(([path, Component], index) => (
           <Route
             key={index}

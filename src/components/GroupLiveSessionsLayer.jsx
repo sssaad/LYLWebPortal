@@ -6,6 +6,7 @@ import { Icon } from "@iconify/react";
 import { getToken } from "../api/getToken";
 import CreateLiveGroupModal from "./CreateLiveGroupModal";
 import CreateGroupBatchBookingModal from "./CreateGroupBatchBookingModal";
+import WeeklyTimetableModal from "./WeeklyTimetableModal";
 
 const RUN_STORED_PROCEDURE_URL =
   "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=runStoredProcedure";
@@ -593,6 +594,8 @@ const GroupLiveSessionsLayer = () => {
   const [selectedProgrammeForBooking, setSelectedProgrammeForBooking] =
     useState(null);
 
+  const [weeklyTimetableOpen, setWeeklyTimetableOpen] = useState(false);
+
   const buildHeaders = async () => {
     const tokenRes = await getToken();
     const token = resolveToken(tokenRes);
@@ -763,9 +766,9 @@ const GroupLiveSessionsLayer = () => {
       prev.map((row) =>
         idSet.has(String(row?.id))
           ? {
-            ...row,
-            status: nextStatus,
-          }
+              ...row,
+              status: nextStatus,
+            }
           : row
       )
     );
@@ -798,7 +801,7 @@ const GroupLiveSessionsLayer = () => {
     if (Number(response?.data?.statusCode) !== 200) {
       throw new Error(
         response?.data?.message ||
-        `Session ID ${sessionId} status update failed.`
+          `Session ID ${sessionId} status update failed.`
       );
     }
 
@@ -983,6 +986,14 @@ const GroupLiveSessionsLayer = () => {
     setBookingOpen(false);
   };
 
+  const openWeeklyTimetableModal = () => {
+    setWeeklyTimetableOpen(true);
+  };
+
+  const closeWeeklyTimetableModal = () => {
+    setWeeklyTimetableOpen(false);
+  };
+
   return (
     <div className="card h-100 p-0 radius-12">
       <style>{`
@@ -1057,13 +1068,17 @@ const GroupLiveSessionsLayer = () => {
           color: #b8c4d6 !important;
         }
 
-        .gl-create-btn {
+        .gl-create-btn,
+        .gl-weekly-btn {
           border-radius: 999px;
           padding: 10px 18px;
           width: fit-content;
           max-width: fit-content;
           flex: 0 0 auto;
           font-weight: 800;
+        }
+
+        .gl-create-btn {
           box-shadow: 0 10px 24px rgba(25, 135, 84, 0.20);
         }
 
@@ -1087,14 +1102,25 @@ const GroupLiveSessionsLayer = () => {
             <p className="text-secondary-light mb-0"></p>
           </div>
 
-          <button
-            type="button"
-            className="btn btn-success btn-sm d-inline-flex align-items-center gap-2 gl-create-btn"
-            onClick={() => openCreateModal(null)}
-          >
-            <span className="gl-create-plus">+</span>
-            Create Live Group
-          </button>
+          <div className="d-flex flex-wrap align-items-center gap-2">
+            <button
+              type="button"
+              className="btn btn-outline-primary btn-sm d-inline-flex align-items-center gap-2 gl-weekly-btn"
+              onClick={openWeeklyTimetableModal}
+            >
+              <Icon icon="mdi:calendar-week-outline" />
+              Weekly Timetable
+            </button>
+
+            <button
+              type="button"
+              className="btn btn-success btn-sm d-inline-flex align-items-center gap-2 gl-create-btn"
+              onClick={() => openCreateModal(null)}
+            >
+              <span className="gl-create-plus">+</span>
+              Create Live Group
+            </button>
+          </div>
         </div>
 
         <div className="d-flex flex-wrap align-items-center gap-3 mb-4">
@@ -1219,10 +1245,11 @@ const GroupLiveSessionsLayer = () => {
 
                         <td>
                           <span
-                            className={`badge ${Number(programme.total_classes) >= 3
+                            className={`badge ${
+                              Number(programme.total_classes) >= 3
                                 ? "bg-success"
                                 : "bg-warning text-dark"
-                              }`}
+                            }`}
                           >
                             {programme.total_classes} / 3
                           </span>
@@ -1354,6 +1381,10 @@ const GroupLiveSessionsLayer = () => {
           fetchGroupLiveSessions();
         }}
       />
+
+      {weeklyTimetableOpen && (
+        <WeeklyTimetableModal onClose={closeWeeklyTimetableModal} />
+      )}
     </div>
   );
 };
