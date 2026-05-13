@@ -101,6 +101,27 @@ const getTeacherName = (item) =>
   item?.name ||
   "";
 
+const getTeacherImage = (item) =>
+  item?.imagepath ||
+  item?.profileImage ||
+  item?.profile_image ||
+  item?.image ||
+  item?.userimage ||
+  item?.avatar ||
+  "";
+
+const buildImageUrl = (imagePath) => {
+  const value = String(imagePath || "").trim();
+
+  if (!value) return "";
+
+  if (value.startsWith("http://") || value.startsWith("https://")) {
+    return value;
+  }
+
+  return `https://api.learnyourlanguage.org/${value.replace(/^\/+/, "")}`;
+};
+
 const getSubjectId = (item) => item?.subjectid ?? item?.id ?? item?.value;
 
 const getSubjectName = (item) =>
@@ -119,6 +140,111 @@ const getTimezoneLabel = (item) => {
   if (!value) return "";
 
   return id ? `${value} (ID: ${id})` : value;
+};
+
+const SearchableTeacherSelect = ({
+  teachers = [],
+  value,
+  onChange,
+  disabled = false,
+  placeholder = "Select Teacher",
+}) => {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const selectedTeacher = teachers.find(
+    (teacher) => String(getTeacherId(teacher)) === String(value)
+  );
+
+  const filteredTeachers = teachers.filter((teacher) => {
+    const searchValue = String(search || "").toLowerCase().trim();
+
+    if (!searchValue) return true;
+
+    return (
+      String(getTeacherName(teacher) || "").toLowerCase().includes(searchValue) ||
+      String(teacher?.email || "").toLowerCase().includes(searchValue)
+    );
+  });
+
+  return (
+    <div className="gl-teacher-select-wrap">
+      <button
+        type="button"
+        className="gl-teacher-select-btn"
+        disabled={disabled}
+        onClick={() => {
+          if (!disabled) setOpen((prev) => !prev);
+        }}
+      >
+        <span
+          className={
+            selectedTeacher ? "gl-teacher-selected" : "gl-teacher-placeholder"
+          }
+        >
+          {selectedTeacher ? getTeacherName(selectedTeacher) : placeholder}
+        </span>
+
+        <span className="gl-teacher-arrow">{open ? "▴" : "▾"}</span>
+      </button>
+
+      {open ? (
+        <div className="gl-teacher-dropdown">
+          <div className="gl-teacher-search-box">
+            <input
+              type="text"
+              className="gl-teacher-search-input"
+              placeholder="Search..."
+              value={search}
+              autoFocus
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+
+          <div className="gl-teacher-options">
+            {filteredTeachers.length === 0 ? (
+              <div className="gl-teacher-empty">No teacher found.</div>
+            ) : (
+              filteredTeachers.map((teacher) => {
+                const teacherId = getTeacherId(teacher);
+                const teacherName = getTeacherName(teacher);
+                const imageUrl = buildImageUrl(getTeacherImage(teacher));
+                const isSelected = String(teacherId) === String(value);
+
+                return (
+                  <button
+                    type="button"
+                    key={teacherId}
+                    className={`gl-teacher-option ${isSelected ? "active" : ""
+                      }`}
+                    onClick={() => {
+                      onChange?.(teacherId);
+                      setOpen(false);
+                      setSearch("");
+                    }}
+                  >
+                    <span className="gl-teacher-avatar">
+                      {imageUrl ? (
+                        <img src={imageUrl} alt={teacherName || "Teacher"} />
+                      ) : (
+                        <span className="gl-teacher-avatar-fallback">
+                          {String(teacherName || "T").charAt(0).toUpperCase()}
+                        </span>
+                      )}
+                    </span>
+
+                    <span className="gl-teacher-name">
+                      {teacherName || "Unnamed Teacher"}
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 };
 
 const makeEmptyClass = (index) => ({
@@ -282,9 +408,9 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
       ...prev,
       capacity: String(
         selectedProgramme?.capacity ??
-          selectedProgramme?.class_capacity ??
-          prev.capacity ??
-          "10"
+        selectedProgramme?.class_capacity ??
+        prev.capacity ??
+        "10"
       ),
     }));
 
@@ -649,8 +775,8 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
     if (!isSuccessResponse(response)) {
       throw new Error(
         response?.data?.message ||
-          response?.data?.error ||
-          "Live group session insert nahi hua."
+        response?.data?.error ||
+        "Live group session insert nahi hua."
       );
     }
 
@@ -697,8 +823,7 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
           insertedResponses.push(res);
         } catch (insertErr) {
           throw new Error(
-            `Class ${i + 1} insert failed: ${
-              insertErr?.message || "Unknown error"
+            `Class ${i + 1} insert failed: ${insertErr?.message || "Unknown error"
             }`
           );
         }
@@ -916,7 +1041,7 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
           border: 1px solid rgba(148, 163, 184, 0.18);
           border-radius: 18px;
           background: #1f2d40;
-          overflow: hidden;
+          overflow: visible;
           margin-bottom: 16px;
         }
 
@@ -1021,6 +1146,163 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
           box-shadow: 0 12px 30px rgba(34, 197, 94, 0.22);
         }
 
+        .gl-teacher-select-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.gl-teacher-select-btn {
+  width: 100%;
+  min-height: 50px;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: #1b2738;
+  color: #ffffff;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-weight: 750;
+  text-align: left;
+}
+
+.gl-teacher-select-btn:disabled {
+  opacity: 0.75;
+  cursor: not-allowed;
+}
+
+.gl-teacher-placeholder {
+  color: #8296b1;
+}
+
+.gl-teacher-selected {
+  color: #ffffff;
+}
+
+.gl-teacher-arrow {
+  color: #ffffff;
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+
+.gl-teacher-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 2800;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: #0b1220;
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.42);
+  overflow: hidden;
+}
+
+.gl-teacher-search-box {
+  padding: 10px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  background: #111827;
+}
+
+.gl-teacher-search-input {
+  width: 100%;
+  height: 48px;
+  border-radius: 13px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: #0f172a;
+  color: #ffffff;
+  padding: 0 14px;
+  font-weight: 800;
+  outline: none;
+}
+
+.gl-teacher-search-input::placeholder {
+  color: #8b97aa;
+}
+
+.gl-teacher-search-input:focus {
+  border-color: rgba(59, 130, 246, 0.85);
+  box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.16);
+}
+
+.gl-teacher-options {
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.gl-teacher-options::-webkit-scrollbar {
+  width: 8px;
+}
+
+.gl-teacher-options::-webkit-scrollbar-track {
+  background: #111827;
+}
+
+.gl-teacher-options::-webkit-scrollbar-thumb {
+  background: #6b7280;
+  border-radius: 999px;
+}
+
+.gl-teacher-option {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: #ffffff;
+  border-radius: 12px;
+  padding: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  font-weight: 900;
+}
+
+.gl-teacher-option:hover,
+.gl-teacher-option.active {
+  background: rgba(59, 130, 246, 0.14);
+}
+
+.gl-teacher-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex: 0 0 auto;
+  background: #1f2937;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #cbd5e1;
+}
+
+.gl-teacher-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.gl-teacher-avatar-fallback {
+  font-size: 13px;
+  font-weight: 900;
+  color: #cbd5e1;
+}
+
+.gl-teacher-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gl-teacher-empty {
+  padding: 18px 12px;
+  text-align: center;
+  color: #94a3b8;
+  font-weight: 800;
+}
         @media (max-width: 767px) {
           .gl-create-modal {
             width: 100%;
@@ -1179,25 +1461,14 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
                     <div className="row g-3">
                       <div className="col-lg-4 col-md-6">
                         <label className="form-label">Teacher</label>
-                        <select
-                          className="form-select"
-                          value={item.teacherid}
-                          onChange={(e) =>
-                            handleTeacherChange(index, e.target.value)
-                          }
-                          disabled={loading || lookupsLoading}
-                        >
-                          <option value="">Select Teacher</option>
 
-                          {teachers.map((t) => (
-                            <option
-                              key={getTeacherId(t)}
-                              value={getTeacherId(t)}
-                            >
-                              {getTeacherName(t)}
-                            </option>
-                          ))}
-                        </select>
+                        <SearchableTeacherSelect
+                          teachers={teachers}
+                          value={item.teacherid}
+                          disabled={loading || lookupsLoading}
+                          placeholder="Select Teacher"
+                          onChange={(teacherId) => handleTeacherChange(index, teacherId)}
+                        />
                       </div>
 
                       <div className="col-lg-4 col-md-6">
@@ -1219,8 +1490,8 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
                             {item.subjectLoading
                               ? "Loading subjects..."
                               : item.teacherid
-                              ? "Select Subject"
-                              : "Select teacher first"}
+                                ? "Select Subject"
+                                : "Select teacher first"}
                           </option>
 
                           {(item.subjectOptions || []).map((s) => (
@@ -1294,9 +1565,8 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
                           onChange={(e) =>
                             updateClass(index, "title", e.target.value)
                           }
-                          placeholder={`${
-                            selectedProgrammeName || "Programme"
-                          } - Subject`}
+                          placeholder={`${selectedProgrammeName || "Programme"
+                            } - Subject`}
                           disabled={loading}
                         />
                       </div>

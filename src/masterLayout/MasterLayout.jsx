@@ -160,6 +160,15 @@ const MasterLayout = ({ children }) => {
               </NavLink>
             </li>
             <li>
+              <NavLink
+                to="/registration-requests"
+                className={({ isActive }) => (isActive ? "active-page" : "")}
+              >
+                <Icon icon="mdi:account-plus-outline" className="menu-icon" />
+                <span>Registration Requests</span>
+              </NavLink>
+            </li>
+            <li>
               <NavLink to="/subject" className={({ isActive }) => (isActive ? "active-page" : "")}>
                 <Icon icon="solar:calendar-outline" className="menu-icon" />
                 <span>Subjects</span>
@@ -250,15 +259,6 @@ const MasterLayout = ({ children }) => {
               <NavLink to="/leads-centre" className={({ isActive }) => (isActive ? "active-page" : "")}>
                 <Icon icon="material-symbols:event-seat-outline" className="menu-icon" />
                 <span>Leads Centre</span>
-              </NavLink>
-            </li>
-            <li>
-              <NavLink
-                to="/registration-requests"
-                className={({ isActive }) => (isActive ? "active-page" : "")}
-              >
-                <Icon icon="mdi:account-plus-outline" className="menu-icon" />
-                <span>Registration Requests</span>
               </NavLink>
             </li>
             <li>

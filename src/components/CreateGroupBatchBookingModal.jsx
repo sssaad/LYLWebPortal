@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import moment from "moment-timezone";
 import Swal from "sweetalert2";
@@ -188,7 +188,213 @@ const getStudentMeta = (student) => {
 
   return [year, email].filter(Boolean).join(" • ");
 };
+const buildStudentImageUrl = (imagePath) => {
+  const value = String(imagePath || "").trim();
 
+  if (!value) return "";
+
+  if (value.startsWith("http://") || value.startsWith("https://")) {
+    return value;
+  }
+
+  return `https://api.learnyourlanguage.org/${value.replace(/^\/+/, "")}`;
+};
+
+const getStudentImage = (student) => {
+  const userDetails = student?.userdetails || student?.userDetails || {};
+
+  return (
+    student?.imagepath ||
+    student?.profileImage ||
+    student?.profile_image ||
+    student?.image ||
+    student?.userimage ||
+    student?.avatar ||
+    student?.profile_pic ||
+    userDetails?.imagepath ||
+    userDetails?.profileImage ||
+    userDetails?.profile_image ||
+    userDetails?.image ||
+    userDetails?.userimage ||
+    userDetails?.avatar ||
+    ""
+  );
+};
+
+const SearchableStudentSelect = ({
+  students = [],
+  value,
+  onChange,
+  disabled = false,
+  placeholder = "Select Student",
+}) => {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const wrapRef = useRef(null);
+
+  const selectedStudent = useMemo(() => {
+    return students.find(
+      (student) => String(getStudentId(student)) === String(value)
+    );
+  }, [students, value]);
+
+  const filteredStudents = useMemo(() => {
+    const keyword = String(search || "").toLowerCase().trim();
+
+    if (!keyword) return students;
+
+    return students.filter((student) => {
+      const name = String(getStudentName(student) || "").toLowerCase();
+      const email = String(student?.email || student?.username || "").toLowerCase();
+      const meta = String(getStudentMeta(student) || "").toLowerCase();
+
+      return (
+        name.includes(keyword) ||
+        email.includes(keyword) ||
+        meta.includes(keyword)
+      );
+    });
+  }, [students, search]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (wrapRef.current && !wrapRef.current.contains(event.target)) {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  const handleSelect = (studentIdValue) => {
+    onChange?.(studentIdValue);
+    setOpen(false);
+    setSearch("");
+  };
+
+  return (
+    <div className="gb-student-select-wrap" ref={wrapRef}>
+      <button
+        type="button"
+        className="gb-student-select-btn"
+        disabled={disabled}
+        onClick={() => {
+          if (!disabled) setOpen((prev) => !prev);
+        }}
+      >
+        <span className="gb-student-selected-left">
+          {selectedStudent ? (
+            <>
+              <span className="gb-student-avatar">
+                {buildStudentImageUrl(getStudentImage(selectedStudent)) ? (
+                  <img
+                    src={buildStudentImageUrl(getStudentImage(selectedStudent))}
+                    alt={getStudentName(selectedStudent) || "Student"}
+                    onError={(e) => {
+                      e.currentTarget.style.display = "none";
+                    }}
+                  />
+                ) : (
+                  <span className="gb-student-avatar-fallback">
+                    {String(getStudentName(selectedStudent) || "S")
+                      .charAt(0)
+                      .toUpperCase()}
+                  </span>
+                )}
+              </span>
+
+              <span className="gb-student-selected-info">
+                <span className="gb-student-selected-name">
+                  {getStudentName(selectedStudent)}
+                </span>
+
+                {getStudentMeta(selectedStudent) ? (
+                  <span className="gb-student-selected-meta">
+                    {getStudentMeta(selectedStudent)}
+                  </span>
+                ) : null}
+              </span>
+            </>
+          ) : (
+            <span className="gb-student-placeholder">{placeholder}</span>
+          )}
+        </span>
+
+        <span className="gb-student-arrow">{open ? "▴" : "▾"}</span>
+      </button>
+
+      {open && !disabled ? (
+        <div className="gb-student-dropdown">
+          <div className="gb-student-search-box">
+            <input
+              type="text"
+              className="gb-student-search-input"
+              placeholder="Search student..."
+              value={search}
+              autoFocus
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+
+          <div className="gb-student-options">
+            {filteredStudents.length === 0 ? (
+              <div className="gb-student-empty">No student found.</div>
+            ) : (
+              filteredStudents.map((student, index) => {
+                const sid = getStudentId(student);
+                const studentName = getStudentName(student);
+                const studentMeta = getStudentMeta(student);
+                const imageUrl = buildStudentImageUrl(getStudentImage(student));
+                const isSelected = String(sid) === String(value);
+
+                return (
+                  <button
+                    type="button"
+                    key={`${sid || "student"}-${index}`}
+                    className={`gb-student-option ${isSelected ? "active" : ""}`}
+                    onClick={() => handleSelect(sid)}
+                  >
+                    <span className="gb-student-avatar">
+                      {imageUrl ? (
+                        <img
+                          src={imageUrl}
+                          alt={studentName || "Student"}
+                          onError={(e) => {
+                            e.currentTarget.style.display = "none";
+                          }}
+                        />
+                      ) : (
+                        <span className="gb-student-avatar-fallback">
+                          {String(studentName || "S").charAt(0).toUpperCase()}
+                        </span>
+                      )}
+                    </span>
+
+                    <span className="gb-student-option-info">
+                      <span className="gb-student-option-name">
+                        {studentName || "Unnamed Student"}
+                      </span>
+
+                      {studentMeta ? (
+                        <span className="gb-student-option-meta">
+                          {studentMeta}
+                        </span>
+                      ) : null}
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+};
 const CreateGroupBatchBookingModal = ({
   open,
   programme,
@@ -275,36 +481,36 @@ const CreateGroupBatchBookingModal = ({
   }, [timezones, studentTz]);
 
   const getTimezoneIdByValue = (tzValue) => {
-  const cleanValue = String(tzValue || "").trim();
+    const cleanValue = String(tzValue || "").trim();
 
-  const opt = timezoneOptions.find(
-    (o) => String(o.value || "").trim() === cleanValue
-  );
-
-  const id = opt?.timezoneid;
-
-  if (id !== null && id !== undefined && id !== "") {
-    return String(id);
-  }
-
-  if (cleanValue === DEFAULT_PORTAL_DISPLAY_TIMEZONE) {
-    const dubaiOpt = timezoneOptions.find(
-      (o) =>
-        String(o.value || "").trim() === DEFAULT_PORTAL_DISPLAY_TIMEZONE ||
-        String(o.label || "").trim() === DEFAULT_PORTAL_DISPLAY_TIMEZONE
+    const opt = timezoneOptions.find(
+      (o) => String(o.value || "").trim() === cleanValue
     );
 
-    if (
-      dubaiOpt?.timezoneid !== null &&
-      dubaiOpt?.timezoneid !== undefined &&
-      dubaiOpt?.timezoneid !== ""
-    ) {
-      return String(dubaiOpt.timezoneid);
-    }
-  }
+    const id = opt?.timezoneid;
 
-  return "";
-};
+    if (id !== null && id !== undefined && id !== "") {
+      return String(id);
+    }
+
+    if (cleanValue === DEFAULT_PORTAL_DISPLAY_TIMEZONE) {
+      const dubaiOpt = timezoneOptions.find(
+        (o) =>
+          String(o.value || "").trim() === DEFAULT_PORTAL_DISPLAY_TIMEZONE ||
+          String(o.label || "").trim() === DEFAULT_PORTAL_DISPLAY_TIMEZONE
+      );
+
+      if (
+        dubaiOpt?.timezoneid !== null &&
+        dubaiOpt?.timezoneid !== undefined &&
+        dubaiOpt?.timezoneid !== ""
+      ) {
+        return String(dubaiOpt.timezoneid);
+      }
+    }
+
+    return "";
+  };
 
   const getTimezoneValueById = (timezoneId) => {
     const id = String(timezoneId ?? "").trim();
@@ -433,9 +639,9 @@ const CreateGroupBatchBookingModal = ({
     setError("");
 
     console.log("SELECTED STUDENT RAW =>", {
-  value,
-  student: students.find((s) => String(getStudentId(s)) === String(value)),
-});
+      value,
+      student: students.find((s) => String(getStudentId(s)) === String(value)),
+    });
 
     const student = students.find(
       (s) => String(getStudentId(s)) === String(value)
@@ -549,9 +755,9 @@ const CreateGroupBatchBookingModal = ({
     const payload = buildGroupBookingPayload();
 
     const confirmResult = await Swal.fire({
-  icon: "warning",
-  title: "Create Group Booking?",
-  html: `
+      icon: "warning",
+      title: "Create Group Booking?",
+      html: `
     <div style="text-align:center; line-height:1.7;">
       <div>Please confirm the details before creating this group booking.</div>
       <div style="margin-top:10px;">
@@ -562,16 +768,16 @@ const CreateGroupBatchBookingModal = ({
       </div>
     </div>
   `,
-  showCancelButton: true,
-  confirmButtonText: "Yes, Create Booking",
-  cancelButtonText: "Cancel",
-  confirmButtonColor: "#198754",
-  cancelButtonColor: "#6c757d",
-  reverseButtons: true,
-  customClass: {
-    container: "gb-swal-container",
-  },
-});
+      showCancelButton: true,
+      confirmButtonText: "Yes, Create Booking",
+      cancelButtonText: "Cancel",
+      confirmButtonColor: "#198754",
+      cancelButtonColor: "#6c757d",
+      reverseButtons: true,
+      customClass: {
+        container: "gb-swal-container",
+      },
+    });
 
     if (!confirmResult.isConfirmed) return;
 
@@ -741,6 +947,7 @@ const CreateGroupBatchBookingModal = ({
           background: rgba(15, 23, 42, 0.42);
           padding: 16px;
           margin-bottom: 16px;
+          overflow: visible;
         }
 
         .gb-label {
@@ -795,6 +1002,210 @@ const CreateGroupBatchBookingModal = ({
           font-size: 13px;
           font-weight: 650;
         }
+
+        .gb-student-select-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.gb-student-select-btn {
+  width: 100%;
+  min-height: 48px;
+  border-radius: 13px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: #1b2738;
+  color: #ffffff;
+  padding: 7px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-weight: 750;
+  text-align: left;
+}
+
+.gb-student-select-btn:disabled {
+  opacity: 0.75;
+  cursor: not-allowed;
+}
+
+.gb-student-selected-left {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+
+.gb-student-placeholder {
+  color: #8296b1;
+}
+
+.gb-student-selected-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.gb-student-selected-name {
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 850;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gb-student-selected-meta {
+  color: #9fb0c8;
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gb-student-arrow {
+  color: #ffffff;
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+
+.gb-student-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 2800;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: #0b1220;
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.42);
+  overflow: hidden;
+}
+
+.gb-student-search-box {
+  padding: 10px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  background: #111827;
+}
+
+.gb-student-search-input {
+  width: 100%;
+  height: 48px;
+  border-radius: 13px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: #0f172a;
+  color: #ffffff;
+  padding: 0 14px;
+  font-weight: 800;
+  outline: none;
+}
+
+.gb-student-search-input::placeholder {
+  color: #8b97aa;
+}
+
+.gb-student-search-input:focus {
+  border-color: rgba(59, 130, 246, 0.85);
+  box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.16);
+}
+
+.gb-student-options {
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.gb-student-options::-webkit-scrollbar {
+  width: 8px;
+}
+
+.gb-student-options::-webkit-scrollbar-track {
+  background: #111827;
+}
+
+.gb-student-options::-webkit-scrollbar-thumb {
+  background: #6b7280;
+  border-radius: 999px;
+}
+
+.gb-student-option {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: #ffffff;
+  border-radius: 12px;
+  padding: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.gb-student-option:hover,
+.gb-student-option.active {
+  background: rgba(59, 130, 246, 0.14);
+}
+
+.gb-student-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex: 0 0 auto;
+  background: #1f2937;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #cbd5e1;
+}
+
+.gb-student-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.gb-student-avatar-fallback {
+  font-size: 13px;
+  font-weight: 900;
+  color: #cbd5e1;
+}
+
+.gb-student-option-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.gb-student-option-name {
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 850;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gb-student-option-meta {
+  color: #9fb0c8;
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gb-student-empty {
+  padding: 18px 12px;
+  text-align: center;
+  color: #94a3b8;
+  font-weight: 800;
+}
 
         @media (max-width: 767px) {
           .gb-booking-header,
@@ -882,27 +1293,13 @@ const CreateGroupBatchBookingModal = ({
                 Loading students...
               </div>
             ) : (
-              <select
-                className="form-select"
+              <SearchableStudentSelect
+                students={students}
                 value={studentId}
                 disabled={creating}
-                onChange={(e) => handleStudentChange(e.target.value)}
-              >
-                <option value="">Select Student</option>
-
-                {students.map((student, index) => {
-                  const sid = getStudentId(student);
-
-                  return (
-                    <option key={`${sid || "student"}-${index}`} value={sid}>
-                      {getStudentName(student)}
-                      {getStudentMeta(student)
-                        ? ` - ${getStudentMeta(student)}`
-                        : ""}
-                    </option>
-                  );
-                })}
-              </select>
+                placeholder="Select Student"
+                onChange={(selectedStudentId) => handleStudentChange(selectedStudentId)}
+              />
             )}
           </div>
 
