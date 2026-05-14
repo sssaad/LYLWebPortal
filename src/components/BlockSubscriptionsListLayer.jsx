@@ -29,13 +29,18 @@ const BlockSubscriptionsListLayer = () => {
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
+
   const [priceDraftMap, setPriceDraftMap] = useState({});
   const [savingPriceMap, setSavingPriceMap] = useState({});
+
+  const [paymentStatusDraftMap, setPaymentStatusDraftMap] = useState({});
+  const [savingPaymentStatusMap, setSavingPaymentStatusMap] = useState({});
 
   const itemsPerPage = 10;
 
@@ -49,6 +54,20 @@ const BlockSubscriptionsListLayer = () => {
     }
 
     return s;
+  };
+
+  const getTokenValue = async () => {
+    const tokenResponse = await getToken();
+
+    if (typeof tokenResponse === "string") return tokenResponse;
+    if (typeof tokenResponse?.token === "string") return tokenResponse.token;
+    if (typeof tokenResponse?.data?.token === "string")
+      return tokenResponse.data.token;
+    if (typeof tokenResponse?.data?.data?.token === "string") {
+      return tokenResponse.data.data.token;
+    }
+
+    return "";
   };
 
   const fetchBlockSubscriptions = async () => {
@@ -95,27 +114,27 @@ const BlockSubscriptionsListLayer = () => {
   const formatAED = (n) => {
     const x = Number(n);
     if (!Number.isFinite(x)) return "—";
+
     return `AED ${new Intl.NumberFormat("en-US", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(x)}`;
   };
 
-  const getTokenValue = async () => {
-    const tokenResponse = await getToken();
-
-    if (typeof tokenResponse === "string") return tokenResponse;
-    if (typeof tokenResponse?.token === "string") return tokenResponse.token;
-    if (typeof tokenResponse?.data?.token === "string") return tokenResponse.data.token;
-    if (typeof tokenResponse?.data?.data?.token === "string") {
-      return tokenResponse.data.data.token;
-    }
-
-    return "";
-  };
-
   const getBlockSubscriptionId = (s) => {
     return s?.id ?? s?.block_subscription_id ?? s?.blockSubscriptionId ?? "";
+  };
+
+  const normalizePaymentStatus = (value) => {
+    const v = String(value || "").trim().toLowerCase();
+    if (v === "unpaid") return "Unpaid";
+    return "Paid";
+  };
+
+  const getPaymentStatus = (s) => {
+    return normalizePaymentStatus(
+      s?.payment_status ?? s?.paymentStatus ?? s?.paymentstatus ?? "Paid"
+    );
   };
 
   const isPriceSaving = (subscriptionId) => {
@@ -129,30 +148,35 @@ const BlockSubscriptionsListLayer = () => {
     }));
   };
 
-  const patchSubscriptionPrice = (subscriptionId, newPrice) => {
+  const isPaymentStatusSaving = (subscriptionId) => {
+    return !!savingPaymentStatusMap[String(subscriptionId)];
+  };
+
+  const setPaymentStatusSaving = (subscriptionId, saving) => {
+    setSavingPaymentStatusMap((prev) => ({
+      ...prev,
+      [String(subscriptionId)]: saving,
+    }));
+  };
+
+  const patchSubscriptionRow = (subscriptionId, patchData) => {
     setSubscriptions((prev) =>
       prev.map((row) =>
         String(getBlockSubscriptionId(row)) === String(subscriptionId)
           ? {
-            ...row,
-            price: newPrice,
-          }
+              ...row,
+              ...patchData,
+            }
           : row
       )
     );
   };
 
-  const updateBlockSubscriptionPrice = async (item, newPrice) => {
+  const updateBlockSubscriptionFields = async (item, updatedFields) => {
     const subscriptionId = getBlockSubscriptionId(item);
 
     if (!subscriptionId) {
       throw new Error("Block subscription ID not found.");
-    }
-
-    const priceValue = Number(String(newPrice ?? "0").replace(/,/g, "").trim());
-
-    if (!Number.isFinite(priceValue) || priceValue < 0) {
-      throw new Error("Please enter a valid price.");
     }
 
     const token = await getTokenValue();
@@ -175,7 +199,7 @@ const BlockSubscriptionsListLayer = () => {
       ],
       updatedata: [
         {
-          price: priceValue,
+          ...updatedFields,
         },
       ],
     };
@@ -185,10 +209,30 @@ const BlockSubscriptionsListLayer = () => {
     });
 
     if (response?.data?.statusCode !== 200) {
-      throw new Error(response?.data?.message || "Price update failed.");
+      throw new Error(response?.data?.message || "Update failed.");
     }
 
     return response.data;
+  };
+
+  const updateBlockSubscriptionPrice = async (item, newPrice) => {
+    const priceValue = Number(String(newPrice ?? "0").replace(/,/g, "").trim());
+
+    if (!Number.isFinite(priceValue) || priceValue < 0) {
+      throw new Error("Please enter a valid price.");
+    }
+
+    return updateBlockSubscriptionFields(item, {
+      price: priceValue,
+    });
+  };
+
+  const updateBlockSubscriptionPaymentStatus = async (item, newStatus) => {
+    const statusValue = normalizePaymentStatus(newStatus);
+
+    return updateBlockSubscriptionFields(item, {
+      payment_status: statusValue,
+    });
   };
 
   const handleSavePrice = async (item) => {
@@ -233,14 +277,14 @@ const BlockSubscriptionsListLayer = () => {
       icon: "warning",
       title: "Update Price?",
       html: `
-      <div style="text-align:center; line-height:1.7;">
-        <div>Are you sure you want to update this block subscription price?</div>
-        <div style="margin-top:10px;">
-          <strong>Current:</strong> ${formatAED(currentPrice)}<br/>
-          <strong>New:</strong> ${formatAED(nextPrice)}
+        <div style="text-align:center; line-height:1.7;">
+          <div>Are you sure you want to update this block subscription price?</div>
+          <div style="margin-top:10px;">
+            <strong>Current:</strong> ${formatAED(currentPrice)}<br/>
+            <strong>New:</strong> ${formatAED(nextPrice)}
+          </div>
         </div>
-      </div>
-    `,
+      `,
       showCancelButton: true,
       confirmButtonText: "Yes, Update",
       cancelButtonText: "Cancel",
@@ -255,8 +299,9 @@ const BlockSubscriptionsListLayer = () => {
 
     const previousPrice = currentPrice;
 
-    // Optimistic UI update
-    patchSubscriptionPrice(subscriptionId, nextPrice);
+    patchSubscriptionRow(subscriptionId, {
+      price: nextPrice,
+    });
 
     try {
       await updateBlockSubscriptionPrice(item, nextPrice);
@@ -275,8 +320,9 @@ const BlockSubscriptionsListLayer = () => {
         timerProgressBar: true,
       });
     } catch (err) {
-      // Rollback if API fails
-      patchSubscriptionPrice(subscriptionId, previousPrice);
+      patchSubscriptionRow(subscriptionId, {
+        price: previousPrice,
+      });
 
       setPriceDraftMap((prev) => ({
         ...prev,
@@ -291,6 +337,101 @@ const BlockSubscriptionsListLayer = () => {
       });
     } finally {
       setPriceSaving(subscriptionId, false);
+    }
+  };
+
+  const handleSavePaymentStatus = async (item) => {
+    const subscriptionId = getBlockSubscriptionId(item);
+
+    if (!subscriptionId) {
+      Swal.fire({
+        icon: "error",
+        title: "ID Missing",
+        text: "Block subscription ID not found.",
+        confirmButtonText: "OK",
+      });
+      return;
+    }
+
+    const currentStatus = getPaymentStatus(item);
+    const draftStatus = paymentStatusDraftMap[subscriptionId] ?? currentStatus;
+    const nextStatus = normalizePaymentStatus(draftStatus);
+
+    if (currentStatus === nextStatus) {
+      Swal.fire({
+        icon: "info",
+        title: "No Changes",
+        text: "Payment status is already the same.",
+        confirmButtonText: "OK",
+      });
+      return;
+    }
+
+    const result = await Swal.fire({
+      icon: "warning",
+      title: "Update Payment Status?",
+      html: `
+        <div style="text-align:center; line-height:1.7;">
+          <div>Are you sure you want to update this payment status?</div>
+          <div style="margin-top:10px;">
+            <strong>Current:</strong> ${currentStatus}<br/>
+            <strong>New:</strong> ${nextStatus}
+          </div>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: "Yes, Update",
+      cancelButtonText: "Cancel",
+      confirmButtonColor: "#3085d6",
+      cancelButtonColor: "#6c757d",
+      reverseButtons: true,
+    });
+
+    if (!result.isConfirmed) return;
+
+    setPaymentStatusSaving(subscriptionId, true);
+
+    const previousStatus = currentStatus;
+
+    patchSubscriptionRow(subscriptionId, {
+      payment_status: nextStatus,
+    });
+
+    try {
+      await updateBlockSubscriptionPaymentStatus(item, nextStatus);
+
+      setPaymentStatusDraftMap((prev) => ({
+        ...prev,
+        [subscriptionId]: nextStatus,
+      }));
+
+      await Swal.fire({
+        icon: "success",
+        title: "Updated Successfully",
+        text: "Payment status has been updated successfully.",
+        confirmButtonText: "OK",
+        timer: 1800,
+        timerProgressBar: true,
+      });
+    } catch (err) {
+      patchSubscriptionRow(subscriptionId, {
+        payment_status: previousStatus,
+      });
+
+      setPaymentStatusDraftMap((prev) => ({
+        ...prev,
+        [subscriptionId]: previousStatus,
+      }));
+
+      Swal.fire({
+        icon: "error",
+        title: "Update Failed",
+        text:
+          err?.message || "Something went wrong while updating payment status.",
+        confirmButtonText: "OK",
+      });
+    } finally {
+      setPaymentStatusSaving(subscriptionId, false);
     }
   };
 
@@ -337,6 +478,7 @@ const BlockSubscriptionsListLayer = () => {
         true
       );
     }
+
     return m.isValid() ? m : null;
   };
 
@@ -364,9 +506,11 @@ const BlockSubscriptionsListLayer = () => {
   const getDaysLeftText = (s) => {
     const till = getValidTillMoment(s);
     if (!till) return "—";
+
     const today = moment().startOf("day");
     const endDay = till.clone().startOf("day");
     const diff = endDay.diff(today, "days");
+
     if (diff < 0) return "Expired";
     return `${diff} day${diff === 1 ? "" : "s"} left`;
   };
@@ -374,6 +518,14 @@ const BlockSubscriptionsListLayer = () => {
   const getNetPaid = (s) => toNum(s?.price);
   const getDiscountAmount = (s) => toNum(s?.discount);
   const getGrossAmount = (s) => getNetPaid(s) + getDiscountAmount(s);
+
+  const getPaidAmount = (s) => {
+    return getPaymentStatus(s) === "Paid" ? getNetPaid(s) : 0;
+  };
+
+  const getUnpaidAmount = (s) => {
+    return getPaymentStatus(s) === "Unpaid" ? getNetPaid(s) : 0;
+  };
 
   const isExpired = (s) => {
     const till = getValidTillMoment(s);
@@ -395,13 +547,24 @@ const BlockSubscriptionsListLayer = () => {
     return "bg-secondary";
   };
 
+  const badgeClassByPaymentStatus = (status) => {
+    const st = String(status || "").toLowerCase();
+    if (st === "paid") return "bg-success";
+    if (st === "unpaid") return "bg-danger";
+    return "bg-secondary";
+  };
+
   const filteredData = useMemo(() => {
     const term = (searchTerm || "").toLowerCase().trim();
 
     return (subscriptions || []).filter((item) => {
-      const fullText = `${getName(item)} ${getStudentLogin(item)} ${item?.code ?? ""
-        } ${getPhoneText(item)} ${item?.parentemail || ""} ${item?.package ?? ""} ${item?.price ?? ""
-        } ${item?.discount ?? ""} ${getStatus(item)}`
+      const fullText = `${getName(item)} ${getStudentLogin(item)} ${
+        item?.code ?? ""
+      } ${getPhoneText(item)} ${item?.parentemail || ""} ${
+        item?.package ?? ""
+      } ${item?.price ?? ""} ${item?.discount ?? ""} ${getPaymentStatus(
+        item
+      )} ${getStatus(item)}`
         .toLowerCase()
         .trim();
 
@@ -410,7 +573,12 @@ const BlockSubscriptionsListLayer = () => {
       const matchesStatus =
         statusFilter === "" ||
         String(getStatus(item)).toLowerCase() ===
-        String(statusFilter).toLowerCase();
+          String(statusFilter).toLowerCase();
+
+      const matchesPaymentStatus =
+        paymentStatusFilter === "" ||
+        String(getPaymentStatus(item)).toLowerCase() ===
+          String(paymentStatusFilter).toLowerCase();
 
       const cd = getPurchaseDateRaw(item);
       const itemDate = cd ? new Date(String(cd).replace(".000000", "")) : null;
@@ -427,32 +595,72 @@ const BlockSubscriptionsListLayer = () => {
           : false
         : true;
 
-      return matchesSearch && matchesStatus && fromDateMatch && toDateMatch;
+      return (
+        matchesSearch &&
+        matchesStatus &&
+        matchesPaymentStatus &&
+        fromDateMatch &&
+        toDateMatch
+      );
     });
-  }, [subscriptions, searchTerm, statusFilter, startDate, endDate]);
+  }, [
+    subscriptions,
+    searchTerm,
+    statusFilter,
+    paymentStatusFilter,
+    startDate,
+    endDate,
+  ]);
 
   const summary = useMemo(() => {
     const total = filteredData.length;
+
     const active = filteredData.filter((x) => getStatus(x) === "Active").length;
+
+    const paidCount = filteredData.filter(
+      (x) => getPaymentStatus(x) === "Paid"
+    ).length;
+
+    const unpaidCount = filteredData.filter(
+      (x) => getPaymentStatus(x) === "Unpaid"
+    ).length;
+
     const remaining = filteredData.reduce(
       (sum, x) => sum + getRemainingCredits(x),
       0
     );
 
-    const netCollected = filteredData.reduce(
-      (sum, x) => sum + getNetPaid(x),
+    const paidRevenue = filteredData.reduce(
+      (sum, x) => sum + getPaidAmount(x),
       0
     );
+
+    const unpaidAmount = filteredData.reduce(
+      (sum, x) => sum + getUnpaidAmount(x),
+      0
+    );
+
     const totalDiscount = filteredData.reduce(
       (sum, x) => sum + getDiscountAmount(x),
       0
     );
+
     const grossTotal = filteredData.reduce(
       (sum, x) => sum + getGrossAmount(x),
       0
     );
 
-    return { total, active, remaining, netCollected, totalDiscount, grossTotal };
+    return {
+      total,
+      active,
+      paidCount,
+      unpaidCount,
+      remaining,
+      paidRevenue,
+      unpaidAmount,
+      totalDiscount,
+      grossTotal,
+    };
   }, [filteredData]);
 
   const indexOfLastItem = currentPage * itemsPerPage;
@@ -468,19 +676,25 @@ const BlockSubscriptionsListLayer = () => {
     <>
       <div className="card h-100 p-0 radius-12">
         <style>{`
-          .sub-muted { opacity: 0.75; font-size: 12px; }
+          .sub-muted {
+            opacity: 0.75;
+            font-size: 12px;
+          }
+
           .sub-card {
             border: 1px solid rgba(0,0,0,0.08);
             border-radius: 12px;
             padding: 14px 16px;
             background: rgba(0,0,0,0.02);
           }
+
           [data-bs-theme="dark"] .sub-card,
           [data-theme="dark"] .sub-card,
           .dark .sub-card {
             border-color: rgba(255,255,255,0.12);
             background: rgba(255,255,255,0.04);
           }
+
           .thumb {
             width: 34px;
             height: 34px;
@@ -488,14 +702,26 @@ const BlockSubscriptionsListLayer = () => {
             object-fit: cover;
             flex: 0 0 auto;
           }
+
           .name-cell {
             display: flex;
             align-items: center;
             gap: 10px;
             min-width: 240px;
           }
-          .sessions-wrap { min-width: 170px; }
-          .sessions-text { font-size: 12px; opacity: 0.8; }
+
+          .sessions-wrap {
+            min-width: 170px;
+          }
+
+          .sessions-text {
+            font-size: 12px;
+            opacity: 0.8;
+          }
+
+          .payment-status-wrap {
+            min-width: 180px;
+          }
         `}</style>
 
         <div className="card-header border-bottom bg-base py-16 px-24 d-flex align-items-center flex-wrap gap-3 justify-content-between">
@@ -520,6 +746,7 @@ const BlockSubscriptionsListLayer = () => {
                 setCurrentPage(1);
               }}
             />
+
             <input
               type="date"
               className="form-control w-auto"
@@ -544,10 +771,24 @@ const BlockSubscriptionsListLayer = () => {
               <option value="Exhausted">Exhausted</option>
             </select>
 
+            <select
+              className="form-select form-select-sm w-auto"
+              value={paymentStatusFilter}
+              onChange={(e) => {
+                setPaymentStatusFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+            >
+              <option value="">Payment: All</option>
+              <option value="Paid">Paid</option>
+              <option value="Unpaid">Unpaid</option>
+            </select>
+
             <button
               onClick={() => {
                 setSearchTerm("");
                 setStatusFilter("");
+                setPaymentStatusFilter("");
                 setStartDate("");
                 setEndDate("");
                 setCurrentPage(1);
@@ -601,9 +842,36 @@ const BlockSubscriptionsListLayer = () => {
 
             <div className="col-12 col-md-2">
               <div className="sub-card">
-                <div className="sub-muted">Revenue</div>
+                <div className="sub-muted">Paid Revenue</div>
                 <div style={{ fontSize: 22, fontWeight: 700 }}>
-                  {formatAED(summary.netCollected)}
+                  {formatAED(summary.paidRevenue)}
+                </div>
+              </div>
+            </div>
+
+            <div className="col-12 col-md-2">
+              <div className="sub-card">
+                <div className="sub-muted">Unpaid Amount</div>
+                <div style={{ fontSize: 22, fontWeight: 700 }}>
+                  {formatAED(summary.unpaidAmount)}
+                </div>
+              </div>
+            </div>
+
+            <div className="col-12 col-md-2">
+              <div className="sub-card">
+                <div className="sub-muted">Paid Count</div>
+                <div style={{ fontSize: 22, fontWeight: 700 }}>
+                  {summary.paidCount}
+                </div>
+              </div>
+            </div>
+
+            <div className="col-12 col-md-2">
+              <div className="sub-card">
+                <div className="sub-muted">Unpaid Count</div>
+                <div style={{ fontSize: 22, fontWeight: 700 }}>
+                  {summary.unpaidCount}
                 </div>
               </div>
             </div>
@@ -649,6 +917,7 @@ const BlockSubscriptionsListLayer = () => {
                   <th>Grade Wise Base Amount</th>
                   <th>Discount</th>
                   <th>Paid</th>
+                  <th>Payment Status</th>
                   <th>Promo Code</th>
                   <th>Contact No</th>
                   <th>Parent Email</th>
@@ -662,13 +931,13 @@ const BlockSubscriptionsListLayer = () => {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={16} className="text-center">
+                    <td colSpan={17} className="text-center">
                       <div className="py-4">Loading...</div>
                     </td>
                   </tr>
                 ) : currentItems.length === 0 ? (
                   <tr>
-                    <td colSpan={16} className="text-center">
+                    <td colSpan={17} className="text-center">
                       <div className="py-4">
                         <div style={{ fontWeight: 700 }}>No records found.</div>
                         <div className="sub-muted">
@@ -679,18 +948,29 @@ const BlockSubscriptionsListLayer = () => {
                   </tr>
                 ) : (
                   currentItems.map((item, index) => {
+                    const subscriptionId = getBlockSubscriptionId(item);
                     const totalCredits = getPackageCredits(item);
                     const usedCredits = getUsedCredits(item);
+
                     const pct =
                       totalCredits > 0
                         ? Math.min(
-                          100,
-                          Math.max(0, (usedCredits / totalCredits) * 100)
-                        )
+                            100,
+                            Math.max(0, (usedCredits / totalCredits) * 100)
+                          )
                         : 0;
 
+                    const savingPrice = isPriceSaving(subscriptionId);
+                    const savingPaymentStatus =
+                      isPaymentStatusSaving(subscriptionId);
+
+                    const currentPaymentStatus = getPaymentStatus(item);
+                    const selectedPaymentStatus =
+                      paymentStatusDraftMap[subscriptionId] ??
+                      currentPaymentStatus;
+
                     return (
-                      <tr key={`${getUserId(item)}-${index}`}>
+                      <tr key={`${getUserId(item)}-${subscriptionId}-${index}`}>
                         <td>{indexOfFirstItem + index + 1}</td>
 
                         <td>
@@ -706,7 +986,9 @@ const BlockSubscriptionsListLayer = () => {
                             />
 
                             <div>
-                              <div style={{ fontWeight: 600 }}>{getName(item)}</div>
+                              <div style={{ fontWeight: 600 }}>
+                                {getName(item)}
+                              </div>
                               <div className="sub-muted">
                                 User ID: {getUserId(item)}
                               </div>
@@ -726,7 +1008,10 @@ const BlockSubscriptionsListLayer = () => {
 
                           {totalCredits > 0 ? (
                             <>
-                              <div className="progress mt-1" style={{ height: 6 }}>
+                              <div
+                                className="progress mt-1"
+                                style={{ height: 6 }}
+                              >
                                 <div
                                   className="progress-bar"
                                   role="progressbar"
@@ -749,46 +1034,97 @@ const BlockSubscriptionsListLayer = () => {
 
                         <td>{formatAED(getGrossAmount(item))}</td>
                         <td>{formatAED(getDiscountAmount(item))}</td>
+
                         <td style={{ minWidth: 190 }}>
-                          {(() => {
-                            const subscriptionId = getBlockSubscriptionId(item);
-                            const saving = isPriceSaving(subscriptionId);
+                          <div>
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: 8,
+                                alignItems: "center",
+                              }}
+                            >
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                className="form-control form-control-sm"
+                                style={{ width: 110 }}
+                                value={
+                                  priceDraftMap[subscriptionId] ??
+                                  getNetPaid(item)
+                                }
+                                disabled={savingPrice}
+                                onChange={(e) => {
+                                  setPriceDraftMap((prev) => ({
+                                    ...prev,
+                                    [subscriptionId]: e.target.value,
+                                  }));
+                                }}
+                              />
 
-                            return (
-                              <div>
-                                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
-                                    className="form-control form-control-sm"
-                                    style={{ width: 110 }}
-                                    value={priceDraftMap[subscriptionId] ?? getNetPaid(item)}
-                                    disabled={saving}
-                                    onChange={(e) => {
-                                      setPriceDraftMap((prev) => ({
-                                        ...prev,
-                                        [subscriptionId]: e.target.value,
-                                      }));
-                                    }}
-                                  />
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-outline-primary"
+                                disabled={savingPrice}
+                                onClick={() => handleSavePrice(item)}
+                              >
+                                {savingPrice ? "Saving..." : "Save"}
+                              </button>
+                            </div>
 
-                                  <button
-                                    type="button"
-                                    className="btn btn-sm btn-outline-primary"
-                                    disabled={saving}
-                                    onClick={() => handleSavePrice(item)}
-                                  >
-                                    {saving ? "Saving..." : "Save"}
-                                  </button>
-                                </div>
+                            <div className="sub-muted mt-1">
+                              Current: {formatAED(getNetPaid(item))}
+                            </div>
+                          </div>
+                        </td>
 
-                                <div className="sub-muted mt-1">
-                                  Current: {formatAED(getNetPaid(item))}
-                                </div>
-                              </div>
-                            );
-                          })()}
+                        <td className="payment-status-wrap">
+                          <div>
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: 8,
+                                alignItems: "center",
+                              }}
+                            >
+                              <select
+                                className="form-select form-select-sm"
+                                style={{ width: 100 }}
+                                value={selectedPaymentStatus}
+                                disabled={savingPaymentStatus}
+                                onChange={(e) => {
+                                  setPaymentStatusDraftMap((prev) => ({
+                                    ...prev,
+                                    [subscriptionId]: e.target.value,
+                                  }));
+                                }}
+                              >
+                                <option value="Paid">Paid</option>
+                                <option value="Unpaid">Unpaid</option>
+                              </select>
+
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-outline-primary"
+                                disabled={savingPaymentStatus}
+                                onClick={() => handleSavePaymentStatus(item)}
+                              >
+                                {savingPaymentStatus ? "Saving..." : "Save"}
+                              </button>
+                            </div>
+
+                            <div className="sub-muted mt-1">
+                              Current:{" "}
+                              <span
+                                className={`badge ${badgeClassByPaymentStatus(
+                                  currentPaymentStatus
+                                )}`}
+                              >
+                                {currentPaymentStatus}
+                              </span>
+                            </div>
+                          </div>
                         </td>
 
                         <td>{item?.code ?? "—"}</td>
@@ -826,7 +1162,9 @@ const BlockSubscriptionsListLayer = () => {
               {Array.from({ length: totalPages }).map((_, i) => (
                 <li
                   key={i}
-                  className={`page-item ${currentPage === i + 1 ? "active" : ""}`}
+                  className={`page-item ${
+                    currentPage === i + 1 ? "active" : ""
+                  }`}
                 >
                   <button
                     onClick={() => setCurrentPage(i + 1)}
@@ -850,4 +1188,4 @@ const BlockSubscriptionsListLayer = () => {
   );
 };
 
-export default BlockSubscriptionsListLayer; 
+export default BlockSubscriptionsListLayer;

@@ -65,6 +65,12 @@ const normalizeYearLabel = (yearValue) => {
   return YEAR_PRICING[raw] ? raw : "";
 };
 
+const normalizePaymentStatus = (value) => {
+  const v = String(value || "").trim().toLowerCase();
+  if (v === "unpaid") return "Unpaid";
+  return "Paid";
+};
+
 const SearchableStudentSelect = ({
   value,
   onChange,
@@ -127,15 +133,21 @@ const SearchableStudentSelect = ({
               }}
             />
             <div className="student-search-meta">
-              <span className="student-search-name">{selectedStudent.name}</span>
-              <span className="student-search-grade">{selectedStudent.grade}</span>
+              <span className="student-search-name">
+                {selectedStudent.name}
+              </span>
+              <span className="student-search-grade">
+                {selectedStudent.grade}
+              </span>
             </div>
           </div>
         ) : (
           <span className="student-search-placeholder">{placeholder}</span>
         )}
 
-        <span className={`student-search-arrow ${open ? "open" : ""}`}>▾</span>
+        <span className={`student-search-arrow ${open ? "open" : ""}`}>
+          ▾
+        </span>
       </button>
 
       {open && !disabled ? (
@@ -177,7 +189,9 @@ const SearchableStudentSelect = ({
                   />
                   <div className="student-search-meta">
                     <span className="student-search-name">{student.name}</span>
-                    <span className="student-search-grade">{student.grade}</span>
+                    <span className="student-search-grade">
+                      {student.grade}
+                    </span>
                   </div>
                 </button>
               ))
@@ -205,15 +219,18 @@ const CreateBlockSubscriptionModal = ({
   const [checkingCredits, setCheckingCredits] = useState(false);
   const [blockSubscriptionInfo, setBlockSubscriptionInfo] = useState(null);
 
-  const [formData, setFormData] = useState({
+  const getInitialFormData = () => ({
     studentId: "",
     grade: "",
     packageLessons: "",
+    paymentStatus: "Paid",
     customAmount5: "",
     customAmount10: "",
     useCustomAmount5: false,
     useCustomAmount10: false,
   });
+
+  const [formData, setFormData] = useState(getInitialFormData);
 
   const gradeOptions = [
     "Year 1",
@@ -516,15 +533,7 @@ const CreateBlockSubscriptionModal = ({
       setStudentsError("");
       setBlockSubscriptionInfo(null);
       setCheckingCredits(false);
-      setFormData({
-        studentId: "",
-        grade: "",
-        packageLessons: "",
-        customAmount5: "",
-        customAmount10: "",
-        useCustomAmount5: false,
-        useCustomAmount10: false,
-      });
+      setFormData(getInitialFormData());
       fetchStudents();
     } else {
       setStudents([]);
@@ -534,6 +543,7 @@ const CreateBlockSubscriptionModal = ({
       setSubmitError("");
       setBlockSubscriptionInfo(null);
       setCheckingCredits(false);
+      setFormData(getInitialFormData());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [show, parentStudentId]);
@@ -614,9 +624,7 @@ const CreateBlockSubscriptionModal = ({
   };
 
   const getCustomAmountValue = (packageKey) => {
-    return packageKey === "5"
-      ? formData.customAmount5
-      : formData.customAmount10;
+    return packageKey === "5" ? formData.customAmount5 : formData.customAmount10;
   };
 
   const getFinalAmount = (pkg) => {
@@ -659,6 +667,13 @@ const CreateBlockSubscriptionModal = ({
       return;
     }
 
+    const paymentStatus = normalizePaymentStatus(formData.paymentStatus);
+
+    if (!["Paid", "Unpaid"].includes(paymentStatus)) {
+      setSubmitError("Please select a valid payment status.");
+      return;
+    }
+
     const useCustomAmount = getUseCustomAmount(selectedPackage.key);
     const customAmountValue = getCustomAmountValue(selectedPackage.key);
 
@@ -670,11 +685,23 @@ const CreateBlockSubscriptionModal = ({
     const selectedStudent =
       normalizedStudents.find((item) => item.id === formData.studentId) || null;
 
+    const finalAmount = getFinalAmount(selectedPackage);
+
     const confirmResult = await Swal.fire({
       icon: "warning",
       title: "Are you sure?",
-      text: `Do you want to book ${selectedPackage.lessons} lesson block booking for ${selectedStudent?.name || "this student"
-        }?`,
+      html: `
+        <div style="text-align:center; line-height:1.7;">
+          <div>
+            Do you want to create <strong>${selectedPackage.lessons} lesson</strong> block booking for 
+            <strong>${selectedStudent?.name || "this student"}</strong>?
+          </div>
+          <div style="margin-top:10px;">
+            <strong>Amount:</strong> ${formatAmount(finalAmount)} AED<br/>
+            <strong>Payment Status:</strong> ${paymentStatus}
+          </div>
+        </div>
+      `,
       showCancelButton: true,
       confirmButtonText: "Yes, create it",
       cancelButtonText: "Cancel",
@@ -695,7 +722,6 @@ const CreateBlockSubscriptionModal = ({
         return;
       }
 
-      const finalAmount = getFinalAmount(selectedPackage);
       const createdAt = new Date().toISOString();
 
       const createPayload = {
@@ -706,6 +732,7 @@ const CreateBlockSubscriptionModal = ({
         price: Number(finalAmount),
         discount: 0,
         promocodeid: 0,
+        payment_status: paymentStatus,
       };
 
       const createRes = await axios.post(
@@ -733,7 +760,10 @@ const CreateBlockSubscriptionModal = ({
         onSuccess({
           apiResponse: createRes?.data,
           emailApiResponse: emailRes?.data,
-          formData,
+          formData: {
+            ...formData,
+            paymentStatus,
+          },
           selectedStudent,
           selectedPackage,
           submittedPayload: createPayload,
@@ -788,7 +818,8 @@ const CreateBlockSubscriptionModal = ({
             <div className="block-summary-text">{pkg.validityText}</div>
 
             <div className="block-summary-price">
-              Price without discount: {formatAmount(pkg.priceWithoutDiscount)} AED
+              Price without discount: {formatAmount(pkg.priceWithoutDiscount)}{" "}
+              AED
             </div>
 
             <div className="block-summary-price">
@@ -811,7 +842,8 @@ const CreateBlockSubscriptionModal = ({
             </button>
 
             <div
-              className={`block-custom-amount-wrap ${useCustomAmount ? "open" : ""}`}
+              className={`block-custom-amount-wrap ${useCustomAmount ? "open" : ""
+                }`}
             >
               <div className="block-inline-field">
                 <label className="block-field-label block-field-label-small">
@@ -874,9 +906,10 @@ const CreateBlockSubscriptionModal = ({
           padding: 20px;
           z-index: 9999;
         }
+
         .swal2-container {
-         z-index: 20000 !important;
-         }
+          z-index: 20000 !important;
+        }
 
         .block-subscription-modal {
           width: 100%;
@@ -950,19 +983,42 @@ const CreateBlockSubscriptionModal = ({
         }
 
         .block-select {
-          width: 100%;
-          background: #1d4679;
-          border: 1px solid rgba(255,255,255,0.1);
-          border-radius: 12px;
-          color: #fff;
-          padding: 12px 14px;
-          outline: none;
-          appearance: none;
-        }
+  width: 100%;
+  background: #071a36;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 14px;
+  color: #ffffff;
+  padding: 13px 44px 13px 14px;
+  outline: none;
+  appearance: auto;
+  -webkit-appearance: auto;
+  box-shadow: inset 0 0 0 1px rgba(47, 150, 255, 0.08);
+  font-size: 15px;
+  font-weight: 600;
+}
 
-        .block-select option {
-          color: #000;
-        }
+.block-select:focus {
+  border-color: rgba(47, 150, 255, 0.85);
+  box-shadow: 0 0 0 3px rgba(47, 150, 255, 0.16);
+}
+
+.block-select:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.block-select option {
+  background: #071a36;
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.block-select option:checked,
+.block-select option:hover {
+  background: #1f65c8;
+  color: #ffffff;
+}
 
         .block-message {
           border-radius: 12px;
@@ -1236,7 +1292,7 @@ const CreateBlockSubscriptionModal = ({
         }
 
         .block-summary-outer.open {
-          max-height: 420px;
+          max-height: 460px;
           opacity: 1;
           margin-top: 10px;
         }
@@ -1399,6 +1455,7 @@ const CreateBlockSubscriptionModal = ({
                 options={normalizedStudents}
                 onChange={setStudentAndAutoGrade}
                 placeholder="Select Student"
+                disabled={submitting}
               />
             )}
           </div>
@@ -1423,6 +1480,7 @@ const CreateBlockSubscriptionModal = ({
               className="block-select"
               value={formData.grade}
               onChange={(e) => handleChange("grade", e.target.value)}
+              disabled={submitting}
             >
               <option value="">Select Year</option>
               {gradeOptions.map((grade) => (
@@ -1430,6 +1488,22 @@ const CreateBlockSubscriptionModal = ({
                   {grade}
                 </option>
               ))}
+            </select>
+          </div>
+
+          <div className="block-field-card">
+            <label className="block-field-label">Payment Status</label>
+
+            <select
+              className="block-select"
+              value={formData.paymentStatus}
+              onChange={(e) =>
+                handleChange("paymentStatus", normalizePaymentStatus(e.target.value))
+              }
+              disabled={submitting || hasActiveCredits}
+            >
+              <option value="Paid">Paid</option>
+              <option value="Unpaid">Unpaid</option>
             </select>
           </div>
 
