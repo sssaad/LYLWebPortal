@@ -206,11 +206,47 @@ const UnitCountFive = () => {
   const [selectedRole, setSelectedRole] = useState('all');
   const [loading, setLoading] = useState(true);
 
+  const [showRevenueValues, setShowRevenueValues] = useState(false);
+  const [showUnpaidValues, setShowUnpaidValues] = useState(false);
+  const [showProfitValues, setShowProfitValues] = useState(false);
+
   const aed = (v) =>
     Number(v || 0).toLocaleString('en-US', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
+
+  const secureAed = (value, isVisible) => {
+    return isVisible ? `AED ${aed(value)}` : 'AED ****';
+  };
+
+  const securePlusAed = (value, isVisible) => {
+    return isVisible ? `+AED ${aed(value)}` : '+AED ****';
+  };
+
+  const secureCount = (value, isVisible) => {
+    return isVisible ? Number(value || 0) : '**';
+  };
+
+  const EyeButton = ({ isVisible, onClick }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      className="border-0 d-flex align-items-center justify-content-center"
+      style={{
+        width: '34px',
+        height: '34px',
+        borderRadius: '50%',
+        background: 'rgba(255,255,255,0.10)',
+        color: '#ffffff',
+        cursor: 'pointer',
+        flexShrink: 0,
+      }}
+      title={isVisible ? 'Hide Values' : 'Show Values'}
+    >
+      <i className={isVisible ? 'ri-eye-off-line text-lg' : 'ri-eye-line text-lg'} />
+    </button>
+  );
 
   useEffect(() => {
     let alive = true;
@@ -229,20 +265,20 @@ const UnitCountFive = () => {
 
         if (!alive) return;
 
-       if (countsResult.status === 'fulfilled') {
-  const data =
-    countsResult.value?.get_dashboardcounts ||
-    countsResult.value ||
-    {};
+        if (countsResult.status === 'fulfilled') {
+          const data =
+            countsResult.value?.get_dashboardcounts ||
+            countsResult.value ||
+            {};
 
-  setDashboardData({
-    ...data,
-    total_unpaid_booking_count: Number(data?.total_unpaid_booking_count || 0),
-  });
-} else {
-  console.error('Dashboard counts error:', countsResult.reason);
-  setDashboardData({});
-}
+          setDashboardData({
+            ...data,
+            total_unpaid_booking_count: Number(data?.total_unpaid_booking_count || 0),
+          });
+        } else {
+          console.error('Dashboard counts error:', countsResult.reason);
+          setDashboardData({});
+        }
 
         if (monthlyResult.status === 'fulfilled') {
           setMonthlyUsers(normalizeMonthlyUsers(monthlyResult.value));
@@ -352,9 +388,10 @@ const UnitCountFive = () => {
   }, [selectedRole]);
 
   const getToggleButtonClass = (isActive) =>
-    `px-3 py-1 border rounded-pill text-sm fw-medium ${isActive
-      ? 'text-white'
-      : 'border-secondary-light text-secondary-light bg-transparent'
+    `px-3 py-1 border rounded-pill text-sm fw-medium ${
+      isActive
+        ? 'text-white'
+        : 'border-secondary-light text-secondary-light bg-transparent'
     }`;
 
   if (loading) {
@@ -436,19 +473,29 @@ const UnitCountFive = () => {
 
             <div className="card p-3 radius-8 shadow-none bg-gradient-dark-start-3 mb-12">
               <div className="card-body p-0">
-                <div className="d-flex align-items-center gap-2 mb-12">
-                  <span className="w-48-px h-48-px bg-base text-info text-2xl d-flex justify-content-center align-items-center rounded-circle">
-                    <i className="ri-money-dollar-circle-fill" />
-                  </span>
-                  <div>
-                    <span className="fw-medium text-secondary-light text-lg">Total Revenue</span>
+                <div className="d-flex align-items-center justify-content-between gap-2 mb-12">
+                  <div className="d-flex align-items-center gap-2">
+                    <span className="w-48-px h-48-px bg-base text-info text-2xl d-flex justify-content-center align-items-center rounded-circle">
+                      <i className="ri-money-dollar-circle-fill" />
+                    </span>
+                    <div>
+                      <span className="fw-medium text-secondary-light text-lg">Total Revenue</span>
+                    </div>
                   </div>
+
+                  <EyeButton
+                    isVisible={showRevenueValues}
+                    onClick={() => setShowRevenueValues((prev) => !prev)}
+                  />
                 </div>
+
                 <div className="d-flex justify-content-between flex-wrap gap-8">
-                  <h5 className="fw-semibold mb-0">AED {aed(dashboardData?.totalpayments)}</h5>
+                  <h5 className="fw-semibold mb-0">
+                    {secureAed(dashboardData?.totalpayments, showRevenueValues)}
+                  </h5>
                   <p className="text-sm mb-0 d-flex align-items-center gap-8">
                     <span className="text-white px-1 rounded-2 fw-medium bg-success-main text-sm">
-                      +AED {aed(dashboardData?.currentmonth_payments)}
+                      {securePlusAed(dashboardData?.currentmonth_payments, showRevenueValues)}
                     </span>
                     This Month
                   </p>
@@ -458,18 +505,25 @@ const UnitCountFive = () => {
 
             <div className="card p-3 radius-8 shadow-none bg-gradient-dark-start-2 mb-12">
               <div className="card-body p-0">
-                <div className="d-flex align-items-center gap-2 mb-14">
-                  <span className="w-48-px h-48-px bg-base text-warning text-2xl d-flex justify-content-center align-items-center rounded-circle">
-                    <i className="ri-close-circle-line" />
-                  </span>
-                  <div>
-                    <span className="fw-medium text-secondary-light text-lg">Unpaid Bookings</span>
+                <div className="d-flex align-items-center justify-content-between gap-2 mb-14">
+                  <div className="d-flex align-items-center gap-2">
+                    <span className="w-48-px h-48-px bg-base text-warning text-2xl d-flex justify-content-center align-items-center rounded-circle">
+                      <i className="ri-close-circle-line" />
+                    </span>
+                    <div>
+                      <span className="fw-medium text-secondary-light text-lg">Unpaid Bookings</span>
+                    </div>
                   </div>
+
+                  <EyeButton
+                    isVisible={showUnpaidValues}
+                    onClick={() => setShowUnpaidValues((prev) => !prev)}
+                  />
                 </div>
 
                 <div className="d-flex justify-content-between align-items-center flex-wrap gap-12">
                   <h5 className="fw-semibold mb-0">
-                    AED {aed(dashboardData?.total_unpaid_amount)}
+                    {secureAed(dashboardData?.total_unpaid_amount, showUnpaidValues)}
                   </h5>
 
                   <div className="d-flex align-items-center gap-8">
@@ -485,7 +539,7 @@ const UnitCountFive = () => {
                         lineHeight: 1,
                       }}
                     >
-                      {Number(dashboardData?.total_unpaid_booking_count || 0)}
+                      {secureCount(dashboardData?.total_unpaid_booking_count, showUnpaidValues)}
                     </span>
 
                     <span className="text-secondary-light fw-medium text-sm">
@@ -498,16 +552,26 @@ const UnitCountFive = () => {
 
             <div className="card p-3 radius-8 shadow-none bg-gradient-dark-start-4 mb-0">
               <div className="card-body p-0">
-                <div className="d-flex align-items-center gap-2 mb-12">
-                  <span className="w-48-px h-48-px bg-base text-success text-2xl d-flex justify-content-center align-items-center rounded-circle">
-                    <i className="ri-line-chart-fill" />
-                  </span>
-                  <div>
-                    <span className="fw-medium text-secondary-light text-lg">Total Profit</span>
+                <div className="d-flex align-items-center justify-content-between gap-2 mb-12">
+                  <div className="d-flex align-items-center gap-2">
+                    <span className="w-48-px h-48-px bg-base text-success text-2xl d-flex justify-content-center align-items-center rounded-circle">
+                      <i className="ri-line-chart-fill" />
+                    </span>
+                    <div>
+                      <span className="fw-medium text-secondary-light text-lg">Total Profit</span>
+                    </div>
                   </div>
+
+                  <EyeButton
+                    isVisible={showProfitValues}
+                    onClick={() => setShowProfitValues((prev) => !prev)}
+                  />
                 </div>
+
                 <div className="d-flex justify-content-between flex-wrap gap-8">
-                  <h5 className="fw-semibold mb-0">AED {aed(dashboardData?.profit)}</h5>
+                  <h5 className="fw-semibold mb-0">
+                    {secureAed(dashboardData?.profit, showProfitValues)}
+                  </h5>
                 </div>
               </div>
             </div>
@@ -581,9 +645,9 @@ const UnitCountFive = () => {
                             style={
                               isActive
                                 ? {
-                                  backgroundColor: role.color,
-                                  borderColor: role.color,
-                                }
+                                    backgroundColor: role.color,
+                                    borderColor: role.color,
+                                  }
                                 : {}
                             }
                           >

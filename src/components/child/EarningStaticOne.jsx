@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import ReactApexChart from 'react-apexcharts';
 import { Icon } from '@iconify/react/dist/iconify.js';
 import { getMonthwiseRevenue } from '../../api/getMonthwiseRevenue';
@@ -6,10 +6,23 @@ import { getMonthwiseRevenue } from '../../api/getMonthwiseRevenue';
 const EarningStaticOne = () => {
     const [loading, setLoading] = useState(true);
     const [totalRevenue, setTotalRevenue] = useState(0);
+    const [showRevenueValues, setShowRevenueValues] = useState(false);
 
     const [chartData, setChartData] = useState({
         series: [{ name: 'Revenue', data: [] }],
-        options: {
+        categories: [],
+    });
+
+    const formatAed = (value) => {
+        return Number(value || 0).toLocaleString('en-US');
+    };
+
+    const secureAed = (value) => {
+        return showRevenueValues ? `AED ${formatAed(value)}` : 'AED ****';
+    };
+
+    const chartOptions = useMemo(() => {
+        return {
             chart: {
                 type: 'bar',
                 height: 310,
@@ -19,18 +32,29 @@ const EarningStaticOne = () => {
                 bar: { borderRadius: 4, horizontal: false },
             },
             dataLabels: { enabled: false },
-            xaxis: { categories: [] },
-            yaxis: { title: { text: '' } },
+            xaxis: {
+                categories: chartData.categories,
+            },
+            yaxis: {
+                title: { text: '' },
+                labels: {
+                    formatter: function (val) {
+                        return showRevenueValues ? Number(val).toLocaleString('en-US') : '****';
+                    },
+                },
+            },
             title: { text: '', align: 'left' },
             tooltip: {
                 y: {
                     formatter: function (val) {
-                        return "AED " + Number(val).toLocaleString();
-                    }
-                }
-            }
-        },
-    });
+                        return showRevenueValues
+                            ? 'AED ' + Number(val).toLocaleString('en-US')
+                            : 'AED ****';
+                    },
+                },
+            },
+        };
+    }, [chartData.categories, showRevenueValues]);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -64,14 +88,10 @@ const EarningStaticOne = () => {
                     const months = sortedRevenue.map(item => item.month);
                     const totals = sortedRevenue.map(item => parseFloat(item.total_revenue) || 0);
 
-                    setChartData(prev => ({
-                        ...prev,
+                    setChartData({
                         series: [{ name: 'Revenue', data: totals }],
-                        options: {
-                            ...prev.options,
-                            xaxis: { categories: months },
-                        }
-                    }));
+                        categories: months,
+                    });
 
                     // Agar API total bhej rahi hai to woh use karo
                     // warna fallback mein visible months ka sum use ho jaye
@@ -121,9 +141,36 @@ const EarningStaticOne = () => {
                                 Monthly Earning Overview
                             </span>
                         </div>
-                        <span className="px-3 py-1 border border-secondary-light rounded-pill text-sm fw-medium text-secondary-light">
-                            Monthly
-                        </span>
+
+                        <div className="d-flex align-items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setShowRevenueValues((prev) => !prev)}
+                                className="border-0 d-flex align-items-center justify-content-center"
+                                style={{
+                                    width: '34px',
+                                    height: '34px',
+                                    borderRadius: '50%',
+                                    background: 'rgba(255,255,255,0.10)',
+                                    color: '#ffffff',
+                                    cursor: 'pointer',
+                                    flexShrink: 0,
+                                }}
+                                title={showRevenueValues ? 'Hide Revenue' : 'Show Revenue'}
+                            >
+                                <i
+                                    className={
+                                        showRevenueValues
+                                            ? 'ri-eye-off-line text-lg'
+                                            : 'ri-eye-line text-lg'
+                                    }
+                                />
+                            </button>
+
+                            <span className="px-3 py-1 border border-secondary-light rounded-pill text-sm fw-medium text-secondary-light">
+                                Monthly
+                            </span>
+                        </div>
                     </div>
 
                     <div className="mt-20 d-flex justify-content-center flex-wrap gap-3">
@@ -136,7 +183,7 @@ const EarningStaticOne = () => {
                                     Total Revenue
                                 </span>
                                 <h6 className="text-md fw-semibold mb-0">
-                                    AED {Number(totalRevenue).toLocaleString()}
+                                    {secureAed(totalRevenue)}
                                 </h6>
                             </div>
                         </div>
@@ -144,7 +191,7 @@ const EarningStaticOne = () => {
 
                     <div id="barChart">
                         <ReactApexChart
-                            options={chartData.options}
+                            options={chartOptions}
                             series={chartData.series}
                             type="bar"
                             height={310}

@@ -39,7 +39,7 @@ const SignInLayer = () => {
     formData.append("password", password);
 
     try {
-      const response = await axios.post(`${baseURL}user_login`, formData, {
+      const response = await axios.post(`${baseURL}portal_admin_login`, formData, {
         headers: {
           ...headers,
           "Content-Type": "multipart/form-data",
@@ -69,6 +69,7 @@ const SignInLayer = () => {
         localStorage.setItem("user_email", user.email);
         localStorage.setItem("user_name", user.fullname);
         localStorage.setItem("role_id", user.roleid);
+        localStorage.setItem("session_version", user.session_version || 1);
         const cleanImagePath = user.imagepath?.trim() || "assets/images/user.png";
         localStorage.setItem("user_image", cleanImagePath);
 
