@@ -466,7 +466,9 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
             <div className="col-xl-3 col-md-6">
               <div className="gl-stat-card">
                 <div className="gl-stat-label">Classes</div>
-                <div className="gl-stat-value">{sessions.length} / 3</div>
+                <div className="gl-stat-value">
+                  {sessions.length} {sessions.length === 1 ? "Class" : "Classes"}
+                </div>
               </div>
             </div>
 
@@ -725,17 +727,27 @@ const GroupLiveSessionsLayer = () => {
         const seats = sessions.map((s) =>
           Number(s?.seats_left ?? s?.capacity ?? 0)
         );
+        const bookedCounts = sessions.map((s) => Number(s?.booked_count || 0));
+
+        const programmeCapacity = capacities.length
+          ? Math.max(...capacities)
+          : Number(programme.capacity || 0);
+
+        const programmeSeatsLeft = seats.length
+          ? Math.min(...seats)
+          : programmeCapacity;
+
+        const bookedSessions = bookedCounts.length
+          ? Math.max(...bookedCounts)
+          : Math.max(programmeCapacity - programmeSeatsLeft, 0);
 
         return {
           ...programme,
           sessions,
           total_classes: sessions.length,
-          capacity: capacities.length ? Math.max(...capacities) : programme.capacity,
-          seats_left: seats.length ? Math.min(...seats) : 0,
-          booked_count: sessions.reduce(
-            (sum, s) => sum + Number(s?.booked_count || 0),
-            0
-          ),
+          capacity: programmeCapacity,
+          seats_left: programmeSeatsLeft,
+          booked_count: bookedSessions,
         };
       })
       .sort((a, b) => {
@@ -1206,7 +1218,7 @@ const GroupLiveSessionsLayer = () => {
                   <th>Weekly Fee</th>
                   <th>Classes</th>
                   <th>Capacity</th>
-                  <th>Booked</th>
+                  <th> Booked Seats</th>
                   <th>Seats Left</th>
                   <th>Status</th>
                   <th>Action</th>
@@ -1271,13 +1283,9 @@ const GroupLiveSessionsLayer = () => {
                         </td>
 
                         <td>
-                          <span
-                            className={`badge ${Number(programme.total_classes) >= 3
-                              ? "bg-success"
-                              : "bg-warning text-dark"
-                              }`}
-                          >
-                            {programme.total_classes} / 3
+                          <span className="badge bg-success">
+                            {Number(programme.total_classes || 0)}{" "}
+                            {Number(programme.total_classes || 0) === 1 ? "Class" : "Classes"}
                           </span>
                         </td>
 

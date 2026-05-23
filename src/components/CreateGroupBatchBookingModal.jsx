@@ -406,6 +406,7 @@ const CreateGroupBatchBookingModal = ({
 
   const [studentId, setStudentId] = useState("");
   const [studentTz, setStudentTz] = useState(DEFAULT_PORTAL_DISPLAY_TIMEZONE);
+  const [paymentStatus, setPaymentStatus] = useState("Paid");
 
   const [loadingStudents, setLoadingStudents] = useState(false);
   const [loadingTimezones, setLoadingTimezones] = useState(false);
@@ -621,6 +622,7 @@ const CreateGroupBatchBookingModal = ({
 
     setStudentId("");
     setStudentTz(DEFAULT_PORTAL_DISPLAY_TIMEZONE);
+    setPaymentStatus("Paid");
     setError("");
     setCreating(false);
 
@@ -681,8 +683,8 @@ const CreateGroupBatchBookingModal = ({
       group_key: programme?.group_key || "",
       booking_createddate: batchCreatedDate,
 
-      payment_status: "Paid",
-      paymentmethod: "card",
+      payment_status: paymentStatus,
+      paymentmethod: paymentStatus === "Paid" ? "portal_manual" : "portal_unpaid",
       paymentType: "Group",
       sessionType: "Online",
       bookingType: "Manual",
@@ -764,6 +766,7 @@ const CreateGroupBatchBookingModal = ({
         <strong>Programme:</strong> ${programme?.programme_name || "-"}<br/>
         <strong>Student:</strong> ${getStudentName(selectedStudent) || "-"}<br/>
         <strong>Timezone:</strong> ${studentTz}<br/>
+        <strong>Payment Status:</strong> ${paymentStatus}<br/>
         <strong>Classes:</strong> ${activeSessions.length}
       </div>
     </div>
@@ -1324,6 +1327,19 @@ const CreateGroupBatchBookingModal = ({
                 ))}
               </select>
             )}
+          </div>
+          <div className="gb-card">
+            <div className="gb-label">Payment Status</div>
+
+            <select
+              className="form-select"
+              value={paymentStatus}
+              disabled={creating}
+              onChange={(e) => setPaymentStatus(e.target.value)}
+            >
+              <option value="Paid">Paid</option>
+              <option value="Unpaid">Unpaid</option>
+            </select>
           </div>
 
           <div className="gb-card">

@@ -206,9 +206,10 @@ const UnitCountFive = () => {
   const [selectedRole, setSelectedRole] = useState('all');
   const [loading, setLoading] = useState(true);
 
-  const [showRevenueValues, setShowRevenueValues] = useState(false);
-  const [showUnpaidValues, setShowUnpaidValues] = useState(false);
-  const [showProfitValues, setShowProfitValues] = useState(false);
+  // const [showRevenueValues, setShowRevenueValues] = useState(false);
+  // const [showUnpaidValues, setShowUnpaidValues] = useState(false);
+  // const [showProfitValues, setShowProfitValues] = useState(false);
+  const [showSecureValues, setShowSecureValues] = useState(false);
 
   const aed = (v) =>
     Number(v || 0).toLocaleString('en-US', {
@@ -484,18 +485,18 @@ const UnitCountFive = () => {
                   </div>
 
                   <EyeButton
-                    isVisible={showRevenueValues}
-                    onClick={() => setShowRevenueValues((prev) => !prev)}
-                  />
+  isVisible={showSecureValues}
+  onClick={() => setShowSecureValues((prev) => !prev)}
+/>
                 </div>
 
                 <div className="d-flex justify-content-between flex-wrap gap-8">
                   <h5 className="fw-semibold mb-0">
-                    {secureAed(dashboardData?.totalpayments, showRevenueValues)}
+                    {secureAed(dashboardData?.totalpayments, showSecureValues)}
                   </h5>
                   <p className="text-sm mb-0 d-flex align-items-center gap-8">
                     <span className="text-white px-1 rounded-2 fw-medium bg-success-main text-sm">
-                      {securePlusAed(dashboardData?.currentmonth_payments, showRevenueValues)}
+                      {securePlusAed(dashboardData?.currentmonth_payments, showSecureValues)}
                     </span>
                     This Month
                   </p>
@@ -515,15 +516,15 @@ const UnitCountFive = () => {
                     </div>
                   </div>
 
-                  <EyeButton
+                  {/* <EyeButton
                     isVisible={showUnpaidValues}
                     onClick={() => setShowUnpaidValues((prev) => !prev)}
-                  />
+                  /> */}
                 </div>
 
                 <div className="d-flex justify-content-between align-items-center flex-wrap gap-12">
                   <h5 className="fw-semibold mb-0">
-                    {secureAed(dashboardData?.total_unpaid_amount, showUnpaidValues)}
+                    {secureAed(dashboardData?.total_unpaid_amount, showSecureValues)}
                   </h5>
 
                   <div className="d-flex align-items-center gap-8">
@@ -539,7 +540,7 @@ const UnitCountFive = () => {
                         lineHeight: 1,
                       }}
                     >
-                      {secureCount(dashboardData?.total_unpaid_booking_count, showUnpaidValues)}
+                      {secureCount(dashboardData?.total_unpaid_booking_count, showSecureValues)}
                     </span>
 
                     <span className="text-secondary-light fw-medium text-sm">
@@ -562,15 +563,15 @@ const UnitCountFive = () => {
                     </div>
                   </div>
 
-                  <EyeButton
+                  {/* <EyeButton
                     isVisible={showProfitValues}
                     onClick={() => setShowProfitValues((prev) => !prev)}
-                  />
+                  /> */}
                 </div>
 
                 <div className="d-flex justify-content-between flex-wrap gap-8">
                   <h5 className="fw-semibold mb-0">
-                    {secureAed(dashboardData?.profit, showProfitValues)}
+                    {secureAed(dashboardData?.profit, showSecureValues)}
                   </h5>
                 </div>
               </div>

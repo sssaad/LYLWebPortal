@@ -91,6 +91,29 @@ const formatTimeForDb = (value) => {
   return parsed.isValid() ? parsed.format("HH:mm:ss") : "";
 };
 
+const addOneHourToTime = (value) => {
+  if (!value) return "";
+
+  const parsed = moment(value, ["HH:mm", "HH:mm:ss"], true);
+
+  if (!parsed.isValid()) return "";
+
+  return parsed.add(1, "hour").format("HH:mm");
+};
+
+const getTimeDurationMinutes = (startValue, endValue) => {
+  const start = moment(startValue, ["HH:mm", "HH:mm:ss"], true);
+  let end = moment(endValue, ["HH:mm", "HH:mm:ss"], true);
+
+  if (!start.isValid() || !end.isValid()) return null;
+
+  if (!end.isAfter(start)) {
+    end = end.add(1, "day");
+  }
+
+  return end.diff(start, "minutes");
+};
+
 const getProgrammeId = (item) => item?.id ?? item?.programme_id;
 
 const getTeacherId = (item) => item?.userid ?? item?.id;
@@ -162,7 +185,9 @@ const SearchableTeacherSelect = ({
     if (!searchValue) return true;
 
     return (
-      String(getTeacherName(teacher) || "").toLowerCase().includes(searchValue) ||
+      String(getTeacherName(teacher) || "")
+        .toLowerCase()
+        .includes(searchValue) ||
       String(teacher?.email || "").toLowerCase().includes(searchValue)
     );
   });
@@ -248,6 +273,7 @@ const SearchableTeacherSelect = ({
 };
 
 const makeEmptyClass = (index) => ({
+  uid: `${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`,
   class_no: index + 1,
   subjectid: "",
   teacherid: "",
@@ -275,11 +301,7 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
     status: "active",
   });
 
-  const [classes, setClasses] = useState([
-    makeEmptyClass(0),
-    makeEmptyClass(1),
-    makeEmptyClass(2),
-  ]);
+  const [classes, setClasses] = useState([makeEmptyClass(0)]);
 
   const [loading, setLoading] = useState(false);
   const [lookupsLoading, setLookupsLoading] = useState(false);
@@ -374,7 +396,7 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
       setProgrammes([]);
       setTeachers([]);
       setTimezones([]);
-      setError(err?.message || "Dropdown data load nahi hua.");
+      setError(err?.message || "Dropdown data could not be loaded.");
     } finally {
       setLookupsLoading(false);
     }
@@ -390,7 +412,7 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
       status: "active",
     });
 
-    setClasses([makeEmptyClass(0), makeEmptyClass(1), makeEmptyClass(2)]);
+    setClasses([makeEmptyClass(0)]);
   };
 
   useEffect(() => {
@@ -617,7 +639,7 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
 
       if (Number(response?.data?.statusCode) !== 200) {
         throw new Error(
-          response?.data?.message || "Teacher profile load nahi hua."
+          response?.data?.message || "Teacher profile could not be loaded."
         );
       }
 
@@ -635,7 +657,7 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
         subjectLoading: false,
         subjectError: subjectOptions.length
           ? ""
-          : "Is teacher ke subjects nahi milay.",
+          : "No subjects found for this teacher.",
         subjectid: firstSubjectId,
         title: "",
 
@@ -648,7 +670,7 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
       setClassPatch(index, {
         subjectOptions: [],
         subjectLoading: false,
-        subjectError: err?.message || "Teacher subjects load nahi huay.",
+        subjectError: err?.message || "Teacher subjects could not be loaded.",
         subjectid: "",
         title: "",
         teacher_timezoneid: "",
@@ -675,6 +697,39 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
     );
   };
 
+  const handleStartTimeChange = (index, startTime) => {
+    const autoEndTime = addOneHourToTime(startTime);
+
+    setClasses((prev) =>
+      prev.map((item, i) => {
+        if (i !== index) return item;
+
+        return {
+          ...item,
+          slot_start: startTime,
+          slot_end: autoEndTime,
+        };
+      })
+    );
+  };
+
+  const handleAddClass = () => {
+    setClasses((prev) => [...prev, makeEmptyClass(prev.length)]);
+  };
+
+  const handleRemoveClass = (index) => {
+    setClasses((prev) => {
+      if (prev.length <= 1) return prev;
+
+      return prev
+        .filter((_, i) => i !== index)
+        .map((item, i) => ({
+          ...item,
+          class_no: i + 1,
+        }));
+    });
+  };
+
   const handleTimezoneChange = (index, timezoneId) => {
     const selectedTimezone = getTimezoneById(timezoneId);
 
@@ -690,46 +745,53 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
     teachers.find((t) => String(getTeacherId(t)) === String(teacherid));
 
   const validateForm = () => {
-    if (!form.programme_id) return "Programme select karo.";
+    if (!form.programme_id) return "Please select a programme.";
 
     const cap = Number(form.capacity);
     if (!Number.isFinite(cap) || cap <= 0) {
-      return "Capacity valid number honi chahiye.";
+      return "Capacity must be a valid number.";
     }
 
-    if (!classes || classes.length !== 3) {
-      return "Programme mein exactly 3 classes honi chahiye.";
+    if (!classes || classes.length < 1) {
+      return "Please add at least one class.";
     }
 
     for (let i = 0; i < classes.length; i += 1) {
       const item = classes[i];
       const label = `Class ${i + 1}`;
 
-      if (!item.teacherid) return `${label}: Teacher select karo.`;
+      if (!item.teacherid) return `${label}: Please select a teacher.`;
 
       if (!item.teacher_timezoneid || !item.teacher_timezone_location) {
-        return `${label}: Teacher timezone select karo.`;
+        return `${label}: Please select the teacher timezone.`;
       }
 
-      if (item.subjectLoading) return `${label}: Subject loading ho raha hai.`;
+      if (item.subjectLoading) return `${label}: Subject is still loading.`;
 
       if (item.subjectError && !item.subjectOptions?.length) {
         return `${label}: ${item.subjectError}`;
       }
 
-      if (!item.subjectid) return `${label}: Subject select karo.`;
-      if (!item.session_date) return `${label}: Session date select karo.`;
-      if (!item.slot_start) return `${label}: Start time select karo.`;
-      if (!item.slot_end) return `${label}: End time select karo.`;
+      if (!item.subjectid) return `${label}: Please select a subject.`;
+      if (!item.session_date)
+        return `${label}: Please select a session date.`;
+      if (!item.slot_start) return `${label}: Please select a start time.`;
+      if (!item.slot_end)
+        return `${label}: End time will be generated automatically. Please select a start time again.`;
 
-      const start = moment(item.slot_start, "HH:mm", true);
-      const end = moment(item.slot_end, "HH:mm", true);
+      const start = moment(item.slot_start, ["HH:mm", "HH:mm:ss"], true);
+      const end = moment(item.slot_end, ["HH:mm", "HH:mm:ss"], true);
 
-      if (!start.isValid()) return `${label}: Start time invalid hai.`;
-      if (!end.isValid()) return `${label}: End time invalid hai.`;
+      if (!start.isValid()) return `${label}: Start time is invalid.`;
+      if (!end.isValid()) return `${label}: End time is invalid.`;
 
-      if (!end.isAfter(start)) {
-        return `${label}: End time start time ke baad honi chahiye.`;
+      const durationMinutes = getTimeDurationMinutes(
+        item.slot_start,
+        item.slot_end
+      );
+
+      if (durationMinutes !== 60) {
+        return `${label}: Class duration must be exactly 60 minutes.`;
       }
     }
 
@@ -776,7 +838,7 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
       throw new Error(
         response?.data?.message ||
         response?.data?.error ||
-        "Live group session insert nahi hua."
+        "Live group session could not be created."
       );
     }
 
@@ -802,7 +864,7 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
       const token = resolveToken(tokenRes);
 
       if (!token) {
-        throw new Error("Token nahi mila.");
+        throw new Error("Authentication token not found.");
       }
 
       const headers = {
@@ -829,7 +891,10 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
         }
       }
 
-      setSuccessMsg("3 live group sessions created successfully.");
+      setSuccessMsg(
+        `${insertRows.length} live group session${insertRows.length > 1 ? "s" : ""
+        } created successfully.`
+      );
 
       setTimeout(() => {
         onSuccess?.({
@@ -1029,6 +1094,12 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
           color: #ffffff;
         }
 
+        .gl-time-disabled {
+          opacity: 0.85 !important;
+          cursor: not-allowed;
+          background: #172033 !important;
+        }
+
         .gl-top-card {
           border: 1px solid rgba(148, 163, 184, 0.18);
           border-radius: 18px;
@@ -1146,163 +1217,212 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
           box-shadow: 0 12px 30px rgba(34, 197, 94, 0.22);
         }
 
+        .gl-add-class-wrap {
+          display: flex;
+          justify-content: flex-end;
+          margin: 4px 0 18px;
+        }
+
+        .gl-add-class-btn {
+          border: 1px solid rgba(59, 130, 246, 0.45);
+          background: rgba(59, 130, 246, 0.14);
+          color: #dbeafe;
+          border-radius: 999px;
+          padding: 10px 18px;
+          font-weight: 900;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .gl-add-class-btn:hover {
+          background: rgba(59, 130, 246, 0.22);
+          color: #ffffff;
+        }
+
+        .gl-add-class-btn:disabled {
+          opacity: 0.65;
+          cursor: not-allowed;
+        }
+
+        .gl-remove-class-btn {
+          border: 1px solid rgba(248, 113, 113, 0.42);
+          background: rgba(239, 68, 68, 0.12);
+          color: #fecaca;
+          border-radius: 999px;
+          padding: 6px 12px;
+          font-size: 12px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .gl-remove-class-btn:hover {
+          background: rgba(239, 68, 68, 0.22);
+          color: #ffffff;
+        }
+
+        .gl-remove-class-btn:disabled {
+          opacity: 0.65;
+          cursor: not-allowed;
+        }
+
         .gl-teacher-select-wrap {
-  position: relative;
-  width: 100%;
-}
+          position: relative;
+          width: 100%;
+        }
 
-.gl-teacher-select-btn {
-  width: 100%;
-  min-height: 50px;
-  border-radius: 14px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  background: #1b2738;
-  color: #ffffff;
-  padding: 0 14px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  font-weight: 750;
-  text-align: left;
-}
+        .gl-teacher-select-btn {
+          width: 100%;
+          min-height: 50px;
+          border-radius: 14px;
+          border: 1px solid rgba(148, 163, 184, 0.18);
+          background: #1b2738;
+          color: #ffffff;
+          padding: 0 14px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          font-weight: 750;
+          text-align: left;
+        }
 
-.gl-teacher-select-btn:disabled {
-  opacity: 0.75;
-  cursor: not-allowed;
-}
+        .gl-teacher-select-btn:disabled {
+          opacity: 0.75;
+          cursor: not-allowed;
+        }
 
-.gl-teacher-placeholder {
-  color: #8296b1;
-}
+        .gl-teacher-placeholder {
+          color: #8296b1;
+        }
 
-.gl-teacher-selected {
-  color: #ffffff;
-}
+        .gl-teacher-selected {
+          color: #ffffff;
+        }
 
-.gl-teacher-arrow {
-  color: #ffffff;
-  font-size: 12px;
-  flex: 0 0 auto;
-}
+        .gl-teacher-arrow {
+          color: #ffffff;
+          font-size: 12px;
+          flex: 0 0 auto;
+        }
 
-.gl-teacher-dropdown {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  right: 0;
-  z-index: 2800;
-  border-radius: 16px;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  background: #0b1220;
-  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.42);
-  overflow: hidden;
-}
+        .gl-teacher-dropdown {
+          position: absolute;
+          top: calc(100% + 8px);
+          left: 0;
+          right: 0;
+          z-index: 2800;
+          border-radius: 16px;
+          border: 1px solid rgba(148, 163, 184, 0.28);
+          background: #0b1220;
+          box-shadow: 0 20px 45px rgba(0, 0, 0, 0.42);
+          overflow: hidden;
+        }
 
-.gl-teacher-search-box {
-  padding: 10px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
-  background: #111827;
-}
+        .gl-teacher-search-box {
+          padding: 10px;
+          border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+          background: #111827;
+        }
 
-.gl-teacher-search-input {
-  width: 100%;
-  height: 48px;
-  border-radius: 13px;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  background: #0f172a;
-  color: #ffffff;
-  padding: 0 14px;
-  font-weight: 800;
-  outline: none;
-}
+        .gl-teacher-search-input {
+          width: 100%;
+          height: 48px;
+          border-radius: 13px;
+          border: 1px solid rgba(148, 163, 184, 0.28);
+          background: #0f172a;
+          color: #ffffff;
+          padding: 0 14px;
+          font-weight: 800;
+          outline: none;
+        }
 
-.gl-teacher-search-input::placeholder {
-  color: #8b97aa;
-}
+        .gl-teacher-search-input::placeholder {
+          color: #8b97aa;
+        }
 
-.gl-teacher-search-input:focus {
-  border-color: rgba(59, 130, 246, 0.85);
-  box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.16);
-}
+        .gl-teacher-search-input:focus {
+          border-color: rgba(59, 130, 246, 0.85);
+          box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.16);
+        }
 
-.gl-teacher-options {
-  max-height: 260px;
-  overflow-y: auto;
-  padding: 8px;
-}
+        .gl-teacher-options {
+          max-height: 260px;
+          overflow-y: auto;
+          padding: 8px;
+        }
 
-.gl-teacher-options::-webkit-scrollbar {
-  width: 8px;
-}
+        .gl-teacher-options::-webkit-scrollbar {
+          width: 8px;
+        }
 
-.gl-teacher-options::-webkit-scrollbar-track {
-  background: #111827;
-}
+        .gl-teacher-options::-webkit-scrollbar-track {
+          background: #111827;
+        }
 
-.gl-teacher-options::-webkit-scrollbar-thumb {
-  background: #6b7280;
-  border-radius: 999px;
-}
+        .gl-teacher-options::-webkit-scrollbar-thumb {
+          background: #6b7280;
+          border-radius: 999px;
+        }
 
-.gl-teacher-option {
-  width: 100%;
-  border: 0;
-  background: transparent;
-  color: #ffffff;
-  border-radius: 12px;
-  padding: 10px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  text-align: left;
-  font-weight: 900;
-}
+        .gl-teacher-option {
+          width: 100%;
+          border: 0;
+          background: transparent;
+          color: #ffffff;
+          border-radius: 12px;
+          padding: 10px;
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          text-align: left;
+          font-weight: 900;
+        }
 
-.gl-teacher-option:hover,
-.gl-teacher-option.active {
-  background: rgba(59, 130, 246, 0.14);
-}
+        .gl-teacher-option:hover,
+        .gl-teacher-option.active {
+          background: rgba(59, 130, 246, 0.14);
+        }
 
-.gl-teacher-avatar {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  overflow: hidden;
-  flex: 0 0 auto;
-  background: #1f2937;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #cbd5e1;
-}
+        .gl-teacher-avatar {
+          width: 30px;
+          height: 30px;
+          border-radius: 50%;
+          overflow: hidden;
+          flex: 0 0 auto;
+          background: #1f2937;
+          border: 1px solid rgba(148, 163, 184, 0.28);
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          color: #cbd5e1;
+        }
 
-.gl-teacher-avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
+        .gl-teacher-avatar img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
 
-.gl-teacher-avatar-fallback {
-  font-size: 13px;
-  font-weight: 900;
-  color: #cbd5e1;
-}
+        .gl-teacher-avatar-fallback {
+          font-size: 13px;
+          font-weight: 900;
+          color: #cbd5e1;
+        }
 
-.gl-teacher-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+        .gl-teacher-name {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
 
-.gl-teacher-empty {
-  padding: 18px 12px;
-  text-align: center;
-  color: #94a3b8;
-  font-weight: 800;
-}
+        .gl-teacher-empty {
+          padding: 18px 12px;
+          text-align: center;
+          color: #94a3b8;
+          font-weight: 800;
+        }
+
         @media (max-width: 767px) {
           .gl-create-modal {
             width: 100%;
@@ -1338,6 +1458,18 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
           .gl-cancel-btn {
             width: 100%;
           }
+
+          .gl-add-class-wrap {
+            justify-content: stretch;
+          }
+
+          .gl-add-class-btn {
+            width: 100%;
+          }
+
+          .gl-class-header {
+            align-items: flex-start;
+          }
         }
       `}</style>
 
@@ -1346,7 +1478,7 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
           <div>
             <h4 className="gl-create-title">Create Live Group Sessions</h4>
             <div className="gl-create-subtitle">
-              Select programme and create its 3 live classes.
+              Select programme and create one or more live classes.
             </div>
           </div>
 
@@ -1433,7 +1565,7 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
               const autoTitle = buildSessionTitle(item, index);
 
               return (
-                <div className="gl-class-card" key={item.class_no}>
+                <div className="gl-class-card" key={item.uid || item.class_no}>
                   <div className="gl-class-header">
                     <div>
                       <h6 className="gl-class-title">Class {index + 1}</h6>
@@ -1454,7 +1586,20 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
                       ) : null}
                     </div>
 
-                    <span className="badge bg-primary">Required</span>
+                    <div className="d-flex align-items-center gap-2">
+                      <span className="badge bg-primary">Required</span>
+
+                      {classes.length > 1 ? (
+                        <button
+                          type="button"
+                          className="gl-remove-class-btn"
+                          onClick={() => handleRemoveClass(index)}
+                          disabled={loading}
+                        >
+                          Remove
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
 
                   <div className="gl-class-body">
@@ -1467,7 +1612,9 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
                           value={item.teacherid}
                           disabled={loading || lookupsLoading}
                           placeholder="Select Teacher"
-                          onChange={(teacherId) => handleTeacherChange(index, teacherId)}
+                          onChange={(teacherId) =>
+                            handleTeacherChange(index, teacherId)
+                          }
                         />
                       </div>
 
@@ -1591,7 +1738,7 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
                           className="form-control"
                           value={item.slot_start}
                           onChange={(e) =>
-                            updateClass(index, "slot_start", e.target.value)
+                            handleStartTimeChange(index, e.target.value)
                           }
                           disabled={loading}
                         />
@@ -1601,12 +1748,9 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
                         <label className="form-label">End Time</label>
                         <input
                           type="time"
-                          className="form-control"
+                          className="form-control gl-time-disabled"
                           value={item.slot_end}
-                          onChange={(e) =>
-                            updateClass(index, "slot_end", e.target.value)
-                          }
-                          disabled={loading}
+                          disabled
                         />
                       </div>
                     </div>
@@ -1614,6 +1758,17 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
                 </div>
               );
             })}
+
+            <div className="gl-add-class-wrap">
+              <button
+                type="button"
+                className="gl-add-class-btn"
+                onClick={handleAddClass}
+                disabled={loading}
+              >
+                + Add Another Class
+              </button>
+            </div>
 
             <div className="gl-preview-card">
               <div className="gl-preview-title">Preview</div>
