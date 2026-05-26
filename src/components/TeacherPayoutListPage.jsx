@@ -2,6 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import Swal from "sweetalert2";
 import moment from "moment";
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import { getToken } from "../api/getToken";
 import { getDashboardCounts } from "../api/getDashboardCounts";
 
@@ -201,6 +204,9 @@ const TeacherPayoutListPage = () => {
 
     return Number.isFinite(n) ? n.toFixed(2) : null;
   };
+
+  const formatExportStatus = (value) =>
+    String(value || "").toLowerCase() === "paid" ? "Paid" : "Unpaid";
 
   // ========= Dashboard Total Revenue + Total Profit + Tutor Payout =========
   const fetchTotalRevenue = async () => {
@@ -642,6 +648,171 @@ const TeacherPayoutListPage = () => {
     };
   }, [filteredData, totalProfitApi, totalTutorPayout]);
 
+  // ========= EXPORT EXCEL / PDF =========
+  const getExportRows = () => {
+    return filteredData.map((item, i) => ({
+      "S.L": i + 1,
+      "Booking ID": item?.booking_id || "—",
+      "Teacher Name": item?.teacher_name || "—",
+      "Student Name": item?.student_name || "—",
+      "Subject Name": item?.subject_name || "—",
+      "Booking Date": fmtDate(item?.booking_date),
+      "Slot Start": fmtTime(item?.slot_start),
+      "Slot End": fmtTime(item?.slot_end),
+      "Grade Wise Session Fee": money(parseAmount(item?.session_fee_aed)),
+      "Payment Amount (AED)": money(parseAmount(item?.payment_amount_aed)),
+      "Paid Status": formatExportStatus(item?.paid_status),
+      "Paid On": item?.paid_on ? fmtDate(item?.paid_on) : "—",
+      "Payout Method": item?.payout_method || "—",
+    }));
+  };
+
+  const exportToExcel = () => {
+    const exportRows = getExportRows();
+
+    if (!exportRows.length) {
+      Swal.fire({
+        icon: "info",
+        title: "No Data",
+        text: "No records available to export.",
+      });
+      return;
+    }
+
+    const heading = [["Teacher Payout List"]];
+    const worksheet = XLSX.utils.json_to_sheet(exportRows, { origin: "A3" });
+
+    XLSX.utils.sheet_add_aoa(worksheet, heading, { origin: "A1" });
+    XLSX.utils.sheet_add_aoa(
+      worksheet,
+      [
+        [
+          `Total: ${summary.total}`,
+          `Paid: ${summary.paid}`,
+          `Unpaid: ${summary.unpaid}`,
+          `Total Revenue: ${money(totalRevenue)}`,
+          `Total Profit: ${money(summary.totalProfit)}`,
+          `Total Paid Amount: ${money(summary.totalPayment)}`,
+        ],
+      ],
+      { origin: "A2" }
+    );
+
+    worksheet["!cols"] = [
+      { wch: 8 },
+      { wch: 14 },
+      { wch: 24 },
+      { wch: 24 },
+      { wch: 22 },
+      { wch: 16 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 24 },
+      { wch: 22 },
+      { wch: 14 },
+      { wch: 16 },
+      { wch: 16 },
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Teacher Payouts");
+    XLSX.writeFile(workbook, "teacher-payout-list.xlsx");
+  };
+
+  const exportToPDF = () => {
+    const exportRows = getExportRows();
+
+    if (!exportRows.length) {
+      Swal.fire({
+        icon: "info",
+        title: "No Data",
+        text: "No records available to export.",
+      });
+      return;
+    }
+
+    const doc = new jsPDF("l", "mm", "a4");
+
+    doc.setFontSize(16);
+    doc.text("Teacher Payout List", 14, 16);
+
+    doc.setFontSize(9);
+    doc.text(
+      `Total: ${summary.total} | Paid: ${summary.paid} | Unpaid: ${summary.unpaid} | Total Revenue: ${money(
+        totalRevenue
+      )} | Total Profit: ${money(summary.totalProfit)} | Total Paid Amount: ${money(
+        summary.totalPayment
+      )}`,
+      14,
+      23
+    );
+
+    const columns = [
+      "S.L",
+      "Booking ID",
+      "Teacher Name",
+      "Student Name",
+      "Subject Name",
+      "Booking Date",
+      "Slot Start",
+      "Slot End",
+      "Grade Fee",
+      "Payment Amount",
+      "Paid Status",
+      "Paid On",
+      "Method",
+    ];
+
+    const body = filteredData.map((item, i) => [
+      i + 1,
+      item?.booking_id || "—",
+      item?.teacher_name || "—",
+      item?.student_name || "—",
+      item?.subject_name || "—",
+      fmtDate(item?.booking_date),
+      fmtTime(item?.slot_start),
+      fmtTime(item?.slot_end),
+      money(parseAmount(item?.session_fee_aed)),
+      money(parseAmount(item?.payment_amount_aed)),
+      formatExportStatus(item?.paid_status),
+      item?.paid_on ? fmtDate(item?.paid_on) : "—",
+      item?.payout_method || "—",
+    ]);
+
+    autoTable(doc, {
+      startY: 28,
+      head: [columns],
+      body,
+      styles: {
+        fontSize: 7,
+        cellPadding: 2,
+        overflow: "linebreak",
+      },
+      headStyles: {
+        fontSize: 7,
+        fontStyle: "bold",
+      },
+      columnStyles: {
+        0: { cellWidth: 9 },
+        1: { cellWidth: 16 },
+        2: { cellWidth: 28 },
+        3: { cellWidth: 28 },
+        4: { cellWidth: 25 },
+        5: { cellWidth: 18 },
+        6: { cellWidth: 16 },
+        7: { cellWidth: 16 },
+        8: { cellWidth: 22 },
+        9: { cellWidth: 24 },
+        10: { cellWidth: 16 },
+        11: { cellWidth: 18 },
+        12: { cellWidth: 16 },
+      },
+      margin: { top: 28, left: 8, right: 8 },
+    });
+
+    doc.save("teacher-payout-list.pdf");
+  };
+
   // ========= pagination =========
   const totalPages = Math.max(1, Math.ceil(filteredData.length / itemsPerPage));
 
@@ -780,6 +951,22 @@ const TeacherPayoutListPage = () => {
             className="btn btn-outline-secondary btn-sm"
           >
             Reset Filters
+          </button>
+
+          <button
+            onClick={exportToExcel}
+            className="btn btn-success btn-sm"
+            disabled={loading}
+          >
+            Excel Export
+          </button>
+
+          <button
+            onClick={exportToPDF}
+            className="btn btn-danger btn-sm"
+            disabled={loading}
+          >
+            PDF Export
           </button>
         </div>
 
