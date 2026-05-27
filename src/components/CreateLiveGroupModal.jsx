@@ -10,6 +10,9 @@ const RUN_STORED_PROCEDURE_URL =
 const ADD_DYNAMIC_DATA_URL =
   "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=add_dynamic_data";
 
+const UPDATE_DYNAMIC_DATA_URL =
+  "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=update_dynamic_data";
+
 const TEACHER_PROFILE_URL =
   "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=teacher_profile";
 
@@ -37,17 +40,40 @@ const resolveToken = (tokenRes) => {
   );
 };
 
-const getArrayFromResponse = (res) => {
+const getArrayFromResponse = (res, procedureName = "") => {
+  const data = res?.data || res || {};
+
   const candidates = [
     res,
     res?.data,
     res?.data?.data,
     res?.data?.result,
     res?.result,
+
+    data?.data,
+    data?.result,
+    data?.[procedureName],
+
+    data?.get_portal_programmes,
+    data?.GetAllTeachers,
+    data?.getAllTeachers,
+    data?.teachers,
+    data?.programmes,
+    data?.rows,
   ];
 
   for (const item of candidates) {
     if (Array.isArray(item)) return item;
+  }
+
+  for (const value of Object.values(data || {})) {
+    if (Array.isArray(value)) return value;
+  }
+
+  if (data?.data && typeof data.data === "object") {
+    for (const value of Object.values(data.data || {})) {
+      if (Array.isArray(value)) return value;
+    }
   }
 
   return [];
@@ -74,7 +100,8 @@ const isSuccessResponse = (response) => {
       Number(data?.statusCode) === 201 ||
       String(data?.status || "").toLowerCase() === "success" ||
       String(data?.message || "").toLowerCase().includes("success") ||
-      String(data?.message || "").toLowerCase().includes("insert")
+      String(data?.message || "").toLowerCase().includes("insert") ||
+      String(data?.message || "").toLowerCase().includes("update")
     ) {
       return true;
     }
@@ -89,6 +116,13 @@ const formatTimeForDb = (value) => {
   if (!value) return "";
   const parsed = moment(value, ["HH:mm", "HH:mm:ss"], true);
   return parsed.isValid() ? parsed.format("HH:mm:ss") : "";
+};
+
+const formatTimeForInput = (value) => {
+  if (!value) return "";
+  const clean = String(value || "").split(".")[0];
+  const parsed = moment(clean, ["HH:mm:ss", "HH:mm"], true);
+  return parsed.isValid() ? parsed.format("HH:mm") : "";
 };
 
 const addOneHourToTime = (value) => {
@@ -120,7 +154,9 @@ const getTeacherId = (item) => item?.userid ?? item?.id;
 
 const getTeacherName = (item) =>
   item?.fullname ||
+  item?.teacher_name ||
   [item?.firstname, item?.lastname].filter(Boolean).join(" ") ||
+  [item?.firstName, item?.lastName].filter(Boolean).join(" ") ||
   item?.name ||
   "";
 
@@ -154,7 +190,7 @@ const getTimezoneId = (item) =>
   item?.id ?? item?.timezoneid ?? item?.timezoneId ?? "";
 
 const getTimezoneValue = (item) =>
-  item?.timezone || item?.name || item?.value || "";
+  item?.timezone || item?.timezone_location || item?.name || item?.value || "";
 
 const getTimezoneLabel = (item) => {
   const id = getTimezoneId(item);
@@ -165,12 +201,40 @@ const getTimezoneLabel = (item) => {
   return id ? `${value} (ID: ${id})` : value;
 };
 
+const getProgrammeBookedCount = (programme) => {
+  const programmeBooked = Number(programme?.booked_count || 0);
+
+  const sessionBooked = Array.isArray(programme?.sessions)
+    ? Math.max(
+      ...programme.sessions.map((session) =>
+        Number(session?.booked_count || 0)
+      ),
+      0
+    )
+    : 0;
+
+  return Math.max(programmeBooked, sessionBooked);
+};
+
+const makeSubjectOptionFromSession = (session) => {
+  const subjectid = session?.subjectid || "";
+  const subjectname = session?.subjectname || session?.subject_name || "";
+
+  if (!subjectid && !subjectname) return null;
+
+  return {
+    subjectid: String(subjectid),
+    subjectname: subjectname || `Subject ${subjectid}`,
+  };
+};
+
 const SearchableTeacherSelect = ({
   teachers = [],
   value,
   onChange,
   disabled = false,
   placeholder = "Select Teacher",
+  fallbackLabel = "",
 }) => {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -178,6 +242,10 @@ const SearchableTeacherSelect = ({
   const selectedTeacher = teachers.find(
     (teacher) => String(getTeacherId(teacher)) === String(value)
   );
+
+  const selectedTeacherName = selectedTeacher
+    ? getTeacherName(selectedTeacher)
+    : fallbackLabel;
 
   const filteredTeachers = teachers.filter((teacher) => {
     const searchValue = String(search || "").toLowerCase().trim();
@@ -204,10 +272,10 @@ const SearchableTeacherSelect = ({
       >
         <span
           className={
-            selectedTeacher ? "gl-teacher-selected" : "gl-teacher-placeholder"
+            selectedTeacherName ? "gl-teacher-selected" : "gl-teacher-placeholder"
           }
         >
-          {selectedTeacher ? getTeacherName(selectedTeacher) : placeholder}
+          {selectedTeacherName || placeholder}
         </span>
 
         <span className="gl-teacher-arrow">{open ? "▴" : "▾"}</span>
@@ -274,9 +342,11 @@ const SearchableTeacherSelect = ({
 
 const makeEmptyClass = (index) => ({
   uid: `${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`,
+  id: "",
   class_no: index + 1,
   subjectid: "",
   teacherid: "",
+  teacher_name: "",
 
   teacher_timezoneid: "",
   teacher_timezone_location: "",
@@ -285,12 +355,24 @@ const makeEmptyClass = (index) => ({
   slot_start: "",
   slot_end: "",
   title: "",
+  status: "active",
   subjectOptions: [],
   subjectLoading: false,
   subjectError: "",
 });
 
-const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
+const generateGroupBatchId = () => {
+  return Math.floor(Date.now() / 1000);
+};
+const CreateLiveGroupModal = ({
+  isOpen,
+  onClose,
+  onSuccess,
+  preselectedProgramme = null,
+  mode = "create",
+  editProgramme = null,
+}) => {
+  const isEditMode = mode === "edit" && !!editProgramme;
   const [programmes, setProgrammes] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [timezones, setTimezones] = useState([]);
@@ -302,6 +384,7 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
   });
 
   const [classes, setClasses] = useState([makeEmptyClass(0)]);
+  const [removedSessionIds, setRemovedSessionIds] = useState([]);
 
   const [loading, setLoading] = useState(false);
   const [lookupsLoading, setLookupsLoading] = useState(false);
@@ -314,7 +397,11 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
     );
   }, [programmes, form.programme_id]);
 
-  const selectedProgrammeName = selectedProgramme?.name || "";
+  const selectedProgrammeName =
+    selectedProgramme?.name ||
+    editProgramme?.programme_name ||
+    preselectedProgramme?.programme_name ||
+    "";
 
   const buildHeadersWithToken = async () => {
     const tokenRes = await getToken();
@@ -338,11 +425,13 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
       { headers }
     );
 
-    if (Number(response?.data?.statusCode) !== 200) {
+    const statusCode = Number(response?.data?.statusCode);
+
+    if (statusCode && statusCode !== 200) {
       throw new Error(response?.data?.message || `${procedureName} failed`);
     }
 
-    return getArrayFromResponse(response.data);
+    return getArrayFromResponse(response, procedureName);
   };
 
   const normalizeTimezones = (rows) => {
@@ -372,31 +461,148 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
       });
   };
 
+  const getTimezoneByIdFromList = (list, timezoneId) => {
+    const id = String(timezoneId || "").trim();
+
+    if (!id) return null;
+
+    return list.find((tz) => String(getTimezoneId(tz)) === id) || null;
+  };
+
+  const getTimezoneByValueFromList = (list, timezoneValue) => {
+    const value = String(timezoneValue || "").trim();
+
+    if (!value) return null;
+
+    return (
+      list.find((tz) => String(getTimezoneValue(tz)).trim() === value) || null
+    );
+  };
+
+  const hydrateEditProgramme = (programme, timezoneList = []) => {
+    const editSessions = Array.isArray(programme?.sessions)
+      ? programme.sessions
+      : [];
+
+    const firstSession = editSessions[0] || {};
+
+    setForm({
+      programme_id: String(programme?.programme_id || firstSession?.programme_id || ""),
+      capacity: String(programme?.capacity || firstSession?.capacity || "10"),
+      status: String(programme?.status || firstSession?.status || "active"),
+    });
+
+    const mappedClasses = editSessions.map((session, index) => {
+      const timezoneFromId = getTimezoneByIdFromList(
+        timezoneList,
+        session?.timezoneid
+      );
+
+      const timezoneFromValue = getTimezoneByValueFromList(
+        timezoneList,
+        session?.timezone_location || session?.timezone
+      );
+
+      const matchedTimezone = timezoneFromId || timezoneFromValue;
+      const subjectOption = makeSubjectOptionFromSession(session);
+
+      return {
+        uid: `edit-${session?.id || index}-${Date.now()}`,
+        id: session?.id || "",
+        group_batch_id:
+          session?.group_batch_id ||
+          programme?.group_batch_id ||
+          "",
+        class_no: index + 1,
+        subjectid: String(session?.subjectid || ""),
+        teacherid: String(
+          session?.teacherid || session?.teacher_id || session?.userid || ""
+        ),
+        teacher_name:
+          session?.teacher_name ||
+          session?.teacher_fullname ||
+          session?.fullname ||
+          "",
+
+        teacher_timezoneid: String(
+          getTimezoneId(matchedTimezone) || session?.timezoneid || ""
+        ),
+        teacher_timezone_location:
+          getTimezoneValue(matchedTimezone) ||
+          session?.timezone_location ||
+          session?.timezone ||
+          "",
+
+        session_date: session?.session_date || "",
+        slot_start: formatTimeForInput(session?.slot_start),
+        slot_end: formatTimeForInput(session?.slot_end),
+        title: session?.title || "",
+        status: session?.status || programme?.status || "active",
+        subjectOptions: subjectOption ? [subjectOption] : [],
+        subjectLoading: false,
+        subjectError: "",
+      };
+    });
+
+    setClasses(mappedClasses.length ? mappedClasses : [makeEmptyClass(0)]);
+    setRemovedSessionIds([]);
+  };
+
   const loadLookups = async () => {
     setLookupsLoading(true);
     setError("");
 
+    let programmeRows = [];
+    let teacherRows = [];
+    let normalizedTimezones = [];
+
     try {
-      const [programmeRows, teacherRows, timezoneRes] = await Promise.all([
-        runStoredProcedure(PROGRAMME_PROCEDURE),
-        runStoredProcedure(TEACHER_PROCEDURE),
-        getTimezonesLookup(),
-      ]);
+      try {
+        programmeRows = await runStoredProcedure(PROGRAMME_PROCEDURE);
+      } catch (programmeErr) {
+        console.error("Programme lookup failed:", programmeErr);
+        programmeRows = [];
+      }
+
+      try {
+        teacherRows = await runStoredProcedure(TEACHER_PROCEDURE);
+      } catch (teacherErr) {
+        console.error("Teacher lookup failed:", teacherErr);
+        teacherRows = [];
+      }
+
+      try {
+        const timezoneRes = await getTimezonesLookup();
+
+        normalizedTimezones =
+          timezoneRes?.statusCode === 200 && Array.isArray(timezoneRes?.data)
+            ? normalizeTimezones(timezoneRes.data)
+            : normalizeTimezones(getArrayFromResponse(timezoneRes));
+      } catch (timezoneErr) {
+        console.error("Timezone lookup failed:", timezoneErr);
+        normalizedTimezones = [];
+      }
 
       setProgrammes(programmeRows || []);
       setTeachers(teacherRows || []);
+      setTimezones(normalizedTimezones || []);
 
-      if (timezoneRes?.statusCode === 200 && Array.isArray(timezoneRes?.data)) {
-        setTimezones(normalizeTimezones(timezoneRes.data));
-      } else {
-        setTimezones([]);
+      if (isEditMode) {
+        hydrateEditProgramme(editProgramme, normalizedTimezones);
+      } else if (preselectedProgramme?.programme_id) {
+        setForm((prev) => ({
+          ...prev,
+          programme_id: String(preselectedProgramme.programme_id),
+          capacity: String(preselectedProgramme.capacity || prev.capacity),
+          status: String(preselectedProgramme.status || prev.status),
+        }));
       }
-    } catch (err) {
-      console.error("Create live group lookup failed:", err);
-      setProgrammes([]);
-      setTeachers([]);
-      setTimezones([]);
-      setError(err?.message || "Dropdown data could not be loaded.");
+
+      if (!programmeRows?.length) {
+        setError(
+          "Programme list could not be loaded. Please check get_portal_programmes response."
+        );
+      }
     } finally {
       setLookupsLoading(false);
     }
@@ -405,6 +611,7 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
   const resetModalState = () => {
     setError("");
     setSuccessMsg("");
+    setRemovedSessionIds([]);
 
     setForm({
       programme_id: "",
@@ -421,10 +628,10 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
     resetModalState();
     loadLookups();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]);
+  }, [isOpen, mode, editProgramme?.group_key]);
 
   useEffect(() => {
-    if (!selectedProgramme) return;
+    if (!selectedProgramme || isEditMode) return;
 
     setForm((prev) => ({
       ...prev,
@@ -455,7 +662,7 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
         };
       })
     );
-  }, [selectedProgramme]);
+  }, [selectedProgramme, isEditMode]);
 
   const setField = (key, value) => {
     setForm((prev) => ({
@@ -721,6 +928,16 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
     setClasses((prev) => {
       if (prev.length <= 1) return prev;
 
+      const removedItem = prev[index];
+
+      if (removedItem?.id) {
+        setRemovedSessionIds((old) => {
+          const sessionId = String(removedItem.id);
+          if (old.includes(sessionId)) return old;
+          return [...old, sessionId];
+        });
+      }
+
       return prev
         .filter((_, i) => i !== index)
         .map((item, i) => ({
@@ -799,13 +1016,34 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
   };
 
   const buildInsertRows = () => {
-    const batchCreatedDate = moment().format("YYYY-MM-DD HH:mm:ss");
+    const batchCreatedDate =
+      isEditMode && editProgramme?.createddate
+        ? editProgramme.createddate
+        : moment().format("YYYY-MM-DD HH:mm:ss");
+
+    const firstEditSession = Array.isArray(editProgramme?.sessions)
+      ? editProgramme.sessions[0]
+      : null;
+
+    const existingGroupBatchId = Number(
+      editProgramme?.group_batch_id ||
+      firstEditSession?.group_batch_id ||
+      classes?.[0]?.group_batch_id ||
+      0
+    );
+
+    const groupBatchId =
+      isEditMode && existingGroupBatchId > 0
+        ? existingGroupBatchId
+        : generateGroupBatchId();
 
     return classes.map((item, index) => {
       return {
         tablename: "group_live_sessions",
 
         programme_id: Number(form.programme_id),
+        group_batch_id: groupBatchId,
+
         title: item.title || buildSessionTitle(item, index),
         subjectid: Number(item.subjectid),
         teacherid: Number(item.teacherid),
@@ -823,10 +1061,42 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
         classhostlink: null,
         classcommonlink: null,
 
-        status: form.status || "active",
+        status: item.status || form.status || "active",
         createddate: batchCreatedDate,
       };
     });
+  };
+
+  const buildUpdateRow = (item, index) => {
+    const firstEditSession = Array.isArray(editProgramme?.sessions)
+      ? editProgramme.sessions[0]
+      : null;
+
+    const existingGroupBatchId = Number(
+      item?.group_batch_id ||
+      editProgramme?.group_batch_id ||
+      firstEditSession?.group_batch_id ||
+      0
+    );
+
+    return {
+      programme_id: Number(form.programme_id),
+      group_batch_id: existingGroupBatchId > 0 ? existingGroupBatchId : generateGroupBatchId(),
+
+      title: item.title || buildSessionTitle(item, index),
+      subjectid: Number(item.subjectid),
+      teacherid: Number(item.teacherid),
+
+      timezoneid: Number(item.teacher_timezoneid),
+      timezone_location: item.teacher_timezone_location,
+
+      session_date: item.session_date,
+      slot_start: formatTimeForDb(item.slot_start),
+      slot_end: formatTimeForDb(item.slot_end),
+      capacity: Number(form.capacity || 10),
+
+      status: item.status || form.status || "active",
+    };
   };
 
   const addDynamicData = async (rowPayload, headers) => {
@@ -843,6 +1113,112 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
     }
 
     return response?.data;
+  };
+
+  const updateDynamicData = async (sessionId, updatedata, token) => {
+    const conditionId = /^\d+$/.test(String(sessionId))
+      ? Number(sessionId)
+      : sessionId;
+
+    const response = await axios.post(
+      UPDATE_DYNAMIC_DATA_URL,
+      {
+        token,
+        tablename: "group_live_sessions",
+        conditions: [
+          {
+            id: conditionId,
+          },
+        ],
+        updatedata: [updatedata],
+      },
+      {
+        headers: API_HEADERS,
+      }
+    );
+
+    if (!isSuccessResponse(response)) {
+      throw new Error(
+        response?.data?.message ||
+        response?.data?.error ||
+        "Live group session could not be updated."
+      );
+    }
+
+    return response?.data;
+  };
+
+  const handleCreateSubmit = async (headers) => {
+    const insertRows = buildInsertRows();
+    const insertedResponses = [];
+
+    console.log("GROUP LIVE SESSION INSERT ROWS =>", insertRows);
+
+    for (let i = 0; i < insertRows.length; i += 1) {
+      const row = insertRows[i];
+
+      try {
+        const res = await addDynamicData(row, headers);
+        insertedResponses.push(res);
+      } catch (insertErr) {
+        throw new Error(
+          `Class ${i + 1} insert failed: ${insertErr?.message || "Unknown error"
+          }`
+        );
+      }
+    }
+
+    return {
+      insertedRows: insertRows,
+      insertedResponses,
+    };
+  };
+
+  const handleUpdateSubmit = async (headers, token) => {
+    const bookedCount = getProgrammeBookedCount(editProgramme);
+
+    if (bookedCount > 0) {
+      throw new Error(
+        "This programme already has a group booking, so it cannot be edited."
+      );
+    }
+
+    const updatedResponses = [];
+    const insertedResponses = [];
+    const removedResponses = [];
+    const insertRows = buildInsertRows();
+
+    for (let i = 0; i < classes.length; i += 1) {
+      const item = classes[i];
+
+      if (item.id) {
+        const updateRow = buildUpdateRow(item, i);
+        const res = await updateDynamicData(item.id, updateRow, token);
+        updatedResponses.push(res);
+      } else {
+        const insertRow = insertRows[i];
+        const res = await addDynamicData(insertRow, headers);
+        insertedResponses.push(res);
+      }
+    }
+
+    for (const sessionId of removedSessionIds) {
+      const res = await updateDynamicData(
+        sessionId,
+        {
+          status: "cancelled",
+        },
+        token
+      );
+
+      removedResponses.push(res);
+    }
+
+    return {
+      updatedResponses,
+      insertedResponses,
+      removedResponses,
+    };
   };
 
   const handleSubmit = async (e) => {
@@ -872,39 +1248,26 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
         token,
       };
 
-      const insertRows = buildInsertRows();
-      const insertedResponses = [];
+      const result = isEditMode
+        ? await handleUpdateSubmit(headers, token)
+        : await handleCreateSubmit(headers);
 
-      console.log("GROUP LIVE SESSION INSERT ROWS =>", insertRows);
+      const successText = isEditMode
+        ? "Live group sessions updated successfully."
+        : `${classes.length} live group session${classes.length > 1 ? "s" : ""
+        } created successfully.`;
 
-      for (let i = 0; i < insertRows.length; i += 1) {
-        const row = insertRows[i];
-
-        try {
-          const res = await addDynamicData(row, headers);
-          insertedResponses.push(res);
-        } catch (insertErr) {
-          throw new Error(
-            `Class ${i + 1} insert failed: ${insertErr?.message || "Unknown error"
-            }`
-          );
-        }
-      }
-
-      setSuccessMsg(
-        `${insertRows.length} live group session${insertRows.length > 1 ? "s" : ""
-        } created successfully.`
-      );
+      setSuccessMsg(successText);
 
       setTimeout(() => {
         onSuccess?.({
-          insertedRows: insertRows,
-          insertedResponses,
+          mode: isEditMode ? "edit" : "create",
+          result,
         });
         onClose?.();
       }, 700);
     } catch (err) {
-      console.error("Create live group sessions failed:", err);
+      console.error("Create/update live group sessions failed:", err);
       setError(err?.message || "Something went wrong.");
     } finally {
       setLoading(false);
@@ -923,7 +1286,7 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
 
       return {
         index,
-        teacherName: getTeacherName(teacher),
+        teacherName: getTeacherName(teacher) || item.teacher_name || "",
         subjectName: getSubjectName(subject),
         title: item.title || buildSessionTitle(item, index),
         date: item.session_date,
@@ -1476,9 +1839,13 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
       <div className="gl-create-modal" onClick={(e) => e.stopPropagation()}>
         <div className="gl-create-header d-flex justify-content-between align-items-start gap-3">
           <div>
-            <h4 className="gl-create-title">Create Live Group Sessions</h4>
+            <h4 className="gl-create-title">
+              {isEditMode ? "Edit Live Group Sessions" : "Create Live Group Sessions"}
+            </h4>
             <div className="gl-create-subtitle">
-              Select programme and create one or more live classes.
+              {isEditMode
+                ? "Update programme classes, teacher, subject, timezone, date and time."
+                : "Select programme and create one or more live classes."}
             </div>
           </div>
 
@@ -1520,14 +1887,25 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
                   >
                     <option value="">Select Programme</option>
 
-                    {programmes.map((item) => (
-                      <option
-                        key={getProgrammeId(item)}
-                        value={getProgrammeId(item)}
-                      >
-                        {item.name} {item.stage ? `- ${item.stage}` : ""}
-                      </option>
-                    ))}
+                    {programmes.map((item, index) => {
+                      const programmeId = getProgrammeId(item);
+                      const programmeName =
+                        item?.name ||
+                        item?.programme_name ||
+                        item?.programmename ||
+                        item?.title ||
+                        `Programme ${index + 1}`;
+
+                      const programmeStage =
+                        item?.stage || item?.programme_stage || "";
+
+                      return (
+                        <option key={programmeId || index} value={programmeId}>
+                          {programmeName}
+                          {programmeStage ? ` - ${programmeStage}` : ""}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
@@ -1570,7 +1948,9 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
                     <div>
                       <h6 className="gl-class-title">Class {index + 1}</h6>
                       <div className="gl-class-subtitle">
-                        {getTeacherName(teacher) || "Teacher not selected"}
+                        {getTeacherName(teacher) ||
+                          item.teacher_name ||
+                          "Teacher not selected"}
                         {getSubjectName(subject)
                           ? ` • ${getSubjectName(subject)}`
                           : ""}
@@ -1612,6 +1992,7 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
                           value={item.teacherid}
                           disabled={loading || lookupsLoading}
                           placeholder="Select Teacher"
+                          fallbackLabel={item.teacher_name}
                           onChange={(teacherId) =>
                             handleTeacherChange(index, teacherId)
                           }
@@ -1774,17 +2155,26 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
               <div className="gl-preview-title">Preview</div>
 
               <div className="gl-preview-line">
-                <strong>Programme:</strong> {selectedProgramme?.name || "-"}
+                <strong>Programme:</strong> {selectedProgrammeName || "-"}
               </div>
 
               <div className="gl-preview-line">
-                <strong>Stage:</strong> {selectedProgramme?.stage || "-"}
+                <strong>Stage:</strong>{" "}
+                {selectedProgramme?.stage ||
+                  editProgramme?.programme_stage ||
+                  preselectedProgramme?.programme_stage ||
+                  "-"}
               </div>
 
               <div className="gl-preview-line">
                 <strong>Weekly Price:</strong>{" "}
-                {selectedProgramme?.weekly_price
-                  ? `AED ${selectedProgramme.weekly_price}`
+                {selectedProgramme?.weekly_price ||
+                  editProgramme?.weekly_price ||
+                  preselectedProgramme?.weekly_price
+                  ? `AED ${selectedProgramme?.weekly_price ||
+                  editProgramme?.weekly_price ||
+                  preselectedProgramme?.weekly_price
+                  }`
                   : "-"}
               </div>
 
@@ -1818,7 +2208,13 @@ const CreateLiveGroupModal = ({ isOpen, onClose, onSuccess }) => {
               className="btn btn-success gl-submit-btn"
               disabled={loading || lookupsLoading}
             >
-              {loading ? "Creating..." : "Create Sessions"}
+              {loading
+                ? isEditMode
+                  ? "Updating..."
+                  : "Creating..."
+                : isEditMode
+                  ? "Update Sessions"
+                  : "Create Sessions"}
             </button>
           </div>
         </form>

@@ -1037,9 +1037,8 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
 
                   <button
                     type="button"
-                    className={`btn ${
-                      isEdit ? "btn-primary" : "btn-success"
-                    } w-100 gp-submit-btn`}
+                    className={`btn ${isEdit ? "btn-primary" : "btn-success"
+                      } w-100 gp-submit-btn`}
                     onClick={handleSave}
                     disabled={saving}
                   >
@@ -1145,11 +1144,10 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
                               </div>
 
                               <span
-                                className={`gp-status-badge ${
-                                  status === "active"
+                                className={`gp-status-badge ${status === "active"
                                     ? "gp-status-active"
                                     : "gp-status-inactive"
-                                }`}
+                                  }`}
                               >
                                 {status}
                               </span>

@@ -149,18 +149,29 @@ const getWeekKey = (dateValue) => {
   return m.startOf("isoWeek").format("YYYY-MM-DD");
 };
 
-const getCreatedBatchKey = (createddate, fallbackDate) => {
-  const created = moment(
-    createddate,
-    ["YYYY-MM-DD HH:mm:ss", "YYYY-MM-DD"],
-    true
-  );
+const getGroupBatchId = (item) => {
+  const batchId = Number(item?.group_batch_id || 0);
+  return batchId > 0 ? batchId : 0;
+};
 
-  if (created.isValid()) {
-    return created.format("YYYY-MM-DD HH:mm:ss");
-  }
 
-  return getWeekKey(fallbackDate);
+const getProgrammeBookedCount = (programme) => {
+  const programmeBooked = Number(programme?.booked_count || 0);
+
+  const sessionBooked = Array.isArray(programme?.sessions)
+    ? Math.max(
+      ...programme.sessions.map((session) =>
+        Number(session?.booked_count || 0)
+      ),
+      0
+    )
+    : 0;
+
+  return Math.max(programmeBooked, sessionBooked);
+};
+
+const canEditProgramme = (programme) => {
+  return getProgrammeBookedCount(programme) <= 0;
 };
 
 const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
@@ -434,7 +445,11 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
               <span className={`badge ${getStatusBadgeClass(programme.status)}`}>
                 {programme.status || "active"}
               </span>
-              {programme.createddate ? (
+              {programme.group_batch_id ? (
+                <span className="badge bg-secondary">
+                  Batch #{programme.group_batch_id}
+                </span>
+              ) : programme.createddate ? (
                 <span className="badge bg-secondary">
                   Batch: {formatDate(programme.createddate)}
                 </span>
@@ -588,6 +603,7 @@ const GroupLiveSessionsLayer = () => {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedProgrammeForCreate, setSelectedProgrammeForCreate] =
     useState(null);
+  const [createModalMode, setCreateModalMode] = useState("create");
 
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [selectedProgrammeDetails, setSelectedProgrammeDetails] =
@@ -667,7 +683,7 @@ const GroupLiveSessionsLayer = () => {
         item?.slot_start,
         item?.slot_end,
         item?.status,
-        item?.createddate,
+        item?.group_batch_id,
       ]
         .join(" ")
         .toLowerCase();
@@ -687,7 +703,9 @@ const GroupLiveSessionsLayer = () => {
     (filteredRows || []).forEach((item) => {
       const programmeId = String(item?.programme_id || "unknown");
       const status = String(item?.status || "active").toLowerCase();
-      const batchKey = getCreatedBatchKey(item?.createddate, item?.session_date);
+      const groupBatchId = getGroupBatchId(item);
+      const batchKey =
+        groupBatchId > 0 ? `batch_${groupBatchId}` : getWeekKey(item?.session_date);
 
       const groupKey = [programmeId, status, batchKey].join("_");
 
@@ -695,6 +713,7 @@ const GroupLiveSessionsLayer = () => {
         map[groupKey] = {
           group_key: groupKey,
           programme_id: item?.programme_id,
+          group_batch_id: groupBatchId,
           programme_name: item?.programme_name || "-",
           programme_stage: item?.programme_stage || "-",
           programme_description: item?.programme_description || "",
@@ -703,12 +722,30 @@ const GroupLiveSessionsLayer = () => {
           status: item?.status || "active",
           createddate: item?.createddate || "",
           batch_key: batchKey,
+          batch_label:
+            groupBatchId > 0
+              ? `Batch #${groupBatchId}`
+              : `Batch: ${formatDate(item?.createddate)}`,
           week_key: getWeekKey(item?.session_date),
           sessions: [],
         };
       }
 
-      map[groupKey].sessions.push(item);
+      map[groupKey].sessions.push({
+        ...item,
+        timezone_location:
+          item?.timezone_location ||
+          item?.teacher_timezone_location ||
+          item?.source_timezone ||
+          item?.timezone ||
+          "",
+        timezone:
+          item?.timezone ||
+          item?.timezone_location ||
+          item?.teacher_timezone_location ||
+          item?.source_timezone ||
+          "",
+      });
     });
 
     return Object.values(map)
@@ -761,6 +798,11 @@ const GroupLiveSessionsLayer = () => {
         const sb = statusOrder[String(b.status || "").toLowerCase()] || 9;
 
         if (sa !== sb) return sa - sb;
+
+        const ba = Number(a.group_batch_id || 0);
+        const bb = Number(b.group_batch_id || 0);
+
+        if (ba !== bb) return bb - ba;
 
         const ca =
           moment(a.createddate, "YYYY-MM-DD HH:mm:ss", true).valueOf() || 0;
@@ -976,8 +1018,48 @@ const GroupLiveSessionsLayer = () => {
   };
 
   const openCreateModal = (programme = null) => {
+    setCreateModalMode("create");
     setSelectedProgrammeForCreate(programme);
     setIsCreateOpen(true);
+  };
+
+  const openEditModal = (programme) => {
+    if (!programme) {
+      Swal.fire({
+        icon: "error",
+        title: "Programme Missing",
+        text: "Programme data not found.",
+      });
+      return;
+    }
+
+    if (!canEditProgramme(programme)) {
+      Swal.fire({
+        icon: "info",
+        title: "Edit Not Allowed",
+        text: "This programme already has a group booking, so it cannot be edited.",
+        timer: 2200,
+        timerProgressBar: true,
+      });
+      return;
+    }
+
+    setCreateModalMode("edit");
+    setSelectedProgrammeForCreate(programme);
+    setIsCreateOpen(true);
+  };
+
+  const closeCreateModal = () => {
+    setIsCreateOpen(false);
+    setSelectedProgrammeForCreate(null);
+    setCreateModalMode("create");
+  };
+
+  const handleCreateSuccess = () => {
+    setIsCreateOpen(false);
+    setSelectedProgrammeForCreate(null);
+    setCreateModalMode("create");
+    fetchGroupLiveSessions();
   };
 
   const openDetailsModal = (programme) => {
@@ -1123,6 +1205,23 @@ const GroupLiveSessionsLayer = () => {
           font-weight: 900;
           line-height: 1;
         }
+
+        .gl-action-btn {
+          min-width: 82px;
+          justify-content: center;
+          border-radius: 8px;
+          font-weight: 800;
+        }
+
+        .gl-action-edit-btn {
+          color: #111827 !important;
+        }
+
+        .gl-action-edit-btn:disabled {
+          opacity: 0.52;
+          cursor: not-allowed;
+          color: #111827 !important;
+        }
       `}</style>
 
       <div className="card-body p-24">
@@ -1253,6 +1352,8 @@ const GroupLiveSessionsLayer = () => {
 
                     const isCompleted = currentStatus === "completed";
                     const isActive = currentStatus === "active";
+                    const bookedCount = getProgrammeBookedCount(programme);
+                    const editAllowed = canEditProgramme(programme);
 
                     return (
                       <tr key={groupKey}>
@@ -1269,7 +1370,11 @@ const GroupLiveSessionsLayer = () => {
                             )}
                           </div>
 
-                          {programme.createddate ? (
+                          {programme.group_batch_id ? (
+                            <div className="gl-batch-text">
+                              Batch #{programme.group_batch_id}
+                            </div>
+                          ) : programme.createddate ? (
                             <div className="gl-batch-text">
                               Batch: {formatDate(programme.createddate)}
                             </div>
@@ -1290,7 +1395,7 @@ const GroupLiveSessionsLayer = () => {
                         </td>
 
                         <td>{programme.capacity || "-"}</td>
-                        <td>{programme.booked_count ?? 0}</td>
+                        <td>{bookedCount}</td>
                         <td>{programme.seats_left ?? "-"}</td>
 
                         <td>
@@ -1356,17 +1461,32 @@ const GroupLiveSessionsLayer = () => {
                           <div className="d-flex gap-2 flex-wrap">
                             <button
                               type="button"
-                              className="btn btn-sm btn-primary d-inline-flex align-items-center gap-1"
+                              className="btn btn-sm btn-primary d-inline-flex align-items-center gap-1 gl-action-btn"
                               onClick={() => openDetailsModal(programme)}
                             >
                               <Icon icon="mdi:eye-outline" />
                               View
                             </button>
 
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-warning d-inline-flex align-items-center gap-1 gl-action-btn gl-action-edit-btn"
+                              disabled={!editAllowed}
+                              title={
+                                editAllowed
+                                  ? "Edit Programme"
+                                  : "Booking already exists, edit disabled"
+                              }
+                              onClick={() => openEditModal(programme)}
+                            >
+                              <Icon icon="mdi:pencil-outline" />
+                              Edit
+                            </button>
+
                             {isActive ? (
                               <button
                                 type="button"
-                                className="btn btn-sm btn-success d-inline-flex align-items-center gap-1"
+                                className="btn btn-sm btn-success d-inline-flex align-items-center gap-1 gl-action-btn"
                                 onClick={() => openBookingModal(programme)}
                               >
                                 <Icon icon="mdi:calendar-plus-outline" />
@@ -1404,16 +1524,15 @@ const GroupLiveSessionsLayer = () => {
 
       <CreateLiveGroupModal
         isOpen={isCreateOpen}
-        preselectedProgramme={selectedProgrammeForCreate}
-        onClose={() => {
-          setIsCreateOpen(false);
-          setSelectedProgrammeForCreate(null);
-        }}
-        onSuccess={() => {
-          setIsCreateOpen(false);
-          setSelectedProgrammeForCreate(null);
-          fetchGroupLiveSessions();
-        }}
+        mode={createModalMode}
+        editProgramme={
+          createModalMode === "edit" ? selectedProgrammeForCreate : null
+        }
+        preselectedProgramme={
+          createModalMode === "create" ? selectedProgrammeForCreate : null
+        }
+        onClose={closeCreateModal}
+        onSuccess={handleCreateSuccess}
       />
 
       {weeklyTimetableOpen && (

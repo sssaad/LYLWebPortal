@@ -88,15 +88,17 @@ const getSafeTimezone = (
 };
 
 const convertSessionToDisplayTimezone = (session, targetTimezone) => {
-  const sourceTimezone = getSafeTimezone(
-    session?.timezone_location || session?.timezone,
+  const sourceTimezone = String(
+    session?.timezone_location ||
+    session?.timezone ||
+    session?.teacher_timezone_location ||
+    session?.source_timezone ||
     DEFAULT_PORTAL_DISPLAY_TIMEZONE
-  );
+  ).trim();
 
-  const displayTimezone = getSafeTimezone(
-    targetTimezone,
-    DEFAULT_PORTAL_DISPLAY_TIMEZONE
-  );
+  const displayTimezone = String(
+    targetTimezone || DEFAULT_PORTAL_DISPLAY_TIMEZONE
+  ).trim();
 
   const sourceDate = session?.session_date || "";
   const sourceStart = normaliseTime(session?.slot_start || "");
@@ -109,6 +111,20 @@ const convertSessionToDisplayTimezone = (session, targetTimezone) => {
       dbDate: sourceDate,
       dbStart: sourceStart,
       dbEnd: sourceEnd,
+      sourceTimezone,
+      displayTimezone,
+    };
+  }
+
+  if (!moment.tz.zone(sourceTimezone) || !moment.tz.zone(displayTimezone)) {
+    return {
+      date: formatDate(sourceDate),
+      slot: `${formatTime(sourceStart)} - ${formatTime(sourceEnd)}`,
+      dbDate: sourceDate,
+      dbStart: sourceStart,
+      dbEnd: sourceEnd,
+      sourceTimezone,
+      displayTimezone,
     };
   }
 
@@ -131,6 +147,8 @@ const convertSessionToDisplayTimezone = (session, targetTimezone) => {
       dbDate: sourceDate,
       dbStart: sourceStart,
       dbEnd: sourceEnd,
+      sourceTimezone,
+      displayTimezone,
     };
   }
 
@@ -145,6 +163,8 @@ const convertSessionToDisplayTimezone = (session, targetTimezone) => {
     dbDate: convertedStart.format("YYYY-MM-DD"),
     dbStart: convertedStart.format("HH:mm:ss"),
     dbEnd: convertedEnd.format("HH:mm:ss"),
+    sourceTimezone,
+    displayTimezone,
   };
 };
 
@@ -665,6 +685,12 @@ const CreateGroupBatchBookingModal = ({
     const timezoneid = getTimezoneIdByValue(studentTz);
     const batchCreatedDate = moment().format("YYYY-MM-DD HH:mm:ss");
 
+    const groupBatchId = Number(
+      programme?.group_batch_id ||
+      activeSessions?.[0]?.group_batch_id ||
+      0
+    );
+
     return {
       studentid: Number(studentId),
       userid: Number(studentId),
@@ -676,6 +702,7 @@ const CreateGroupBatchBookingModal = ({
       source: "admin_portal",
 
       programme_id: Number(programme?.programme_id || 0),
+      group_batch_id: groupBatchId,
       programme_name: programme?.programme_name || "",
       programme_stage: programme?.programme_stage || "",
       weekly_price: programme?.weekly_price || "",
@@ -692,8 +719,20 @@ const CreateGroupBatchBookingModal = ({
       sessions: activeSessions.map((session) => {
         const converted = convertSessionToDisplayTimezone(session, studentTz);
 
+        console.log("PORTAL BOOKING TIME CHECK =>", {
+          subject: session?.subjectname,
+          sourceTimezone: converted.sourceTimezone,
+          displayTimezone: converted.displayTimezone,
+          dbDate: session?.session_date,
+          dbStart: session?.slot_start,
+          dbEnd: session?.slot_end,
+          shownDate: converted.date,
+          shownSlot: converted.slot,
+        });
+
         return {
           group_live_session_id: Number(session?.id),
+          group_batch_id: Number(session?.group_batch_id || groupBatchId || 0),
           group_programme_id: Number(session?.programme_id),
           teacherid: Number(session?.teacherid),
           subjectid: Number(session?.subjectid),
@@ -710,7 +749,12 @@ const CreateGroupBatchBookingModal = ({
           source_slot_start: String(session?.slot_start || ""),
           source_slot_end: String(session?.slot_end || ""),
           source_timezone:
-            session?.timezone_location || DEFAULT_PORTAL_DISPLAY_TIMEZONE,
+            session?.timezone_location ||
+            session?.teacher_timezone ||
+            session?.tutor_timezone ||
+            session?.source_timezone ||
+            session?.timezone ||
+            "",
 
           display_date: converted.date,
           display_slot: converted.slot,
@@ -764,6 +808,7 @@ const CreateGroupBatchBookingModal = ({
       <div>Please confirm the details before creating this group booking.</div>
       <div style="margin-top:10px;">
         <strong>Programme:</strong> ${programme?.programme_name || "-"}<br/>
+        <strong>Batch:</strong> #${payload?.group_batch_id || "-"}<br/>
         <strong>Student:</strong> ${getStudentName(selectedStudent) || "-"}<br/>
         <strong>Timezone:</strong> ${studentTz}<br/>
         <strong>Payment Status:</strong> ${paymentStatus}<br/>
@@ -1270,6 +1315,10 @@ const CreateGroupBatchBookingModal = ({
                 >
                   {programme.status || "-"}
                 </span>
+
+                <div className="gb-muted mt-1">
+                  Batch #{programme?.group_batch_id || "-"}
+                </div>
               </div>
 
               <div className="col-md-7">
