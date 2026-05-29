@@ -714,6 +714,9 @@ const GroupLiveSessionsLayer = () => {
           group_key: groupKey,
           programme_id: item?.programme_id,
           group_batch_id: groupBatchId,
+          show_on_web: Number(item?.show_on_web ?? 1),
+          web_visibility:
+            Number(item?.show_on_web ?? 1) === 1 ? "Public" : "Private",
           programme_name: item?.programme_name || "-",
           programme_stage: item?.programme_stage || "-",
           programme_description: item?.programme_description || "",
@@ -1222,6 +1225,56 @@ const GroupLiveSessionsLayer = () => {
           cursor: not-allowed;
           color: #111827 !important;
         }
+          .gl-visibility-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: fit-content;
+  margin-top: 6px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.gl-visibility-public {
+  color: #065f46;
+  background: rgba(16, 185, 129, 0.14);
+  border: 1px solid rgba(16, 185, 129, 0.28);
+}
+
+.gl-visibility-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  margin-top: 8px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.2px;
+  line-height: 1;
+}
+
+.gl-visibility-public {
+  color: #ffffff !important;
+  background: #16a34a !important;
+  border: 1px solid #22c55e !important;
+  box-shadow: 0 6px 16px rgba(34, 197, 94, 0.22);
+}
+
+.gl-visibility-private {
+  color: #ffffff !important;
+  background: #ea580c !important;
+  border: 1px solid #fb923c !important;
+  box-shadow: 0 6px 16px rgba(249, 115, 22, 0.22);
+}
+
+.gl-visibility-badge svg {
+  color: #ffffff !important;
+  font-size: 13px;
+}
       `}</style>
 
       <div className="card-body p-24">
@@ -1379,6 +1432,21 @@ const GroupLiveSessionsLayer = () => {
                               Batch: {formatDate(programme.createddate)}
                             </div>
                           ) : null}
+                          <div
+                            className={`gl-visibility-badge ${Number(programme.show_on_web ?? 1) === 1
+                              ? "gl-visibility-public"
+                              : "gl-visibility-private"
+                              }`}
+                          >
+                            <Icon
+                              icon={
+                                Number(programme.show_on_web ?? 1) === 1
+                                  ? "mdi:eye-outline"
+                                  : "mdi:eye-off-outline"
+                              }
+                            />
+                            {Number(programme.show_on_web ?? 1) === 1 ? "Public" : "Private"}
+                          </div>
                         </td>
 
                         <td>{programme.programme_stage || "-"}</td>
@@ -1482,6 +1550,39 @@ const GroupLiveSessionsLayer = () => {
                               <Icon icon="mdi:pencil-outline" />
                               Edit
                             </button>
+                            {isActive ? (
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1 gl-copy-link-btn"
+                                onClick={async () => {
+                                  const link = `https://gostudy.ae/group-tuition/${programme.programme_id}${programme.group_batch_id
+                                      ? `?group_batch_id=${programme.group_batch_id}`
+                                      : ""
+                                    }`;
+
+                                  try {
+                                    await navigator.clipboard.writeText(link);
+
+                                    Swal.fire({
+                                      icon: "success",
+                                      title: "Link Copied",
+                                      text: "The batch direct link has been copied successfully.",
+                                      timer: 1300,
+                                      showConfirmButton: false,
+                                    });
+                                  } catch (err) {
+                                    Swal.fire({
+                                      icon: "info",
+                                      title: "Copy Batch Link",
+                                      html: `<div style="word-break:break-all;">${link}</div>`,
+                                    });
+                                  }
+                                }}
+                              >
+                                <Icon icon="mdi:link-variant" />
+                                Copy Link
+                              </button>
+                            ) : null}
 
                             {isActive ? (
                               <button

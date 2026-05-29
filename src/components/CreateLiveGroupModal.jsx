@@ -381,6 +381,7 @@ const CreateLiveGroupModal = ({
     programme_id: "",
     capacity: "10",
     status: "active",
+    show_on_web: "1",
   });
 
   const [classes, setClasses] = useState([makeEmptyClass(0)]);
@@ -490,6 +491,7 @@ const CreateLiveGroupModal = ({
       programme_id: String(programme?.programme_id || firstSession?.programme_id || ""),
       capacity: String(programme?.capacity || firstSession?.capacity || "10"),
       status: String(programme?.status || firstSession?.status || "active"),
+      show_on_web: String(programme?.show_on_web ?? firstSession?.show_on_web ?? 1),
     });
 
     const mappedClasses = editSessions.map((session, index) => {
@@ -595,6 +597,7 @@ const CreateLiveGroupModal = ({
           programme_id: String(preselectedProgramme.programme_id),
           capacity: String(preselectedProgramme.capacity || prev.capacity),
           status: String(preselectedProgramme.status || prev.status),
+          show_on_web: String(preselectedProgramme.show_on_web ?? prev.show_on_web ?? 1),
         }));
       }
 
@@ -617,6 +620,7 @@ const CreateLiveGroupModal = ({
       programme_id: "",
       capacity: "10",
       status: "active",
+      show_on_web: "1",
     });
 
     setClasses([makeEmptyClass(0)]);
@@ -1062,6 +1066,7 @@ const CreateLiveGroupModal = ({
         classcommonlink: null,
 
         status: item.status || form.status || "active",
+        show_on_web: Number(form.show_on_web ?? 1),
         createddate: batchCreatedDate,
       };
     });
@@ -1096,6 +1101,7 @@ const CreateLiveGroupModal = ({
       capacity: Number(form.capacity || 10),
 
       status: item.status || form.status || "active",
+      show_on_web: Number(form.show_on_web ?? 1),
     };
   };
 
@@ -1462,7 +1468,99 @@ const CreateLiveGroupModal = ({
           cursor: not-allowed;
           background: #172033 !important;
         }
+        .gl-visibility-card {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.46);
+  padding: 14px 16px;
+  height: 100%;
+}
 
+.gl-visibility-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.gl-visibility-title {
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 900;
+  margin-bottom: 3px;
+}
+
+.gl-visibility-subtitle {
+  color: #9fb0c8;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.gl-visibility-switch {
+  position: relative;
+  width: 54px;
+  height: 30px;
+  flex: 0 0 auto;
+}
+
+.gl-visibility-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.gl-visibility-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: #475569;
+  transition: 0.2s;
+  border-radius: 999px;
+}
+
+.gl-visibility-slider:before {
+  position: absolute;
+  content: "";
+  height: 22px;
+  width: 22px;
+  left: 4px;
+  top: 4px;
+  background: #ffffff;
+  transition: 0.2s;
+  border-radius: 50%;
+}
+
+.gl-visibility-switch input:checked + .gl-visibility-slider {
+  background: #22c55e;
+}
+
+.gl-visibility-switch input:checked + .gl-visibility-slider:before {
+  transform: translateX(24px);
+}
+
+.gl-visibility-badge-text {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin-top: 8px;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.gl-visibility-badge-public {
+  color: #86efac;
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+}
+
+.gl-visibility-badge-private {
+  color: #fcd34d;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+}
         .gl-top-card {
           border: 1px solid rgba(148, 163, 184, 0.18);
           border-radius: 18px;
@@ -1934,6 +2032,41 @@ const CreateLiveGroupModal = ({
                     <option value="completed">Completed</option>
                   </select>
                 </div>
+                <div className="col-lg-12">
+                  <div className="gl-visibility-card">
+                    <div className="gl-visibility-toggle-row">
+                      <div>
+                        <div className="gl-visibility-title">Website Visibility</div>
+                        <div className="gl-visibility-subtitle">
+                          If public, this batch will appear on the website listing. If private, it will be hidden from the listing but users can still book through the direct link.
+                        </div>
+
+                        <span
+                          className={`gl-visibility-badge-text ${Number(form.show_on_web ?? 1) === 1
+                              ? "gl-visibility-badge-public"
+                              : "gl-visibility-badge-private"
+                            }`}
+                        >
+                          {Number(form.show_on_web ?? 1) === 1
+                            ? "Public Batch"
+                            : "Private Batch"}
+                        </span>
+                      </div>
+
+                      <label className="gl-visibility-switch">
+                        <input
+                          type="checkbox"
+                          checked={Number(form.show_on_web ?? 1) === 1}
+                          disabled={loading}
+                          onChange={(e) =>
+                            setField("show_on_web", e.target.checked ? "1" : "0")
+                          }
+                        />
+                        <span className="gl-visibility-slider"></span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -2180,6 +2313,12 @@ const CreateLiveGroupModal = ({
 
               <div className="gl-preview-line">
                 <strong>Capacity:</strong> {form.capacity || "-"} students
+              </div>
+              <div className="gl-preview-line">
+                <strong>Website Visibility:</strong>{" "}
+                {Number(form.show_on_web ?? 1) === 1
+                  ? "Public - Show on website listing"
+                  : "Private - Hide from listing, direct link booking allowed"}
               </div>
 
               {previewClasses.map((item) => (
