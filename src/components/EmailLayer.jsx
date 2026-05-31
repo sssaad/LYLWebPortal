@@ -154,7 +154,7 @@ const EmailLayer = () => {
                       <td className="text-center">{email.type}</td>
                       <td className="text-center">
                         <Link
-                          to="/view-details"
+                          to="#"
                           className="text-primary fw-medium"
                         >
                           {email.subject}
