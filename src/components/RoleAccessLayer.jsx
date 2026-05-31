@@ -103,6 +103,8 @@ const RoleAccessLayer = () => {
   const [paymentStatusFilter, setPaymentStatusFilter] = useState("");
   const [sessionTypeFilter, setSessionTypeFilter] = useState("");
   const [bookingTypeFilter, setBookingTypeFilter] = useState("");
+  const [groupFilter, setGroupFilter] = useState("");
+  const [groupBatchFilter, setGroupBatchFilter] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
@@ -157,6 +159,32 @@ const RoleAccessLayer = () => {
   const getSlotStartValue = (item) => item?.slot_start || item?.booking_start_time || "";
   const getSlotEndValue = (item) => item?.slot_end || item?.booking_end_time || "";
   const getBookingId = (item) => item?.bookingid ?? item?.booking_id ?? item?.id ?? "";
+
+  const isGroupBooking = (item) => Number(item?.is_group_booking || 0) === 1;
+
+  const getBookingCategory = (item) => {
+    return isGroupBooking(item) ? "Group" : "One-to-One";
+  };
+
+  const getGroupBatchText = (item) => {
+    if (!isGroupBooking(item)) return "-";
+
+    if (item?.group_batch_label) return item.group_batch_label;
+
+    return item?.group_batch_id ? `Batch #${item.group_batch_id}` : "Batch N/A";
+  };
+
+  const getGroupProgrammeText = (item) => {
+    if (!isGroupBooking(item)) return "-";
+
+    return item?.group_programme_name || "-";
+  };
+
+  const getGroupSessionTitle = (item) => {
+    if (!isGroupBooking(item)) return "-";
+
+    return item?.group_session_title || "-";
+  };
 
   const getSessionTypeKey = (value) => {
     const t = norm(value).replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
@@ -274,6 +302,10 @@ const RoleAccessLayer = () => {
   };
 
   const getBookingStatus = (item) => {
+    if (Number(item?.is_cancelled || 0) === 1) {
+      return "cancelled";
+    }
+
     const inpersonDbStatus = getInpersonStatusDisplay(item?.inperson_status);
 
     if (isInPersonSession(item) && inpersonDbStatus) {
@@ -323,9 +355,12 @@ const RoleAccessLayer = () => {
   };
 
   const isRescheduleDisabled = (item) => {
+    if (isGroupBooking(item)) {
+      return true;
+    }
+
     const status = getBookingStatus(item);
 
-    // ✅ missed, completed, cancelled pe hamesha disable
     if (["missed", "completed", "cancelled"].includes(norm(status))) {
       return true;
     }
@@ -337,14 +372,12 @@ const RoleAccessLayer = () => {
 
     const now = getNow();
 
-    // ✅ agar slot start time available hai to session start hote hi disable
     const startDT = start ? parseDateTime(date, start) : null;
 
     if (startDT) {
       return now.isSameOrAfter(startDT);
     }
 
-    // ✅ fallback: agar start time nahi hai to past date pe disable
     const bd = parseBookDate(date);
     if (!bd) return false;
 
@@ -368,6 +401,20 @@ const RoleAccessLayer = () => {
     return "bg-secondary";
   };
 
+  const getBookingTypeDisplay = (type) => {
+  const t = norm(type);
+
+  if (t === "manual") return "Manual";
+  if (t === "web app") return "Web App";
+  if (t === "portal") return "Portal";
+
+  return String(type || "-")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}; 
+
   const getBookingTypeBadgeClass = (type) => {
     const t = norm(type);
     if (t === "manual") return "bg-primary";
@@ -387,6 +434,7 @@ const RoleAccessLayer = () => {
   };
 
   const isDirectBooking = (item) => norm(item?.payment_type) === "direct";
+
   const formatTime = (t) => {
     if (!t) return "-";
     const m = moment(t, ["HH:mm:ss", "HH:mm"], true);
@@ -402,7 +450,9 @@ const RoleAccessLayer = () => {
     const t = item?.teachername ?? "na";
     const s = item?.studentname ?? "na";
     const sid = item?.studentid ?? "na";
-    return `${bookingid}|${date}|${ss}|${se}|${t}|${s}|${sid}`;
+    const gbid = item?.group_batch_id ?? "na";
+    const glsid = item?.group_live_session_id ?? "na";
+    return `${bookingid}|${date}|${ss}|${se}|${t}|${s}|${sid}|${gbid}|${glsid}`;
   };
 
   const dedupeBookings = (list) => {
@@ -701,6 +751,8 @@ const RoleAccessLayer = () => {
     paymentStatusFilter,
     sessionTypeFilter,
     bookingTypeFilter,
+    groupFilter,
+    groupBatchFilter,
     startDate,
     endDate,
   ]);
@@ -732,6 +784,24 @@ const RoleAccessLayer = () => {
     return Array.from(set);
   }, [rows]);
 
+  const groupBatchOptions = useMemo(() => {
+    const map = new Map();
+
+    (rows || []).forEach((r) => {
+      if (!isGroupBooking(r)) return;
+
+      const id = r?.group_batch_id;
+      if (!id) return;
+
+      map.set(String(id), getGroupBatchText(r));
+    });
+
+    return Array.from(map.entries()).map(([value, label]) => ({
+      value,
+      label,
+    }));
+  }, [rows]);
+
   const filteredData = useMemo(() => {
     const sTerm = norm(searchTerm);
     const pFilter = norm(paymentTypeFilter);
@@ -739,6 +809,8 @@ const RoleAccessLayer = () => {
     const psFilter = norm(paymentStatusFilter);
     const stFilter = getSessionTypeKey(sessionTypeFilter);
     const btFilter = norm(bookingTypeFilter);
+    const gFilter = norm(groupFilter);
+    const gbFilter = norm(groupBatchFilter);
 
     const startM = startDate ? moment.tz(startDate, "YYYY-MM-DD", true, TZ) : null;
     const endM = endDate ? moment.tz(endDate, "YYYY-MM-DD", true, TZ) : null;
@@ -753,6 +825,13 @@ const RoleAccessLayer = () => {
         getPaymentStatusDisplay(item?.payment_status),
         getSessionTypeDisplay(item?.session_type),
         item?.booking_type || "",
+        getBookingCategory(item),
+        getGroupProgrammeText(item),
+        getGroupBatchText(item),
+        getGroupSessionTitle(item),
+        item?.group_batch_id || "",
+        item?.group_programme_id || "",
+        item?.group_live_session_id || "",
         getAmountText(item),
         bookingStatus,
         getBookDateValue(item),
@@ -771,6 +850,14 @@ const RoleAccessLayer = () => {
         !stFilter || getSessionTypeKey(item?.session_type) === stFilter;
       const matchesBookingType = !btFilter || norm(item?.booking_type) === btFilter;
 
+      const matchesGroup =
+        !gFilter ||
+        (gFilter === "group" && isGroupBooking(item)) ||
+        (gFilter === "one-to-one" && !isGroupBooking(item));
+
+      const matchesGroupBatch =
+        !gbFilter || String(item?.group_batch_id || "") === String(gbFilter);
+
       const itemDate = parseBookDate(getBookDateValue(item));
 
       const fromOk = startM ? (itemDate ? itemDate.isSameOrAfter(startM, "day") : false) : true;
@@ -783,6 +870,8 @@ const RoleAccessLayer = () => {
         matchesPaymentStatus &&
         matchesSessionType &&
         matchesBookingType &&
+        matchesGroup &&
+        matchesGroupBatch &&
         fromOk &&
         toOk
       );
@@ -795,6 +884,8 @@ const RoleAccessLayer = () => {
     paymentStatusFilter,
     sessionTypeFilter,
     bookingTypeFilter,
+    groupFilter,
+    groupBatchFilter,
     startDate,
     endDate,
   ]);
@@ -827,7 +918,11 @@ const RoleAccessLayer = () => {
         "Payment Type": item?.payment_type || "-",
         "Payment Status": getPaymentStatusDisplay(item?.payment_status) || "-",
         "Session Type": getSessionTypeDisplay(item?.session_type) || "-",
-        "Booking Type": item?.booking_type || "-",
+        "Booking Type": getBookingTypeDisplay(item?.booking_type),
+        "Class Type": getBookingCategory(item),
+        Programme: getGroupProgrammeText(item),
+        Batch: getGroupBatchText(item),
+        "Group Session": getGroupSessionTitle(item),
         Status: status ? status.charAt(0).toUpperCase() + status.slice(1) : "-",
       };
     });
@@ -856,6 +951,10 @@ const RoleAccessLayer = () => {
       "Payment Status",
       "Session Type",
       "Booking Type",
+      "Class Type",
+      "Programme",
+      "Batch",
+      "Group Session",
       "Status",
     ];
 
@@ -874,7 +973,11 @@ const RoleAccessLayer = () => {
         item?.payment_type || "-",
         getPaymentStatusDisplay(item?.payment_status) || "-",
         getSessionTypeDisplay(item?.session_type) || "-",
-        item?.booking_type || "-",
+        getBookingTypeDisplay(item?.booking_type),
+        getBookingCategory(item),
+        getGroupProgrammeText(item),
+        getGroupBatchText(item),
+        getGroupSessionTitle(item),
         status ? status.charAt(0).toUpperCase() + status.slice(1) : "-",
       ];
     });
@@ -1217,12 +1320,42 @@ const RoleAccessLayer = () => {
             <option value="manual">Manual</option>
             <option value="web app">Web App</option>
             {bookingTypeOptions
-              .filter((b) => !["manual", "web app"].includes(b))
-              .map((b) => (
-                <option key={b} value={b}>
-                  {b}
-                </option>
-              ))}
+  .filter((b) => !["manual", "web app"].includes(b))
+  .map((b) => (
+    <option key={b} value={b}>
+      {getBookingTypeDisplay(b)}
+    </option>
+  ))}
+          </select>
+
+          <select
+            className="form-select form-select-sm w-auto"
+            value={groupFilter}
+            onChange={(e) => {
+              setGroupFilter(e.target.value);
+
+              if (e.target.value !== "group") {
+                setGroupBatchFilter("");
+              }
+            }}
+          >
+            <option value="">Class Type: All</option>
+            <option value="one-to-one">One-to-One</option>
+            <option value="group">Group</option>
+          </select>
+
+          <select
+            className="form-select form-select-sm w-auto"
+            value={groupBatchFilter}
+            onChange={(e) => setGroupBatchFilter(e.target.value)}
+            disabled={groupFilter === "one-to-one"}
+          >
+            <option value="">Batch: All</option>
+            {groupBatchOptions.map((batch) => (
+              <option key={batch.value} value={batch.value}>
+                {batch.label}
+              </option>
+            ))}
           </select>
 
           <select
@@ -1246,6 +1379,8 @@ const RoleAccessLayer = () => {
               setPaymentStatusFilter("");
               setSessionTypeFilter("");
               setBookingTypeFilter("");
+              setGroupFilter("");
+              setGroupBatchFilter("");
               setStartDate("");
               setEndDate("");
               setCurrentPage(1);
@@ -1319,6 +1454,7 @@ const RoleAccessLayer = () => {
                 <th>Payment Status</th>
                 <th>Session Type</th>
                 <th>Booking Type</th>
+                <th>Class Type</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -1326,7 +1462,7 @@ const RoleAccessLayer = () => {
             <tbody>
               {currentItems.length === 0 ? (
                 <tr>
-                  <td colSpan={14} className="text-center">
+                  <td colSpan={15} className="text-center">
                     No records found.
                   </td>
                 </tr>
@@ -1358,9 +1494,11 @@ const RoleAccessLayer = () => {
                           }}
                           disabled={isDisabled}
                           title={
-                            isDisabled
-                              ? "This booking cannot be rescheduled after session start time or missed status"
-                              : "Reschedule booking"
+                            isGroupBooking(item)
+                              ? "Group bookings cannot be rescheduled from this list"
+                              : isDisabled
+                                ? "This booking cannot be rescheduled after session start time or missed status"
+                                : "Reschedule booking"
                           }
                           style={{
                             minWidth: "110px",
@@ -1462,8 +1600,14 @@ const RoleAccessLayer = () => {
                       </td>
 
                       <td>
-                        <span className={`badge ${getBookingTypeBadgeClass(item?.booking_type)}`}>
-                          {item?.booking_type || "-"}
+  <span className={`badge ${getBookingTypeBadgeClass(item?.booking_type)}`}>
+    {getBookingTypeDisplay(item?.booking_type)}
+  </span>
+</td>
+
+                      <td>
+                        <span className={`badge ${isGroupBooking(item) ? "bg-info" : "bg-secondary"}`}>
+                          {getBookingCategory(item)}
                         </span>
                       </td>
 
