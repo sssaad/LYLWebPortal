@@ -140,6 +140,81 @@ const RoleAccessLayer = () => {
 
   const TZ = "Asia/Dubai";
 
+  const cleanTimezone = (value) => String(value || "").replace(/\\\//g, "/").trim();
+
+  const getStudentTimezone = (item) => {
+    const tz =
+      cleanTimezone(item?.studentTime_zone) ||
+      cleanTimezone(item?.student_timezone) ||
+      cleanTimezone(item?.studentTimezone) ||
+      cleanTimezone(item?.timezone_location) ||
+      cleanTimezone(item?.timezone) ||
+      TZ;
+
+    return moment.tz.zone(tz) ? tz : TZ;
+  };
+
+  const parseBookingDateTime = (item, type = "start") => {
+    const dateStr = getBookDateValue(item);
+    const timeStr = type === "end" ? getSlotEndValue(item) : getSlotStartValue(item);
+
+    if (!dateStr) return null;
+
+    const sourceTZ = getStudentTimezone(item);
+    const dtString = timeStr ? `${dateStr} ${timeStr}` : `${dateStr} 00:00:00`;
+
+    const formats = [
+      "YYYY-MM-DD HH:mm:ss",
+      "YYYY-MM-DD HH:mm",
+      "YYYY/MM/DD HH:mm:ss",
+      "YYYY/MM/DD HH:mm",
+      "DD-MM-YYYY HH:mm:ss",
+      "DD-MM-YYYY HH:mm",
+      "DD/MM/YYYY HH:mm:ss",
+      "DD/MM/YYYY HH:mm",
+      moment.ISO_8601,
+    ];
+
+    let m = moment.tz(dtString, formats, true, sourceTZ);
+    if (!m.isValid()) m = moment.tz(dtString, formats, sourceTZ);
+    if (!m.isValid()) return null;
+
+    return m.tz(TZ);
+  };
+
+  const getDubaiBookDateMoment = (item) => {
+    const startDT = parseBookingDateTime(item, "start");
+    if (startDT?.isValid?.()) return startDT;
+
+    const dateStr = getBookDateValue(item);
+    if (!dateStr) return null;
+
+    const sourceTZ = getStudentTimezone(item);
+
+    const formats = [
+      "YYYY-MM-DD",
+      "YYYY/MM/DD",
+      "DD-MM-YYYY",
+      "DD/MM/YYYY",
+      "YYYY-MM-DD HH:mm:ss",
+      "YYYY-MM-DD HH:mm",
+      "YYYY/MM/DD HH:mm:ss",
+      "YYYY/MM/DD HH:mm",
+      moment.ISO_8601,
+    ];
+
+    let m = moment.tz(dateStr, formats, true, sourceTZ);
+    if (!m.isValid()) m = moment.tz(dateStr, formats, sourceTZ);
+    if (!m.isValid()) return null;
+
+    return m.tz(TZ);
+  };
+
+  const formatDubaiBookingTime = (item, type = "start") => {
+    const m = parseBookingDateTime(item, type);
+    return m?.isValid?.() ? m.format("hh:mm A") : "-";
+  };
+
   const norm = (v) => String(v ?? "").toLowerCase().trim();
 
   const showAlert = (type, title, message) => {
@@ -323,8 +398,8 @@ const RoleAccessLayer = () => {
 
     if (!date) return "upcoming";
 
-    const startDT = start ? parseDateTime(date, start) : null;
-    const endDT = end ? parseDateTime(date, end) : null;
+    const startDT = start ? parseBookingDateTime(item, "start") : null;
+    const endDT = end ? parseBookingDateTime(item, "end") : null;
 
     if (endDT) {
       if (now.isAfter(endDT)) {
@@ -342,7 +417,13 @@ const RoleAccessLayer = () => {
       return "upcoming";
     }
 
-    const dayEnd = parseDateTime(date, "23:59:59");
+    const dayEnd = parseBookingDateTime(
+      {
+        ...item,
+        slot_end: "23:59:59",
+      },
+      "end"
+    );
     if (dayEnd && now.isAfter(dayEnd)) {
       if (inPerson) return "completed";
 
@@ -372,13 +453,13 @@ const RoleAccessLayer = () => {
 
     const now = getNow();
 
-    const startDT = start ? parseDateTime(date, start) : null;
+    const startDT = start ? parseBookingDateTime(item, "start") : null;
 
     if (startDT) {
       return now.isSameOrAfter(startDT);
     }
 
-    const bd = parseBookDate(date);
+    const bd = getDubaiBookDateMoment(item);
     if (!bd) return false;
 
     return bd.isBefore(now, "day");
@@ -402,18 +483,18 @@ const RoleAccessLayer = () => {
   };
 
   const getBookingTypeDisplay = (type) => {
-  const t = norm(type);
+    const t = norm(type);
 
-  if (t === "manual") return "Manual";
-  if (t === "web app") return "Web App";
-  if (t === "portal") return "Portal";
+    if (t === "manual") return "Manual";
+    if (t === "web app") return "Web App";
+    if (t === "portal") return "Portal";
 
-  return String(type || "-")
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/\b\w/g, (char) => char.toUpperCase());
-}; 
+    return String(type || "-")
+      .replace(/[_-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/\b\w/g, (char) => char.toUpperCase());
+  };
 
   const getBookingTypeBadgeClass = (type) => {
     const t = norm(type);
@@ -723,8 +804,8 @@ const RoleAccessLayer = () => {
       const deduped = dedupeBookings(raw);
 
       const sorted = deduped.slice().sort((a, b) => {
-        const ma = parseBookDate(getBookDateValue(a));
-        const mb = parseBookDate(getBookDateValue(b));
+        const ma = getDubaiBookDateMoment(a);
+        const mb = getDubaiBookDateMoment(b);
         return (mb?.valueOf?.() || 0) - (ma?.valueOf?.() || 0);
       });
 
@@ -858,7 +939,7 @@ const RoleAccessLayer = () => {
       const matchesGroupBatch =
         !gbFilter || String(item?.group_batch_id || "") === String(gbFilter);
 
-      const itemDate = parseBookDate(getBookDateValue(item));
+      const itemDate = getDubaiBookDateMoment(item);
 
       const fromOk = startM ? (itemDate ? itemDate.isSameOrAfter(startM, "day") : false) : true;
       const toOk = endM ? (itemDate ? itemDate.isSameOrBefore(endM, "day") : false) : true;
@@ -905,15 +986,15 @@ const RoleAccessLayer = () => {
     const heading = [["Booking List"]];
     const data = filteredData.map((item, i) => {
       const status = getBookingStatus(item);
-      const bd = parseBookDate(getBookDateValue(item));
+      const bd = getDubaiBookDateMoment(item);
 
       return {
         "S.L": i + 1,
         "Book Date": bd ? bd.format("DD MMM YYYY") : "-",
         "Student Name": item?.studentname || "-",
         "Booked Teacher": item?.teachername || "-",
-        "Slot Start": formatTime(getSlotStartValue(item)),
-        "Slot End": formatTime(getSlotEndValue(item)),
+        "Slot Start": formatDubaiBookingTime(item, "start"),
+        "Slot End": formatDubaiBookingTime(item, "end"),
         Amount: getAmountText(item),
         "Payment Type": item?.payment_type || "-",
         "Payment Status": getPaymentStatusDisplay(item?.payment_status) || "-",
@@ -960,15 +1041,15 @@ const RoleAccessLayer = () => {
 
     const rowsPdf = filteredData.map((item, i) => {
       const status = getBookingStatus(item);
-      const bd = parseBookDate(getBookDateValue(item));
+      const bd = getDubaiBookDateMoment(item);
 
       return [
         i + 1,
         bd ? bd.format("DD MMM YYYY") : "-",
         item?.studentname || "-",
         item?.teachername || "-",
-        formatTime(getSlotStartValue(item)),
-        formatTime(getSlotEndValue(item)),
+        formatDubaiBookingTime(item, "start"),
+        formatDubaiBookingTime(item, "end"),
         getAmountText(item),
         item?.payment_type || "-",
         getPaymentStatusDisplay(item?.payment_status) || "-",
@@ -1320,12 +1401,12 @@ const RoleAccessLayer = () => {
             <option value="manual">Manual</option>
             <option value="web app">Web App</option>
             {bookingTypeOptions
-  .filter((b) => !["manual", "web app"].includes(b))
-  .map((b) => (
-    <option key={b} value={b}>
-      {getBookingTypeDisplay(b)}
-    </option>
-  ))}
+              .filter((b) => !["manual", "web app"].includes(b))
+              .map((b) => (
+                <option key={b} value={b}>
+                  {getBookingTypeDisplay(b)}
+                </option>
+              ))}
           </select>
 
           <select
@@ -1437,6 +1518,9 @@ const RoleAccessLayer = () => {
           </div>
         ) : null}
 
+        <div className="alert alert-info py-2 px-3 mb-3" style={{ fontWeight: 600 }}>
+  All booking dates and times are shown in Asia/Dubai timezone.
+</div>
         <div className="table-responsive">
           <table className="table bordered-table sm-table mb-0">
             <thead>
@@ -1470,7 +1554,7 @@ const RoleAccessLayer = () => {
                 currentItems.map((item, index) => {
                   const status = getBookingStatus(item);
                   const recUrl = normalizeRecordingUrl(item?.recording_s3_url);
-                  const bd = parseBookDate(getBookDateValue(item));
+                  const bd = getDubaiBookDateMoment(item);
                   const isDisabled = isRescheduleDisabled(item);
                   const bookingId = getBookingId(item);
 
@@ -1530,8 +1614,8 @@ const RoleAccessLayer = () => {
 
                       <td>{item?.studentname || "-"}</td>
                       <td>{item?.teachername || "-"}</td>
-                      <td>{formatTime(getSlotStartValue(item))}</td>
-                      <td>{formatTime(getSlotEndValue(item))}</td>
+                      <td>{formatDubaiBookingTime(item, "start")}</td>
+                      <td>{formatDubaiBookingTime(item, "end")}</td>
                       <td>
                         {isDirectBooking(item) ? (
                           <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
@@ -1600,10 +1684,10 @@ const RoleAccessLayer = () => {
                       </td>
 
                       <td>
-  <span className={`badge ${getBookingTypeBadgeClass(item?.booking_type)}`}>
-    {getBookingTypeDisplay(item?.booking_type)}
-  </span>
-</td>
+                        <span className={`badge ${getBookingTypeBadgeClass(item?.booking_type)}`}>
+                          {getBookingTypeDisplay(item?.booking_type)}
+                        </span>
+                      </td>
 
                       <td>
                         <span className={`badge ${isGroupBooking(item) ? "bg-info" : "bg-secondary"}`}>
