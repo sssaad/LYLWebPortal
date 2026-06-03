@@ -111,6 +111,7 @@ import WizardPage from "./pages/WizardPage";
 import GroupLiveSessionsPage from "./pages/GroupLiveSessionsPage";
 import RegistrationRequestsPage from "./pages/RegistrationRequestsPage";
 import WeeklyTimetablePage from "./pages/WeeklyTimetablePage";
+import GroupPaymentsPage from "./pages/GroupPaymentsPage";
 
 function App() {
   return (
@@ -200,6 +201,7 @@ function App() {
           ["/teachers-list", TeacherListPage],
           ["/subscription", SubscriptionListPage],
           ["/block-subscription", BlockSubscriptionListPage],
+          ["/group-payments", GroupPaymentsPage],
           ["/promocodes", PromoListPage],
           ["/parents-list", ParentListPage],
           ["/invoice-preview", InvoicePreviewPage],

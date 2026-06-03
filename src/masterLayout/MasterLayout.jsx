@@ -36,6 +36,7 @@ const MasterLayout = ({ children }) => {
     payments: [
       "/subscription",
       "/block-subscription",
+      "/group-payments",
       "/promocodes",
       "/invoice-list",
       "/teacher-payouts",
@@ -381,6 +382,7 @@ const MasterLayout = ({ children }) => {
             >
               <ChildMenu to="/subscription" label="Subscriptions" dotClass="blue-dot" />
               <ChildMenu to="/block-subscription" label="Block Subscriptions" dotClass="orange-dot" />
+              <ChildMenu to="/group-payments" label="Group Payments" dotClass="orange-dot" />
               <ChildMenu to="/promocodes" label="Promo Codes" dotClass="green-dot" />
 
               {/* <li>
