@@ -27,7 +27,7 @@ const getInitialForm = () => ({
   parentemail: "",
 });
 
-const RegisterStudentModal = ({ show, onClose, onSave }) => {
+const RegisterStudentModal = ({ show, onClose, onSave, seed = null }) => {
   const [form, setForm] = useState(getInitialForm());
   const [saving, setSaving] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -39,7 +39,24 @@ const RegisterStudentModal = ({ show, onClose, onSave }) => {
       return;
     }
 
-    setForm(getInitialForm());
+    const initial = getInitialForm();
+
+    const seedFullname = String(seed?.fullname || "").trim();
+    const seedEmail = String(seed?.email || "").trim();
+    const seedUsername = String(seed?.username || "").trim();
+    const seedPhone = String(seed?.phone || "").replace(/\D/g, "");
+    const seedParentEmail = String(seed?.parentemail || "").trim();
+
+    setForm({
+      ...initial,
+      fullname: seedFullname,
+      noEmail: !seedEmail && !!seedUsername,
+      email: seedEmail,
+      username: seedUsername,
+      phone: seedPhone,
+      parentemail: seedParentEmail,
+    });
+
     setShowPassword(false);
     setShowConfirmPassword(false);
     document.body.style.overflow = "hidden";
@@ -47,7 +64,7 @@ const RegisterStudentModal = ({ show, onClose, onSave }) => {
     return () => {
       document.body.style.overflow = "";
     };
-  }, [show]);
+  }, [show, seed]);
 
   const handleModalClose = () => {
     if (saving) return;
@@ -73,7 +90,9 @@ const RegisterStudentModal = ({ show, onClose, onSave }) => {
         username: nextNoEmail ? prev.username : "",
       };
     });
-  };
+  };  
+
+  
 
   const validateEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
@@ -579,7 +598,9 @@ const RegisterStudentModal = ({ show, onClose, onSave }) => {
       <div className="rsm-overlay">
         <div className="rsm-modal">
           <div className="rsm-header">
-            <h5 className="rsm-title">Register Student</h5>
+            <h5 className="rsm-title">
+              {seed ? "Register Student From Request" : "Register Student"}
+            </h5>
             <button
               type="button"
               className="rsm-close"
@@ -741,7 +762,11 @@ const RegisterStudentModal = ({ show, onClose, onSave }) => {
                 onClick={handleSave}
                 disabled={saving}
               >
-                {saving ? "Registering..." : "Register Now"}
+                {saving
+                  ? "Registering..."
+                  : seed
+                    ? "Register Student"
+                    : "Register Now"}
               </button>
             </div>
           </div>

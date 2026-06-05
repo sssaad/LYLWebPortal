@@ -112,20 +112,20 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
 
       if (Number(response?.data?.statusCode) !== 200) {
         throw new Error(
-          response?.data?.message || "Group programmes load failed."
+          response?.data?.message || "Group curriculums load failed."
         );
       }
 
       const list = extractRows(response.data);
       setProgrammes(Array.isArray(list) ? list : []);
     } catch (error) {
-      console.error("Group programmes load failed:", error);
+      console.error("Group curriculums load failed:", error);
       setProgrammes([]);
 
       Swal.fire({
         icon: "error",
         title: "Load Failed",
-        text: error?.message || "Group programmes load failed.",
+        text: error?.message || "Group curriculums load failed.",
         customClass: {
           container: "gp-swal-container",
         },
@@ -209,6 +209,23 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
     });
   };
 
+    const startCopy = (item) => {
+    setEditingProgramme(null);
+
+    setForm({
+      id: "",
+      name: item?.name || "",
+      description: item?.description || "",
+      stage: item?.stage || "",
+      capacity: item?.capacity || 10,
+      weekly_price:
+        item?.weekly_price !== undefined && item?.weekly_price !== null
+          ? String(item.weekly_price)
+          : "300.00",
+      status: item?.status || "active",
+    });
+  };
+
   const validateForm = () => {
     const name = String(form.name || "").trim();
     const description = String(form.description || "").trim();
@@ -217,12 +234,12 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
     const weeklyPrice = Number(form.weekly_price || 0);
     const status = String(form.status || "active").trim();
 
-    if (!name) return "Programme name is required.";
+    if (!name) return "Curriculum name is required.";
     if (!description) return "Description is required.";
-    if (!stage) return "Stage is required.";
+    if (!stage) return "Key stage/Year Group is required.";
     if (!capacity || capacity < 1) return "Capacity must be greater than 0.";
     if (Number.isNaN(weeklyPrice) || weeklyPrice < 0) {
-      return "Weekly price is invalid.";
+      return "Group session price is invalid.";
     }
     if (!PROGRAMME_STATUS_OPTIONS.includes(status)) return "Status is invalid.";
 
@@ -268,7 +285,7 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
       Number(response?.data?.statusCode) === 500 ||
       response?.data?.error
     ) {
-      throw new Error(response?.data?.message || "Programme add failed.");
+      throw new Error(response?.data?.message || "Curriculum add failed.");
     }
 
     return response.data;
@@ -300,7 +317,7 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
       Number(response?.data?.statusCode) === 500 ||
       response?.data?.error
     ) {
-      throw new Error(response?.data?.message || "Programme update failed.");
+      throw new Error(response?.data?.message || "Curriculum update failed.");
     }
 
     return response.data;
@@ -326,10 +343,10 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
 
     const confirmResult = await Swal.fire({
       icon: isEdit ? "question" : "info",
-      title: isEdit ? "Update Programme?" : "Create Group Programme?",
+      title: isEdit ? "Update Curriculum?" : "Create Group Curriculum?",
       text: isEdit
-        ? "Are you sure you want to update this programme?"
-        : "Are you sure you want to create this group programme?",
+        ? "Are you sure you want to update this curriculum?"
+        : "Are you sure you want to create this group curriculum?",
       showCancelButton: true,
       confirmButtonText: isEdit ? "Yes, Update" : "Yes, Create",
       cancelButtonText: "Cancel",
@@ -362,8 +379,8 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
         icon: "success",
         title: isEdit ? "Updated Successfully" : "Created Successfully",
         text: isEdit
-          ? "Programme has been updated successfully."
-          : "Group programme has been created successfully.",
+          ? "Curriculum has been updated successfully."
+          : "Group curriculum has been created successfully.",
         timer: 1600,
         timerProgressBar: true,
         customClass: {
@@ -377,12 +394,12 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
       await fetchProgrammes();
       onSuccess?.();
     } catch (error) {
-      console.error("Programme save failed:", error);
+      console.error("Curriculum save failed:", error);
 
       Swal.fire({
         icon: "error",
         title: "Save Failed",
-        text: error?.message || "Something went wrong while saving programme.",
+        text: error?.message || "Something went wrong while saving curriculum.",
         customClass: {
           container: "gp-swal-container",
         },
@@ -407,12 +424,12 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
 
     const confirmResult = await Swal.fire({
       icon: "warning",
-      title: "Delete Programme?",
+      title: "Delete Curriculum?",
       html: `
         <div style="line-height:1.7;">
-          <div>This will delete the programme from the portal list.</div>
+          <div>This will delete the curriculum from the portal list.</div>
           <div style="margin-top:10px;">
-            <strong>Programme:</strong> ${item?.name || "-"}
+            <strong>Curriculum:</strong> ${item?.name || "-"}
           </div>
         </div>
       `,
@@ -446,7 +463,7 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
       await Swal.fire({
         icon: "success",
         title: "Deleted Successfully",
-        text: "Programme has been soft deleted successfully.",
+        text: "Curriculum has been deleted successfully.",
         timer: 1600,
         timerProgressBar: true,
         customClass: {
@@ -462,12 +479,12 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
       await fetchProgrammes();
       onSuccess?.();
     } catch (error) {
-      console.error("Programme delete failed:", error);
+      console.error("Curriculum delete failed:", error);
 
       Swal.fire({
         icon: "error",
         title: "Delete Failed",
-        text: error?.message || "Something went wrong while deleting programme.",
+        text: error?.message || "Something went wrong while deleting curriculum.",
         customClass: {
           container: "gp-swal-container",
         },
@@ -909,9 +926,9 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
             </div>
 
             <div>
-              <h3 className="gp-modal-title">Create Group Programme</h3>
+              <h3 className="gp-modal-title">Create Group Curriculum</h3>
               <div className="gp-modal-subtitle">
-                Manage programme records with add, update and delete.
+                Manage curriculum records with add, update and delete.
               </div>
             </div>
           </div>
@@ -936,7 +953,7 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
                       icon={isEdit ? "mdi:pencil-outline" : "mdi:plus-circle"}
                     />
                     <span>
-                      {isEdit ? "Update Programme" : "Create Programme"}
+                      {isEdit ? "Update Curriculum" : "Create Curriculum"}
                     </span>
                   </div>
 
@@ -954,7 +971,7 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
 
                 <div className="gp-card-body">
                   <div className="mb-3">
-                    <div className="gp-label">Programme Name</div>
+                    <div className="gp-label">Curriculum Name</div>
                     <input
                       type="text"
                       className="form-control gp-input"
@@ -965,7 +982,7 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
                   </div>
 
                   <div className="mb-3">
-                    <div className="gp-label">Stage</div>
+                    <div className="gp-label">Key stage/Year Group</div>
                     <input
                       type="text"
                       className="form-control gp-input"
@@ -993,7 +1010,7 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
 
                     <div className="col-md-6">
                       <div className="mb-3">
-                        <div className="gp-label">Weekly Price</div>
+                        <div className="gp-label">Group Session Price</div>
                         <input
                           type="number"
                           min="0"
@@ -1027,7 +1044,7 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
                     <div className="gp-label">Description</div>
                     <textarea
                       className="form-control gp-textarea"
-                      placeholder="Write programme description..."
+                      placeholder="Write curriculum description..."
                       value={form.description}
                       onChange={(e) =>
                         handleChange("description", e.target.value)
@@ -1052,9 +1069,9 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
                         Saving...
                       </>
                     ) : isEdit ? (
-                      "Update Programme"
+                      "Update Curriculum"
                     ) : (
-                      "Create Group Programme"
+                      "Create Group Curriculum"
                     )}
                   </button>
                 </div>
@@ -1066,7 +1083,7 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
                 <div className="gp-card-head">
                   <div className="gp-card-title">
                     <Icon icon="mdi:format-list-bulleted" />
-                    <span>Programme List</span>
+                    <span>Curriculum List</span>
                   </div>
                 </div>
 
@@ -1075,7 +1092,7 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
                     <input
                       type="text"
                       className="form-control gp-input"
-                      placeholder="Search programme..."
+                      placeholder="Search curriculum..."
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                     />
@@ -1110,7 +1127,7 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
                         role="status"
                       />
                       <div className="mt-2 text-secondary-light">
-                        Loading programmes...
+                        Loading curriculums...
                       </div>
                     </div>
                   ) : filteredProgrammes.length === 0 ? (
@@ -1118,9 +1135,9 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
                       <div className="gp-empty-icon">
                         <Icon icon="mdi:playlist-remove" />
                       </div>
-                      <div className="fw-bold">No programmes found</div>
+                      <div className="fw-bold">No curriculums found</div>
                       <div className="mt-1">
-                        Create a new programme or clear filters.
+                        Create a new curriculum or clear filters.
                       </div>
                     </div>
                   ) : (
@@ -1145,8 +1162,8 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
 
                               <span
                                 className={`gp-status-badge ${status === "active"
-                                    ? "gp-status-active"
-                                    : "gp-status-inactive"
+                                  ? "gp-status-active"
+                                  : "gp-status-inactive"
                                   }`}
                               >
                                 {status}
@@ -1155,14 +1172,14 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
 
                             <div className="gp-meta-grid">
                               <div className="gp-meta-box">
-                                <div className="gp-meta-label">Stage</div>
+                                <div className="gp-meta-label">Key stage/Year Group</div>
                                 <div className="gp-meta-value">
                                   {item.stage || "-"}
                                 </div>
                               </div>
 
                               <div className="gp-meta-box">
-                                <div className="gp-meta-label">Weekly Fee</div>
+                                <div className="gp-meta-label">Group Session Price</div>
                                 <div className="gp-meta-value">
                                   AED{" "}
                                   {Number(item.weekly_price || 0).toFixed(2)}
@@ -1177,7 +1194,7 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
                               </div>
                             </div>
 
-                            <div className="gp-action-row">
+                                                        <div className="gp-action-row">
                               <button
                                 type="button"
                                 className="btn btn-primary btn-sm gp-action-btn"
@@ -1186,6 +1203,17 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
                               >
                                 <Icon icon="mdi:pencil-outline" />
                                 Edit
+                              </button>
+
+                              <button
+                                type="button"
+                                className="btn btn-info btn-sm gp-action-btn"
+                                onClick={() => startCopy(item)}
+                                disabled={saving}
+                                title="Copy curriculum"
+                                aria-label="Copy curriculum"
+                              >
+                                <Icon icon="mdi:content-copy" />
                               </button>
 
                               <button

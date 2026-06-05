@@ -20,6 +20,7 @@ const MasterLayout = ({ children }) => {
       "/teachers-list",
       "/parents-list",
       "/registration-requests",
+      "/group-class-inquiries",
       "/leads-centre",
     ],
     academics: [
@@ -351,6 +352,7 @@ const MasterLayout = ({ children }) => {
               <ChildMenu to="/teachers-list" label="Teachers" dotClass="orange-dot" />
               <ChildMenu to="/parents-list" label="Parents" dotClass="green-dot" />
               <ChildMenu to="/registration-requests" label="Registration Requests" dotClass="red-dot" />
+              <ChildMenu to="/group-class-inquiries" label="Group Inquiries" dotClass="orange-dot" />
               <ChildMenu to="/leads-centre" label="Leads Centre" dotClass="blue-dot" />
             </ParentMenu>
 

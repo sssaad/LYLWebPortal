@@ -110,6 +110,7 @@ import WidgetsPage from "./pages/WidgetsPage";
 import WizardPage from "./pages/WizardPage";
 import GroupLiveSessionsPage from "./pages/GroupLiveSessionsPage";
 import RegistrationRequestsPage from "./pages/RegistrationRequestsPage";
+import GroupClassInquiriesPage from "./pages/GroupClassInquiriesPage";
 import WeeklyTimetablePage from "./pages/WeeklyTimetablePage";
 import GroupPaymentsPage from "./pages/GroupPaymentsPage";
 
@@ -227,6 +228,7 @@ function App() {
           ["/inperson-bookings", InpersonBookingPage],
           ["/leads-centre", LeadCentrePage],
           ["/registration-requests", RegistrationRequestsPage],
+          ["/group-class-inquiries", GroupClassInquiriesPage],
           ["/star-rating", StarRatingPage],
           ["/starred", StarredPage],
           ["/switch", SwitchPage],

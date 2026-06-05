@@ -562,7 +562,7 @@ const CreateLiveGroupModal = ({
       try {
         programmeRows = await runStoredProcedure(PROGRAMME_PROCEDURE);
       } catch (programmeErr) {
-        console.error("Programme lookup failed:", programmeErr);
+        console.error("Curriculum lookup failed:", programmeErr);
         programmeRows = [];
       }
 
@@ -603,7 +603,7 @@ const CreateLiveGroupModal = ({
 
       if (!programmeRows?.length) {
         setError(
-          "Programme list could not be loaded. Please check get_portal_programmes response."
+          "Curriculum list could not be loaded. Please check get_portal_programmes response."
         );
       }
     } finally {
@@ -864,17 +864,20 @@ const CreateLiveGroupModal = ({
         : "";
 
       setClassPatch(index, {
-        subjectOptions,
-        subjectLoading: false,
-        subjectError: subjectOptions.length
-          ? ""
-          : "No subjects found for this teacher.",
-        subjectid: firstSubjectId,
-        title: "",
+  subjectOptions,
+  subjectLoading: false,
+  subjectError: subjectOptions.length
+    ? ""
+    : "No subjects found for this teacher.",
+  subjectid: firstSubjectId,
+  title:
+    selectedProgrammeName && firstSubject
+      ? `${selectedProgrammeName} - ${getSubjectName(firstSubject)}`
+      : "",
 
-        teacher_timezoneid: teacherTimezone.timezoneid,
-        teacher_timezone_location: teacherTimezone.timezone_location,
-      });
+  teacher_timezoneid: teacherTimezone.timezoneid,
+  teacher_timezone_location: teacherTimezone.timezone_location,
+});
     } catch (err) {
       console.error("Teacher subjects load failed:", err);
 
@@ -895,18 +898,27 @@ const CreateLiveGroupModal = ({
   };
 
   const handleSubjectChange = (index, subjectid) => {
-    setClasses((prev) =>
-      prev.map((item, i) => {
-        if (i !== index) return item;
+  setClasses((prev) =>
+    prev.map((item, i) => {
+      if (i !== index) return item;
 
-        return {
-          ...item,
-          subjectid,
-          title: "",
-        };
-      })
-    );
-  };
+      const selectedSubject = (item?.subjectOptions || []).find(
+        (s) => String(getSubjectId(s)) === String(subjectid)
+      );
+
+      const subjectName = getSubjectName(selectedSubject);
+
+      return {
+        ...item,
+        subjectid,
+        title:
+          selectedProgrammeName && subjectName
+            ? `${selectedProgrammeName} - ${subjectName}`
+            : item.title,
+      };
+    })
+  );
+};
 
   const handleStartTimeChange = (index, startTime) => {
     const autoEndTime = addOneHourToTime(startTime);
@@ -966,7 +978,7 @@ const CreateLiveGroupModal = ({
     teachers.find((t) => String(getTeacherId(t)) === String(teacherid));
 
   const validateForm = () => {
-    if (!form.programme_id) return "Please select a programme.";
+    if (!form.programme_id) return "Please select a curriculum.";
 
     const cap = Number(form.capacity);
     if (!Number.isFinite(cap) || cap <= 0) {
@@ -1185,7 +1197,7 @@ const CreateLiveGroupModal = ({
 
     if (bookedCount > 0) {
       throw new Error(
-        "This programme already has a group booking, so it cannot be edited."
+        "This curriculum already has a group booking, so it cannot be edited."
       );
     }
 
@@ -1942,8 +1954,8 @@ const CreateLiveGroupModal = ({
             </h4>
             <div className="gl-create-subtitle">
               {isEditMode
-                ? "Update programme classes, teacher, subject, timezone, date and time."
-                : "Select programme and create one or more live classes."}
+                ? "Update curriculum classes, teacher, subject, timezone, date and time."
+: "Select curriculum and create one or more live classes."}
             </div>
           </div>
 
@@ -1976,14 +1988,14 @@ const CreateLiveGroupModal = ({
             <div className="gl-top-card">
               <div className="row g-3">
                 <div className="col-lg-6">
-                  <label className="form-label">Programme</label>
+                  <label className="form-label">Curriculum</label>
                   <select
                     className="form-select"
                     value={form.programme_id}
                     onChange={(e) => setField("programme_id", e.target.value)}
                     disabled={loading || lookupsLoading}
                   >
-                    <option value="">Select Programme</option>
+                    <option value="">Select Curriculum</option>
 
                     {programmes.map((item, index) => {
                       const programmeId = getProgrammeId(item);
@@ -1992,7 +2004,7 @@ const CreateLiveGroupModal = ({
                         item?.programme_name ||
                         item?.programmename ||
                         item?.title ||
-                        `Programme ${index + 1}`;
+                        `Curriculum ${index + 1}`;
 
                       const programmeStage =
                         item?.stage || item?.programme_stage || "";
@@ -2218,19 +2230,18 @@ const CreateLiveGroupModal = ({
                       </div>
 
                       <div className="col-lg-4 col-md-12">
-                        <label className="form-label">Session Title</label>
-                        <input
-                          type="text"
-                          className="form-control"
-                          value={item.title || autoTitle}
-                          onChange={(e) =>
-                            updateClass(index, "title", e.target.value)
-                          }
-                          placeholder={`${selectedProgrammeName || "Programme"
-                            } - Subject`}
-                          disabled={loading}
-                        />
-                      </div>
+  <label className="form-label">Session Title</label>
+  <input
+    type="text"
+    className="form-control"
+    value={item.title}
+    onChange={(e) =>
+      updateClass(index, "title", e.target.value)
+    }
+    placeholder={autoTitle}
+    disabled={loading}
+  />
+</div>
 
                       <div className="col-lg-4 col-md-6">
                         <label className="form-label">Session Date</label>
@@ -2288,7 +2299,7 @@ const CreateLiveGroupModal = ({
               <div className="gl-preview-title">Preview</div>
 
               <div className="gl-preview-line">
-                <strong>Programme:</strong> {selectedProgrammeName || "-"}
+                <strong>Curriculum:</strong> {selectedProgrammeName || "-"}
               </div>
 
               <div className="gl-preview-line">
@@ -2300,7 +2311,7 @@ const CreateLiveGroupModal = ({
               </div>
 
               <div className="gl-preview-line">
-                <strong>Weekly Price:</strong>{" "}
+                <strong>Group Session Price:</strong>{" "}
                 {selectedProgramme?.weekly_price ||
                   editProgramme?.weekly_price ||
                   preselectedProgramme?.weekly_price

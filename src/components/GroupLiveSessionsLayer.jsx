@@ -471,7 +471,7 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
           <div className="row g-3 mb-4">
             <div className="col-xl-3 col-md-6">
               <div className="gl-stat-card">
-                <div className="gl-stat-label">Weekly Fee</div>
+                <div className="gl-stat-label">Group Session Price</div>
                 <div className="gl-stat-value">
                   AED {Number(programme.weekly_price || 0).toFixed(2)}
                 </div>
@@ -505,7 +505,7 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
           </div>
 
           <div className="mb-4">
-            <h5 className="gl-desc-title">Programme Description</h5>
+            <h5 className="gl-desc-title">Curriculum Description</h5>
             <p className="gl-desc-text">
               {programme.programme_description || "-"}
             </p>
@@ -513,7 +513,7 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
 
           <div className="gl-classes-card">
             <div className="gl-classes-title">
-              <span>Programme Classes</span>
+              <span>Curriculum Classes</span>
               <span className="badge bg-primary">{sessions.length} Classes</span>
             </div>
 
@@ -531,7 +531,7 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
 
             {sessions.length === 0 ? (
               <div className="p-4 text-center gl-class-muted">
-                No classes added for this programme.
+                No classes added for this curriculum.
               </div>
             ) : (
               sessions.map((session, index) => {
@@ -648,7 +648,7 @@ const GroupLiveSessionsLayer = () => {
 
       if (Number(response?.data?.statusCode) !== 200) {
         throw new Error(
-          response?.data?.message || "Group live sessions load nahi huay."
+          response?.data?.message || "Group live sessions could not be loaded."
         );
       }
 
@@ -657,7 +657,7 @@ const GroupLiveSessionsLayer = () => {
     } catch (error) {
       console.error("Group live sessions load failed:", error);
       setRows([]);
-      setLoadError(error?.message || "Group live sessions load nahi huay.");
+      setLoadError(error?.message || "Group live sessions could not be loaded.");
     } finally {
       setLoading(false);
     }
@@ -897,7 +897,7 @@ const GroupLiveSessionsLayer = () => {
       Swal.fire({
         icon: "error",
         title: "Group Missing",
-        text: "Programme group key not found.",
+        text: "Curriculum group key not found.",
       });
       return;
     }
@@ -951,9 +951,9 @@ const GroupLiveSessionsLayer = () => {
       title: "Update Status?",
       html: `
         <div style="text-align:center; line-height:1.7;">
-          <div>Are you sure you want to update this programme batch status?</div>
+          <div>Are you sure you want to update this curriculum batch status?</div>
           <div style="margin-top:10px;">
-            <strong>Programme:</strong> ${programme?.programme_name || "-"}<br/>
+            <strong>Curriculum:</strong> ${programme?.programme_name || "-"}<br/>
             <strong>Classes:</strong> ${sessionIds.length}<br/>
             <strong>Current:</strong> ${currentStatus}<br/>
             <strong>New:</strong> ${nextStatus}
@@ -995,7 +995,7 @@ const GroupLiveSessionsLayer = () => {
       await Swal.fire({
         icon: "success",
         title: "Updated Successfully",
-        text: "Programme batch status has been updated successfully.",
+        text: "Curriculum batch status has been updated successfully.",
         confirmButtonText: "OK",
         timer: 1700,
         timerProgressBar: true,
@@ -1030,8 +1030,8 @@ const GroupLiveSessionsLayer = () => {
     if (!programme) {
       Swal.fire({
         icon: "error",
-        title: "Programme Missing",
-        text: "Programme data not found.",
+        title: "Curriculum Missing",
+text: "Curriculum data not found.",
       });
       return;
     }
@@ -1040,7 +1040,7 @@ const GroupLiveSessionsLayer = () => {
       Swal.fire({
         icon: "info",
         title: "Edit Not Allowed",
-        text: "This programme already has a group booking, so it cannot be edited.",
+        text: "This curriculum already has a group booking, so it cannot be edited.",
         timer: 2200,
         timerProgressBar: true,
       });
@@ -1280,7 +1280,7 @@ const GroupLiveSessionsLayer = () => {
       <div className="card-body p-24">
         <div className="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
           <div>
-            <h5 className="mb-1">Live Group Programmes</h5>
+            <h5 className="mb-1">Live Group Curriculums</h5>
             <p className="text-secondary-light mb-0"></p>
           </div>
 
@@ -1300,7 +1300,7 @@ const GroupLiveSessionsLayer = () => {
               onClick={openGroupProgrammeModal}
             >
               <Icon icon="mdi:playlist-plus" />
-              Create Group Programme
+              Create Group Curriculum
             </button>
 
             <button
@@ -1319,7 +1319,7 @@ const GroupLiveSessionsLayer = () => {
             type="text"
             className="form-control"
             style={{ maxWidth: 340 }}
-            placeholder="Search programme..."
+            placeholder="Search curriculum..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -1356,7 +1356,7 @@ const GroupLiveSessionsLayer = () => {
           <div className="py-5 text-center">
             <div className="spinner-border text-primary" role="status" />
             <div className="mt-2 text-secondary-light">
-              Loading live group programmes...
+              Loading live group curriculums...
             </div>
           </div>
         ) : (
@@ -1365,9 +1365,9 @@ const GroupLiveSessionsLayer = () => {
               <thead>
                 <tr>
                   <th>S.L</th>
-                  <th>Programme</th>
+                  <th>Curriculum</th>
                   <th>Stage</th>
-                  <th>Weekly Fee</th>
+                  <th>Group Session Price</th>
                   <th>Classes</th>
                   <th>Capacity</th>
                   <th> Booked Seats</th>
@@ -1384,7 +1384,7 @@ const GroupLiveSessionsLayer = () => {
                       colSpan="10"
                       className="text-center py-4 text-secondary-light"
                     >
-                      No live group programmes found.
+                      No live group curriculums found.
                     </td>
                   </tr>
                 ) : (
@@ -1542,7 +1542,7 @@ const GroupLiveSessionsLayer = () => {
                               disabled={!editAllowed}
                               title={
                                 editAllowed
-                                  ? "Edit Programme"
+                                  ? "Edit Curriculum"
                                   : "Booking already exists, edit disabled"
                               }
                               onClick={() => openEditModal(programme)}

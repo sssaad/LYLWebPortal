@@ -1329,7 +1329,7 @@ const CreateGroupBatchBookingModal = ({
               </div>
 
               <div className="col-md-5">
-                <div className="gb-label">Weekly Fee</div>
+                <div className="gb-label">Group Session Price</div>
                 <div className="gb-muted">
                   AED {Number(programme.weekly_price || 0).toFixed(2)}
                 </div>

@@ -4,7 +4,6 @@ import moment from "moment";
 import Swal from "sweetalert2";
 import { Icon } from "@iconify/react";
 import { getToken } from "../api/getToken";
-import RegisterStudentModal from "../components/RegisterStudentModal";
 
 const BASE_HEADERS = {
   projectid: "1",
@@ -19,10 +18,10 @@ const RUN_SP_URL =
 const UPDATE_DYNAMIC_URL =
   "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=update_dynamic_data";
 
-const STORED_PROCEDURE_NAME = "sp_get_group_programme_enquiries";
-const TABLE_NAME = "group_programme_enquiries";
+const STORED_PROCEDURE_NAME = "sp_get_group_class_inquiries";
+const TABLE_NAME = "group_class_inquiries";
 
-const STATUS_OPTIONS = ["Not Registered", "Registered", "Contacted", "Pending"];
+const STATUS_OPTIONS = ["New", "Contacted", "Interested", "Not Interested", "Converted"];
 
 const formatDateTime = (value) => {
   if (!value) return "-";
@@ -47,10 +46,11 @@ const formatDateTime = (value) => {
 const getStatusClass = (status) => {
   const s = String(status || "").toLowerCase();
 
-  if (s === "registered") return "bg-success-focus text-success-main";
+  if (s === "converted") return "bg-success-focus text-success-main";
   if (s === "contacted") return "bg-info-focus text-info-main";
-  if (s === "pending") return "bg-warning-focus text-warning-main";
-  if (s === "not registered") return "bg-danger-focus text-danger-main";
+  if (s === "interested") return "bg-warning-focus text-warning-main";
+  if (s === "not interested") return "bg-danger-focus text-danger-main";
+  if (s === "new") return "bg-primary-50 text-primary-600";
 
   return "bg-neutral-200 text-neutral-700";
 };
@@ -58,22 +58,20 @@ const getStatusClass = (status) => {
 const getStatusIcon = (status) => {
   const s = String(status || "").toLowerCase();
 
-  if (s === "registered") return "mdi:account-check-outline";
+  if (s === "converted") return "mdi:account-check-outline";
   if (s === "contacted") return "mdi:phone-check-outline";
-  if (s === "pending") return "mdi:clock-outline";
-  if (s === "not registered") return "mdi:account-alert-outline";
+  if (s === "interested") return "mdi:star-outline";
+  if (s === "not interested") return "mdi:account-cancel-outline";
+  if (s === "new") return "mdi:clipboard-plus-outline";
 
   return "mdi:information-outline";
 };
 
-const RegistrationRequestsLayer = () => {
+const GroupClassInquiriesLayer = () => {
   const [rows, setRows] = useState([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState(null);
- const [deletingId, setDeletingId] = useState(null);
-
-const [showRegisterStudentModal, setShowRegisterStudentModal] = useState(false);
-const [selectedRegisterRow, setSelectedRegisterRow] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -102,14 +100,15 @@ const [selectedRegisterRow, setSelectedRegisterRow] = useState(null);
         const mapped = data.map((item, index) => ({
           key: item.id ?? `row-${index}`,
           id: item.id ?? null,
+          programmeFullName: item.programme_full_name ?? "",
           studentName: item.student_name ?? "",
-          studentEmail: item.student_email ?? "",
-          studentYearGroup: item.student_year_group ?? "",
-          studentSchool: item.student_school ?? "",
-          parentName: item.parent_name ?? "",
-          parentPhoneNumber: item.parent_phone_number ?? "",
-          parentEmailAddress: item.parent_email_address ?? "",
-          registrationStatus: item.registration_status ?? "Not Registered",
+          yearGroup: item.year_group ?? "",
+          contact: item.contact ?? "",
+          parentEmail: item.parent_email ?? "",
+          school: item.school ?? "",
+          numberOfStudents: item.number_of_students ?? "",
+          message: item.message ?? "",
+          inquiryStatus: item.inquiry_status ?? "New",
           createdAt: item.created_at ?? "",
         }));
 
@@ -122,7 +121,7 @@ const [selectedRegisterRow, setSelectedRegisterRow] = useState(null);
     } catch (error) {
       console.error(error);
       setRows([]);
-      Swal.fire("Error", "Failed to load registration requests.", "error");
+      Swal.fire("Error", "Failed to load group class inquiries.", "error");
     } finally {
       setInitialLoading(false);
     }
@@ -135,28 +134,28 @@ const [selectedRegisterRow, setSelectedRegisterRow] = useState(null);
   const stats = useMemo(() => {
     const total = rows.length;
 
-    const notRegistered = rows.filter(
-      (r) => String(r.registrationStatus).toLowerCase() === "not registered"
-    ).length;
-
-    const registered = rows.filter(
-      (r) => String(r.registrationStatus).toLowerCase() === "registered"
+    const fresh = rows.filter(
+      (r) => String(r.inquiryStatus).toLowerCase() === "new"
     ).length;
 
     const contacted = rows.filter(
-      (r) => String(r.registrationStatus).toLowerCase() === "contacted"
+      (r) => String(r.inquiryStatus).toLowerCase() === "contacted"
     ).length;
 
-    const pending = rows.filter(
-      (r) => String(r.registrationStatus).toLowerCase() === "pending"
+    const converted = rows.filter(
+      (r) => String(r.inquiryStatus).toLowerCase() === "converted"
+    ).length;
+
+    const interested = rows.filter(
+      (r) => String(r.inquiryStatus).toLowerCase() === "interested"
     ).length;
 
     return {
       total,
-      notRegistered,
-      registered,
+      fresh,
       contacted,
-      pending,
+      converted,
+      interested,
     };
   }, [rows]);
 
@@ -164,21 +163,22 @@ const [selectedRegisterRow, setSelectedRegisterRow] = useState(null);
     const q = String(search || "").trim().toLowerCase();
 
     return rows.filter((row) => {
-      if (statusFilter && row.registrationStatus !== statusFilter) {
+      if (statusFilter && row.inquiryStatus !== statusFilter) {
         return false;
       }
 
       if (q) {
         const blob = `
           ${row.id ?? ""}
+          ${row.programmeFullName ?? ""}
           ${row.studentName ?? ""}
-          ${row.studentEmail ?? ""}
-          ${row.studentYearGroup ?? ""}
-          ${row.studentSchool ?? ""}
-          ${row.parentName ?? ""}
-          ${row.parentPhoneNumber ?? ""}
-          ${row.parentEmailAddress ?? ""}
-          ${row.registrationStatus ?? ""}
+          ${row.yearGroup ?? ""}
+          ${row.contact ?? ""}
+          ${row.parentEmail ?? ""}
+          ${row.school ?? ""}
+          ${row.numberOfStudents ?? ""}
+          ${row.message ?? ""}
+          ${row.inquiryStatus ?? ""}
           ${row.createdAt ?? ""}
         `
           .toLowerCase()
@@ -212,86 +212,16 @@ const [selectedRegisterRow, setSelectedRegisterRow] = useState(null);
     setCurrentPage(1);
   };
 
-  const getStudentNameFromParentName = (studentName, parentName) => {
-  const cleanStudentName = String(studentName || "").trim();
-  if (cleanStudentName) return cleanStudentName;
-
-  const cleanParentName = String(parentName || "").trim();
-  if (cleanParentName) return cleanParentName;
-
-  return "";
-};
-
-const openRegisterStudentModal = (row) => {
-  setSelectedRegisterRow(row);
-  setShowRegisterStudentModal(true);
-};
-
-const closeRegisterStudentModal = () => {
-  setShowRegisterStudentModal(false);
-  setSelectedRegisterRow(null);
-};
-
-const markRequestAsRegistered = async (row) => {
-  if (!row?.id) return false;
-
-  try {
-    const token = await getToken();
-    if (!token) throw new Error("Token not found");
-
-    const payload = {
-      token,
-      tablename: TABLE_NAME,
-      conditions: [{ id: Number(row.id) }],
-      updatedata: [
-        {
-          registration_status: "Registered",
-        },
-      ],
-    };
-
-    const res = await axios.post(UPDATE_DYNAMIC_URL, payload, {
-      headers: BASE_HEADERS,
-    });
-
-    const ok = res?.data?.statusCode === 200;
-
-    if (!ok) {
-      throw new Error(res?.data?.message || "Failed to update request status.");
-    }
-
-    setRows((prev) =>
-      prev.map((item) =>
-        Number(item.id) === Number(row.id)
-          ? { ...item, registrationStatus: "Registered" }
-          : item
-      )
-    );
-
-    return true;
-  } catch (error) {
-    console.error("markRequestAsRegistered error =>", error);
-
-    Swal.fire(
-      "Warning",
-      "Student registered, but request status could not be updated.",
-      "warning"
-    );
-
-    return false;
-  }
-};
-
   const handleStatusUpdate = async (row, newStatus) => {
     if (!row?.id) {
-      return Swal.fire("Error", "Request ID is missing.", "error");
+      return Swal.fire("Error", "Inquiry ID is missing.", "error");
     }
 
-    if (!newStatus || newStatus === row.registrationStatus) return;
+    if (!newStatus || newStatus === row.inquiryStatus) return;
 
     const confirm = await Swal.fire({
       title: "Update Status?",
-      text: `Do you want to update this request status to "${newStatus}"?`,
+      text: `Do you want to update this inquiry status to "${newStatus}"?`,
       icon: "question",
       showCancelButton: true,
       confirmButtonText: "Yes, Update",
@@ -318,7 +248,7 @@ const markRequestAsRegistered = async (row) => {
         conditions: [{ id: Number(row.id) }],
         updatedata: [
           {
-            registration_status: newStatus,
+            inquiry_status: newStatus,
           },
         ],
       };
@@ -332,7 +262,7 @@ const markRequestAsRegistered = async (row) => {
       if (!ok) {
         return Swal.fire(
           "Error",
-          res?.data?.message || "Failed to update registration status.",
+          res?.data?.message || "Failed to update inquiry status.",
           "error"
         );
       }
@@ -340,7 +270,7 @@ const markRequestAsRegistered = async (row) => {
       setRows((prev) =>
         prev.map((item) =>
           Number(item.id) === Number(row.id)
-            ? { ...item, registrationStatus: newStatus }
+            ? { ...item, inquiryStatus: newStatus }
             : item
         )
       );
@@ -348,7 +278,7 @@ const markRequestAsRegistered = async (row) => {
       Swal.fire({
         icon: "success",
         title: "Updated!",
-        text: "Registration request status updated successfully.",
+        text: "Inquiry status updated successfully.",
         timer: 1400,
         showConfirmButton: false,
       });
@@ -356,7 +286,7 @@ const markRequestAsRegistered = async (row) => {
       console.error(error);
       Swal.fire(
         "Error",
-        "Something went wrong while updating registration status.",
+        "Something went wrong while updating inquiry status.",
         "error"
       );
     } finally {
@@ -366,12 +296,12 @@ const markRequestAsRegistered = async (row) => {
 
   const handleSoftDelete = async (row) => {
     if (!row?.id) {
-      return Swal.fire("Error", "Request ID is missing.", "error");
+      return Swal.fire("Error", "Inquiry ID is missing.", "error");
     }
 
     const confirm = await Swal.fire({
-      title: "Delete Request?",
-      text: "Are you sure you want to delete this request?",
+      title: "Delete Inquiry?",
+      text: "Are you sure you want to delete this inquiry?",
       icon: "warning",
       showCancelButton: true,
       confirmButtonText: "Yes, Delete",
@@ -414,7 +344,7 @@ const markRequestAsRegistered = async (row) => {
       if (!ok) {
         return Swal.fire(
           "Error",
-          res?.data?.message || "Failed to delete registration request.",
+          res?.data?.message || "Failed to delete inquiry.",
           "error"
         );
       }
@@ -426,7 +356,7 @@ const markRequestAsRegistered = async (row) => {
       Swal.fire({
         icon: "success",
         title: "Deleted!",
-        text: "Registration request deleted successfully.",
+        text: "Inquiry deleted successfully.",
         timer: 1400,
         showConfirmButton: false,
       });
@@ -434,7 +364,7 @@ const markRequestAsRegistered = async (row) => {
       console.error(error);
       Swal.fire(
         "Error",
-        "Something went wrong while deleting registration request.",
+        "Something went wrong while deleting inquiry.",
         "error"
       );
     } finally {
@@ -444,28 +374,28 @@ const markRequestAsRegistered = async (row) => {
 
   const statCards = [
     {
-      title: "Total Requests",
+      title: "Total Inquiries",
       value: stats.total,
       icon: "mdi:clipboard-list-outline",
       className: "bg-primary-50 text-primary-600",
     },
     {
-      title: "Not Registered",
-      value: stats.notRegistered,
-      icon: "mdi:account-alert-outline",
-      className: "bg-danger-focus text-danger-main",
+      title: "New",
+      value: stats.fresh,
+      icon: "mdi:clipboard-plus-outline",
+      className: "bg-primary-50 text-primary-600",
     },
     {
-      title: "Registered",
-      value: stats.registered,
+      title: "Contacted",
+      value: stats.contacted,
+      icon: "mdi:phone-check-outline",
+      className: "bg-info-focus text-info-main",
+    },
+    {
+      title: "Converted",
+      value: stats.converted,
       icon: "mdi:account-check-outline",
       className: "bg-success-focus text-success-main",
-    },
-    {
-      title: "Follow-ups",
-      value: stats.contacted + stats.pending,
-      icon: "mdi:phone-in-talk-outline",
-      className: "bg-warning-focus text-warning-main",
     },
   ];
 
@@ -498,14 +428,14 @@ const markRequestAsRegistered = async (row) => {
   return (
     <div className="row gy-4">
       <style>{`
-        .rr-card {
+        .gci-card {
           border: 1px solid rgba(0,0,0,.06);
           border-radius: 16px;
           box-shadow: 0 10px 30px rgba(0,0,0,.035);
           overflow: hidden;
         }
 
-        .rr-stat-card {
+        .gci-stat-card {
           border-radius: 16px;
           border: 1px solid rgba(0,0,0,.06);
           background: var(--white);
@@ -514,12 +444,12 @@ const markRequestAsRegistered = async (row) => {
           transition: all .2s ease;
         }
 
-        .rr-stat-card:hover {
+        .gci-stat-card:hover {
           transform: translateY(-2px);
           box-shadow: 0 10px 30px rgba(0,0,0,.06);
         }
 
-        .rr-stat-icon {
+        .gci-stat-icon {
           width: 46px;
           height: 46px;
           border-radius: 14px;
@@ -529,13 +459,13 @@ const markRequestAsRegistered = async (row) => {
           font-size: 24px;
         }
 
-        .rr-toolbar {
+        .gci-toolbar {
           background: linear-gradient(180deg, rgba(72,127,255,.06), rgba(72,127,255,0));
           border-bottom: 1px solid rgba(0,0,0,.06);
           padding: 18px;
         }
 
-        .rr-title-icon {
+        .gci-title-icon {
           width: 44px;
           height: 44px;
           border-radius: 14px;
@@ -547,11 +477,11 @@ const markRequestAsRegistered = async (row) => {
           font-size: 24px;
         }
 
-        .rr-search-wrap {
+        .gci-search-wrap {
           position: relative;
         }
 
-        .rr-search-wrap .rr-search-icon {
+        .gci-search-wrap .gci-search-icon {
           position: absolute;
           left: 14px;
           top: 50%;
@@ -560,11 +490,11 @@ const markRequestAsRegistered = async (row) => {
           font-size: 18px;
         }
 
-        .rr-search-wrap input {
+        .gci-search-wrap input {
           padding-left: 42px;
         }
 
-        .rr-table thead th {
+        .gci-table thead th {
           background: rgba(0,0,0,.025);
           font-size: 12px;
           text-transform: uppercase;
@@ -575,13 +505,13 @@ const markRequestAsRegistered = async (row) => {
           padding-bottom: 14px;
         }
 
-        .rr-table tbody td {
+        .gci-table tbody td {
           vertical-align: middle;
           padding-top: 14px;
           padding-bottom: 14px;
         }
 
-        .rr-avatar {
+        .gci-avatar {
           width: 42px;
           height: 42px;
           border-radius: 50%;
@@ -594,7 +524,7 @@ const markRequestAsRegistered = async (row) => {
           flex: 0 0 auto;
         }
 
-        .rr-contact-link {
+        .gci-contact-link {
           display: inline-flex;
           align-items: center;
           gap: 6px;
@@ -602,11 +532,11 @@ const markRequestAsRegistered = async (row) => {
           text-decoration: none;
         }
 
-        .rr-contact-link:hover {
+        .gci-contact-link:hover {
           color: #487fff;
         }
 
-        .rr-status-pill {
+        .gci-status-pill {
           display: inline-flex;
           align-items: center;
           gap: 6px;
@@ -617,7 +547,7 @@ const markRequestAsRegistered = async (row) => {
           white-space: nowrap;
         }
 
-        .rr-id-badge {
+        .gci-id-badge {
           border-radius: 10px;
           padding: 6px 10px;
           background: rgba(0,0,0,.04);
@@ -625,12 +555,12 @@ const markRequestAsRegistered = async (row) => {
           font-size: 12px;
         }
 
-        .rr-empty {
+        .gci-empty {
           padding: 56px 16px;
           text-align: center;
         }
 
-        .rr-empty-icon {
+        .gci-empty-icon {
           width: 72px;
           height: 72px;
           border-radius: 50%;
@@ -643,22 +573,28 @@ const markRequestAsRegistered = async (row) => {
           margin-bottom: 14px;
         }
 
-        .rr-action-select {
-          min-width: 165px;
+        .gci-action-select {
+          min-width: 155px;
           border-radius: 10px;
         }
 
-        .rr-delete-btn {
+        .gci-delete-btn {
           border-radius: 10px;
           min-width: 92px;
         }
 
-        .rr-footer {
+        .gci-footer {
           padding: 18px 24px 26px;
           min-height: 76px;
         }
 
-        .rr-card .pagination .page-link {
+        .gci-message {
+          max-width: 280px;
+          white-space: normal;
+          line-height: 1.5;
+        }
+
+        .gci-card .pagination .page-link {
           min-width: 34px;
           height: 42px;
           display: flex;
@@ -669,32 +605,22 @@ const markRequestAsRegistered = async (row) => {
           box-shadow: none;
         }
 
-        .rr-card .pagination .page-item.active .page-link {
+        .gci-card .pagination .page-item.active .page-link {
           background: #0d6efd;
           border-color: #0d6efd;
           color: #fff;
         }
 
-        .rr-card .pagination .page-item:first-child .page-link {
-          border-top-left-radius: 6px;
-          border-bottom-left-radius: 6px;
-        }
-
-        .rr-card .pagination .page-item:last-child .page-link {
-          border-top-right-radius: 6px;
-          border-bottom-right-radius: 6px;
-        }
-
         @media (max-width: 767px) {
-          .rr-toolbar {
+          .gci-toolbar {
             padding: 14px;
           }
 
-          .rr-stat-card {
+          .gci-stat-card {
             padding: 14px;
           }
 
-          .rr-footer {
+          .gci-footer {
             padding: 16px;
           }
         }
@@ -704,7 +630,7 @@ const markRequestAsRegistered = async (row) => {
         <div className="row gy-3">
           {statCards.map((card) => (
             <div className="col-xxl-3 col-sm-6" key={card.title}>
-              <div className="rr-stat-card">
+              <div className="gci-stat-card">
                 <div className="d-flex align-items-center justify-content-between gap-3">
                   <div>
                     <span className="text-secondary-light text-sm fw-medium">
@@ -713,7 +639,7 @@ const markRequestAsRegistered = async (row) => {
                     <h4 className="mb-0 mt-1">{card.value}</h4>
                   </div>
 
-                  <div className={`rr-stat-icon ${card.className}`}>
+                  <div className={`gci-stat-icon ${card.className}`}>
                     <Icon icon={card.icon} />
                   </div>
                 </div>
@@ -724,18 +650,18 @@ const markRequestAsRegistered = async (row) => {
       </div>
 
       <div className="col-xxl-12">
-        <div className="card rr-card h-100 p-0">
-          <div className="rr-toolbar">
+        <div className="card gci-card h-100 p-0">
+          <div className="gci-toolbar">
             <div className="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
               <div className="d-flex align-items-center gap-3">
-                <div className="rr-title-icon">
-                  <Icon icon="mdi:account-plus-outline" />
+                <div className="gci-title-icon">
+                  <Icon icon="mdi:account-question-outline" />
                 </div>
 
                 <div>
-                  <h6 className="mb-1">Registration Requests</h6>
+                  <h6 className="mb-1">Group Class Inquiries</h6>
                   <p className="mb-0 text-secondary-light text-sm">
-                    Manage requests and registration status.
+                    Manage group class inquiries from the website.
                   </p>
                 </div>
               </div>
@@ -753,11 +679,11 @@ const markRequestAsRegistered = async (row) => {
             <div className="row gy-2 align-items-end">
               <div className="col-lg-6">
                 <label className="form-label fw-semibold">Search</label>
-                <div className="rr-search-wrap">
-                  <Icon icon="mdi:magnify" className="rr-search-icon" />
+                <div className="gci-search-wrap">
+                  <Icon icon="mdi:magnify" className="gci-search-icon" />
                   <input
                     className="form-control"
-                    placeholder="Search by student, parent, email, phone, school..."
+                    placeholder="Search by programme, student, parent email, phone, school..."
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                   />
@@ -794,14 +720,17 @@ const markRequestAsRegistered = async (row) => {
 
           <div className="card-body p-0">
             <div className="table-responsive">
-              <table className="table rr-table bordered-table mb-0">
+              <table className="table gci-table bordered-table mb-0">
                 <thead>
                   <tr>
-                    <th className="text-center">Request ID</th>
-                    <th>Student Details</th>
-                    <th>Parent Details</th>
-                    <th>School / Year Group</th>
-                    <th className="text-center">Current Status</th>
+                    <th className="text-center">Inquiry ID</th>
+                    <th>Programme</th>
+                    <th>Student</th>
+                    <th>Contact</th>
+                    <th>School / Year</th>
+                    <th>Students</th>
+                    <th>Message</th>
+                    <th className="text-center">Status</th>
                     <th>Submitted On</th>
                     <th className="text-center">Change Status</th>
                     <th className="text-center">Action</th>
@@ -811,13 +740,13 @@ const markRequestAsRegistered = async (row) => {
                 <tbody>
                   {currentRows.length === 0 ? (
                     <tr>
-                      <td colSpan={8}>
-                        <div className="rr-empty">
-                          <div className="rr-empty-icon">
+                      <td colSpan={11}>
+                        <div className="gci-empty">
+                          <div className="gci-empty-icon">
                             <Icon icon="mdi:clipboard-search-outline" />
                           </div>
                           <h6 className="mb-1">
-                            No registration requests found
+                            No group class inquiries found
                           </h6>
                           <p className="mb-0 text-secondary-light">
                             Try changing your search or status filter.
@@ -827,7 +756,7 @@ const markRequestAsRegistered = async (row) => {
                     </tr>
                   ) : (
                     currentRows.map((row) => {
-                      const initials = String(row.studentName || "R")
+                      const initials = String(row.studentName || "I")
                         .trim()
                         .split(" ")
                         .map((x) => x[0])
@@ -842,62 +771,55 @@ const markRequestAsRegistered = async (row) => {
                       return (
                         <tr key={row.key}>
                           <td className="text-center">
-                            <span className="rr-id-badge">#{row.id}</span>
+                            <span className="gci-id-badge">#{row.id}</span>
+                          </td>
+
+                          <td>
+                            <div className="fw-semibold text-primary-light">
+                              {row.programmeFullName || "-"}
+                            </div>
                           </td>
 
                           <td>
                             <div className="d-flex align-items-center gap-3">
-                              <div className="rr-avatar">{initials}</div>
-
+                              <div className="gci-avatar">{initials}</div>
                               <div>
                                 <div className="fw-semibold text-primary-light">
                                   {row.studentName || "-"}
                                 </div>
-
-                                {row.studentEmail ? (
-                                  <a
-                                    className="rr-contact-link text-sm text-secondary-light mt-1"
-                                    href={`mailto:${row.studentEmail}`}
-                                  >
-                                    <Icon icon="mdi:email-outline" />
-                                    {row.studentEmail}
-                                  </a>
-                                ) : (
-                                  <div className="text-secondary-light text-sm mt-1">
-                                    No student email
-                                  </div>
-                                )}
+                                <div className="text-secondary-light text-sm mt-1">
+                                  Year Group:{" "}
+                                  <span className="fw-semibold">
+                                    {row.yearGroup || "-"}
+                                  </span>
+                                </div>
                               </div>
                             </div>
                           </td>
 
                           <td>
-                            <div className="fw-semibold text-primary-light">
-                              {row.parentName || "-"}
-                            </div>
-
-                            <div className="d-flex flex-column gap-1 mt-1">
-                              {row.parentPhoneNumber ? (
+                            <div className="d-flex flex-column gap-1">
+                              {row.contact ? (
                                 <a
-                                  className="rr-contact-link text-sm text-secondary-light"
-                                  href={`tel:${row.parentPhoneNumber}`}
+                                  className="gci-contact-link text-sm text-secondary-light"
+                                  href={`tel:${row.contact}`}
                                 >
                                   <Icon icon="mdi:phone-outline" />
-                                  {row.parentPhoneNumber}
+                                  {row.contact}
                                 </a>
                               ) : (
                                 <span className="text-secondary-light text-sm">
-                                  No phone number
+                                  No phone
                                 </span>
                               )}
 
-                              {row.parentEmailAddress ? (
+                              {row.parentEmail ? (
                                 <a
-                                  className="rr-contact-link text-sm text-secondary-light"
-                                  href={`mailto:${row.parentEmailAddress}`}
+                                  className="gci-contact-link text-sm text-secondary-light"
+                                  href={`mailto:${row.parentEmail}`}
                                 >
                                   <Icon icon="mdi:email-outline" />
-                                  {row.parentEmailAddress}
+                                  {row.parentEmail}
                                 </a>
                               ) : (
                                 <span className="text-secondary-light text-sm">
@@ -909,26 +831,33 @@ const markRequestAsRegistered = async (row) => {
 
                           <td>
                             <div className="fw-semibold text-primary-light">
-                              {row.studentSchool || "-"}
+                              {row.school || "-"}
                             </div>
                             <div className="text-secondary-light text-sm mt-1">
-                              Year Group:{" "}
-                              <span className="fw-semibold">
-                                {row.studentYearGroup || "-"}
-                              </span>
+                              {row.yearGroup || "-"}
+                            </div>
+                          </td>
+
+                          <td>
+                            <span className="fw-semibold">
+                              {row.numberOfStudents || "-"}
+                            </span>
+                          </td>
+
+                          <td>
+                            <div className="text-secondary-light text-sm gci-message">
+                              {row.message || "-"}
                             </div>
                           </td>
 
                           <td className="text-center">
                             <span
-                              className={`rr-status-pill ${getStatusClass(
-                                row.registrationStatus
+                              className={`gci-status-pill ${getStatusClass(
+                                row.inquiryStatus
                               )}`}
                             >
-                              <Icon
-                                icon={getStatusIcon(row.registrationStatus)}
-                              />
-                              {row.registrationStatus || "-"}
+                              <Icon icon={getStatusIcon(row.inquiryStatus)} />
+                              {row.inquiryStatus || "-"}
                             </span>
                           </td>
 
@@ -940,8 +869,8 @@ const markRequestAsRegistered = async (row) => {
 
                           <td className="text-center">
                             <select
-                              className="form-select form-select-sm rr-action-select mx-auto"
-                              value={row.registrationStatus || ""}
+                              className="form-select form-select-sm gci-action-select mx-auto"
+                              value={row.inquiryStatus || ""}
                               disabled={isBusy}
                               onChange={(e) =>
                                 handleStatusUpdate(row, e.target.value)
@@ -956,37 +885,19 @@ const markRequestAsRegistered = async (row) => {
                           </td>
 
                           <td className="text-center">
-  <div className="d-flex justify-content-center gap-2">
-    <button
-      type="button"
-      className="btn btn-sm btn-primary d-inline-flex align-items-center justify-content-center gap-1"
-      onClick={() => openRegisterStudentModal(row)}
-      disabled={
-        isBusy ||
-        String(row.registrationStatus || "").toLowerCase() === "registered"
-      }
-      title={
-        String(row.registrationStatus || "").toLowerCase() === "registered"
-          ? "Already Registered"
-          : "Register Student"
-      }
-    >
-      <Icon icon="ic:round-person-add" />
-      Register
-    </button>
-
-    <button
-      type="button"
-      className="btn btn-sm btn-outline-danger rr-delete-btn d-inline-flex align-items-center justify-content-center gap-1"
-      onClick={() => handleSoftDelete(row)}
-      disabled={isBusy}
-      title="Delete Request"
-    >
-      <Icon icon="mdi:trash-can-outline" />
-      {Number(deletingId) === Number(row.id) ? "Deleting..." : "Delete"}
-    </button>
-  </div>
-</td>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-outline-danger gci-delete-btn d-inline-flex align-items-center justify-content-center gap-1"
+                              onClick={() => handleSoftDelete(row)}
+                              disabled={isBusy}
+                              title="Delete Inquiry"
+                            >
+                              <Icon icon="mdi:trash-can-outline" />
+                              {Number(deletingId) === Number(row.id)
+                                ? "Deleting..."
+                                : "Delete"}
+                            </button>
+                          </td>
                         </tr>
                       );
                     })
@@ -995,7 +906,7 @@ const markRequestAsRegistered = async (row) => {
               </table>
             </div>
 
-            <div className="rr-footer d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div className="gci-footer d-flex flex-wrap justify-content-between align-items-center gap-2">
               <span className="text-secondary-light fw-medium">
                 Showing {filteredRows.length === 0 ? 0 : indexOfFirst + 1} to{" "}
                 {Math.min(indexOfLast, filteredRows.length)} of{" "}
@@ -1022,30 +933,9 @@ const markRequestAsRegistered = async (row) => {
             </div>
           </div>
         </div>
-            </div>
-
-      {showRegisterStudentModal && selectedRegisterRow && (
-        <RegisterStudentModal
-          show={showRegisterStudentModal}
-          seed={{
-            fullname: getStudentNameFromParentName(
-              selectedRegisterRow.studentName,
-              selectedRegisterRow.parentName
-            ),
-            email: selectedRegisterRow.studentEmail || "",
-            phone: selectedRegisterRow.parentPhoneNumber || "",
-            parentemail: selectedRegisterRow.parentEmailAddress || "",
-          }}
-          onClose={closeRegisterStudentModal}
-          onSave={async () => {
-            await markRequestAsRegistered(selectedRegisterRow);
-            closeRegisterStudentModal();
-            await fetchRows();
-          }}
-        />
-      )}
+      </div>
     </div>
   );
 };
 
-export default RegistrationRequestsLayer;
+export default GroupClassInquiriesLayer;
