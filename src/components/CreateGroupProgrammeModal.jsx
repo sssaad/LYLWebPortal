@@ -209,7 +209,7 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
     });
   };
 
-    const startCopy = (item) => {
+  const startCopy = (item) => {
     setEditingProgramme(null);
 
     setForm({
@@ -1194,7 +1194,7 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
                               </div>
                             </div>
 
-                                                        <div className="gp-action-row">
+                            <div className="gp-action-row">
                               <button
                                 type="button"
                                 className="btn btn-primary btn-sm gp-action-btn"
@@ -1214,6 +1214,7 @@ const CreateGroupProgrammeModal = ({ open, onClose, onSuccess }) => {
                                 aria-label="Copy curriculum"
                               >
                                 <Icon icon="mdi:content-copy" />
+                                Copy
                               </button>
 
                               <button
