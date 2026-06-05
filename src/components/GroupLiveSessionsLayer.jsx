@@ -26,6 +26,16 @@ const API_HEADERS = {
 const STATUS_OPTIONS = ["active", "completed", "cancelled"];
 const PORTAL_TIMEZONE = "Asia/Dubai";
 
+const getStatusLabel = (status) => {
+  const s = String(status || "").toLowerCase();
+
+  if (s === "active") return "Active";
+  if (s === "completed") return "Completed";
+  if (s === "cancelled") return "Paused";
+
+  return status || "-";
+};
+
 const resolveToken = (tokenRes) => {
   if (typeof tokenRes === "string") return tokenRes;
 
@@ -127,7 +137,7 @@ const getStatusBadgeClass = (status) => {
 
   if (s === "active") return "bg-success";
   if (s === "completed") return "bg-primary";
-  if (s === "cancelled") return "bg-danger";
+  if (s === "cancelled") return "bg-warning text-dark";
 
   return "bg-secondary";
 };
@@ -443,7 +453,7 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
             </div>
             <div className="mt-2 d-flex flex-wrap gap-2">
               <span className={`badge ${getStatusBadgeClass(programme.status)}`}>
-                {programme.status || "active"}
+                {getStatusLabel(programme.status || "active")}
               </span>
               {programme.group_batch_id ? (
                 <span className="badge bg-secondary">
@@ -569,7 +579,7 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
                           session?.status
                         )}`}
                       >
-                        {session?.status || "-"}
+                        {getStatusLabel(session?.status)}
                       </span>
                     </div>
                   </div>
@@ -715,6 +725,7 @@ const GroupLiveSessionsLayer = () => {
           programme_id: item?.programme_id,
           group_batch_id: groupBatchId,
           show_on_web: Number(item?.show_on_web ?? 1),
+          web_sort_order: Number(item?.web_sort_order || 0),
           web_visibility:
             Number(item?.show_on_web ?? 1) === 1 ? "Public" : "Private",
           programme_name: item?.programme_name || "-",
@@ -801,6 +812,18 @@ const GroupLiveSessionsLayer = () => {
         const sb = statusOrder[String(b.status || "").toLowerCase()] || 9;
 
         if (sa !== sb) return sa - sb;
+
+        const wa =
+          Number(a.web_sort_order || 0) === 0
+            ? 999999
+            : Number(a.web_sort_order || 0);
+
+        const wb =
+          Number(b.web_sort_order || 0) === 0
+            ? 999999
+            : Number(b.web_sort_order || 0);
+
+        if (wa !== wb) return wa - wb;
 
         const ba = Number(a.group_batch_id || 0);
         const bb = Number(b.group_batch_id || 0);
@@ -955,8 +978,8 @@ const GroupLiveSessionsLayer = () => {
           <div style="margin-top:10px;">
             <strong>Curriculum:</strong> ${programme?.programme_name || "-"}<br/>
             <strong>Classes:</strong> ${sessionIds.length}<br/>
-            <strong>Current:</strong> ${currentStatus}<br/>
-            <strong>New:</strong> ${nextStatus}
+            <strong>Current:</strong> ${getStatusLabel(currentStatus)}<br/>
+<strong>New:</strong> ${getStatusLabel(nextStatus)}
           </div>
         </div>
       `,
@@ -1031,7 +1054,7 @@ const GroupLiveSessionsLayer = () => {
       Swal.fire({
         icon: "error",
         title: "Curriculum Missing",
-text: "Curriculum data not found.",
+        text: "Curriculum data not found.",
       });
       return;
     }
@@ -1333,7 +1356,7 @@ text: "Curriculum data not found.",
             <option value="">Status: All</option>
             <option value="active">Active</option>
             <option value="completed">Completed</option>
-            <option value="cancelled">Cancelled</option>
+            <option value="cancelled">Paused</option>
           </select>
 
           <button
@@ -1447,6 +1470,14 @@ text: "Curriculum data not found.",
                             />
                             {Number(programme.show_on_web ?? 1) === 1 ? "Public" : "Private"}
                           </div>
+                          <div className="gl-batch-text">
+                            Web Sort Order:{" "}
+                            <strong>
+                              {Number(programme.web_sort_order || 0) === 0
+                                ? "Default"
+                                : programme.web_sort_order}
+                            </strong>
+                          </div>
                         </td>
 
                         <td>{programme.programme_stage || "-"}</td>
@@ -1474,7 +1505,7 @@ text: "Curriculum data not found.",
                                   currentStatus
                                 )}`}
                               >
-                                {currentStatus}
+                                {getStatusLabel(currentStatus)}
                               </span>
                             </div>
                           ) : (
@@ -1485,7 +1516,7 @@ text: "Curriculum data not found.",
                                     currentStatus
                                   )}`}
                                 >
-                                  Current: {currentStatus}
+                                  Current: {getStatusLabel(currentStatus)}
                                 </span>
                               </div>
 
@@ -1503,7 +1534,7 @@ text: "Curriculum data not found.",
                                 >
                                   {STATUS_OPTIONS.map((status) => (
                                     <option key={status} value={status}>
-                                      {status}
+                                      {getStatusLabel(status)}
                                     </option>
                                   ))}
                                 </select>
@@ -1556,8 +1587,8 @@ text: "Curriculum data not found.",
                                 className="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1 gl-copy-link-btn"
                                 onClick={async () => {
                                   const link = `https://gostudy.ae/group-tuition/${programme.programme_id}${programme.group_batch_id
-                                      ? `?group_batch_id=${programme.group_batch_id}`
-                                      : ""
+                                    ? `?group_batch_id=${programme.group_batch_id}`
+                                    : ""
                                     }`;
 
                                   try {

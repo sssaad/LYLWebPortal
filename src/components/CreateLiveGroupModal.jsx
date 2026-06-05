@@ -382,6 +382,7 @@ const CreateLiveGroupModal = ({
     capacity: "10",
     status: "active",
     show_on_web: "1",
+    web_sort_order: "0",
   });
 
   const [classes, setClasses] = useState([makeEmptyClass(0)]);
@@ -492,6 +493,7 @@ const CreateLiveGroupModal = ({
       capacity: String(programme?.capacity || firstSession?.capacity || "10"),
       status: String(programme?.status || firstSession?.status || "active"),
       show_on_web: String(programme?.show_on_web ?? firstSession?.show_on_web ?? 1),
+      web_sort_order: String(programme?.web_sort_order ?? firstSession?.web_sort_order ?? 0),
     });
 
     const mappedClasses = editSessions.map((session, index) => {
@@ -598,6 +600,7 @@ const CreateLiveGroupModal = ({
           capacity: String(preselectedProgramme.capacity || prev.capacity),
           status: String(preselectedProgramme.status || prev.status),
           show_on_web: String(preselectedProgramme.show_on_web ?? prev.show_on_web ?? 1),
+          web_sort_order: String(preselectedProgramme.web_sort_order ?? prev.web_sort_order ?? 0),
         }));
       }
 
@@ -621,6 +624,7 @@ const CreateLiveGroupModal = ({
       capacity: "10",
       status: "active",
       show_on_web: "1",
+      web_sort_order: "0",
     });
 
     setClasses([makeEmptyClass(0)]);
@@ -864,20 +868,20 @@ const CreateLiveGroupModal = ({
         : "";
 
       setClassPatch(index, {
-  subjectOptions,
-  subjectLoading: false,
-  subjectError: subjectOptions.length
-    ? ""
-    : "No subjects found for this teacher.",
-  subjectid: firstSubjectId,
-  title:
-    selectedProgrammeName && firstSubject
-      ? `${selectedProgrammeName} - ${getSubjectName(firstSubject)}`
-      : "",
+        subjectOptions,
+        subjectLoading: false,
+        subjectError: subjectOptions.length
+          ? ""
+          : "No subjects found for this teacher.",
+        subjectid: firstSubjectId,
+        title:
+          selectedProgrammeName && firstSubject
+            ? `${selectedProgrammeName} - ${getSubjectName(firstSubject)}`
+            : "",
 
-  teacher_timezoneid: teacherTimezone.timezoneid,
-  teacher_timezone_location: teacherTimezone.timezone_location,
-});
+        teacher_timezoneid: teacherTimezone.timezoneid,
+        teacher_timezone_location: teacherTimezone.timezone_location,
+      });
     } catch (err) {
       console.error("Teacher subjects load failed:", err);
 
@@ -898,27 +902,27 @@ const CreateLiveGroupModal = ({
   };
 
   const handleSubjectChange = (index, subjectid) => {
-  setClasses((prev) =>
-    prev.map((item, i) => {
-      if (i !== index) return item;
+    setClasses((prev) =>
+      prev.map((item, i) => {
+        if (i !== index) return item;
 
-      const selectedSubject = (item?.subjectOptions || []).find(
-        (s) => String(getSubjectId(s)) === String(subjectid)
-      );
+        const selectedSubject = (item?.subjectOptions || []).find(
+          (s) => String(getSubjectId(s)) === String(subjectid)
+        );
 
-      const subjectName = getSubjectName(selectedSubject);
+        const subjectName = getSubjectName(selectedSubject);
 
-      return {
-        ...item,
-        subjectid,
-        title:
-          selectedProgrammeName && subjectName
-            ? `${selectedProgrammeName} - ${subjectName}`
-            : item.title,
-      };
-    })
-  );
-};
+        return {
+          ...item,
+          subjectid,
+          title:
+            selectedProgrammeName && subjectName
+              ? `${selectedProgrammeName} - ${subjectName}`
+              : item.title,
+        };
+      })
+    );
+  };
 
   const handleStartTimeChange = (index, startTime) => {
     const autoEndTime = addOneHourToTime(startTime);
@@ -1079,6 +1083,7 @@ const CreateLiveGroupModal = ({
 
         status: item.status || form.status || "active",
         show_on_web: Number(form.show_on_web ?? 1),
+        web_sort_order: Number(form.web_sort_order || 0),
         createddate: batchCreatedDate,
       };
     });
@@ -1114,6 +1119,7 @@ const CreateLiveGroupModal = ({
 
       status: item.status || form.status || "active",
       show_on_web: Number(form.show_on_web ?? 1),
+      web_sort_order: Number(form.web_sort_order || 0),
     };
   };
 
@@ -1562,6 +1568,70 @@ const CreateLiveGroupModal = ({
   font-weight: 900;
 }
 
+.gl-web-settings-row {
+  display: grid;
+  grid-template-columns: 1fr 150px 60px;
+  align-items: center;
+  gap: 18px;
+}
+
+.gl-web-visibility-content {
+  min-width: 0;
+}
+
+.gl-web-sort-wrap {
+  width: 150px;
+}
+
+.gl-web-sort-label {
+  color: #dbe4f0;
+  font-size: 12px;
+  font-weight: 900;
+  margin-bottom: 6px;
+  display: block;
+}
+
+.gl-web-sort-input {
+  width: 100%;
+  height: 42px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: #1b2738;
+  color: #ffffff;
+  padding: 0 12px;
+  font-size: 14px;
+  font-weight: 900;
+  outline: none;
+}
+
+.gl-web-sort-input:focus {
+  border-color: #3b82f6;
+}
+
+.gl-web-sort-help {
+  display: block;
+  color: #9fb0c8;
+  font-size: 10px;
+  font-weight: 700;
+  margin-top: 5px;
+  line-height: 1.3;
+}
+
+@media (max-width: 767px) {
+  .gl-web-settings-row {
+    grid-template-columns: 1fr;
+    align-items: flex-start;
+  }
+
+  .gl-web-sort-wrap {
+    width: 100%;
+  }
+
+  .gl-visibility-switch {
+    margin-left: auto;
+  }
+}
+
 .gl-visibility-badge-public {
   color: #86efac;
   background: rgba(34, 197, 94, 0.12);
@@ -1955,7 +2025,7 @@ const CreateLiveGroupModal = ({
             <div className="gl-create-subtitle">
               {isEditMode
                 ? "Update curriculum classes, teacher, subject, timezone, date and time."
-: "Select curriculum and create one or more live classes."}
+                : "Select curriculum and create one or more live classes."}
             </div>
           </div>
 
@@ -2046,9 +2116,10 @@ const CreateLiveGroupModal = ({
                 </div>
                 <div className="col-lg-12">
                   <div className="gl-visibility-card">
-                    <div className="gl-visibility-toggle-row">
-                      <div>
+                    <div className="gl-web-settings-row">
+                      <div className="gl-web-visibility-content">
                         <div className="gl-visibility-title">Website Visibility</div>
+
                         <div className="gl-visibility-subtitle">
                           If public, this batch will appear on the website listing. If private, it will be hidden from the listing but users can still book through the direct link.
                         </div>
@@ -2063,6 +2134,24 @@ const CreateLiveGroupModal = ({
                             ? "Public Batch"
                             : "Private Batch"}
                         </span>
+                      </div>
+
+                      <div className="gl-web-sort-wrap">
+                        <label className="gl-web-sort-label">Sort Order</label>
+
+                        <input
+                          type="number"
+                          className="gl-web-sort-input"
+                          min="0"
+                          value={form.web_sort_order}
+                          onChange={(e) => setField("web_sort_order", e.target.value)}
+                          placeholder="1"
+                          disabled={loading}
+                        />
+
+                        <small className="gl-web-sort-help">
+                          Lower number appears first
+                        </small>
                       </div>
 
                       <label className="gl-visibility-switch">
@@ -2230,18 +2319,18 @@ const CreateLiveGroupModal = ({
                       </div>
 
                       <div className="col-lg-4 col-md-12">
-  <label className="form-label">Session Title</label>
-  <input
-    type="text"
-    className="form-control"
-    value={item.title}
-    onChange={(e) =>
-      updateClass(index, "title", e.target.value)
-    }
-    placeholder={autoTitle}
-    disabled={loading}
-  />
-</div>
+                        <label className="form-label">Session Title</label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={item.title}
+                          onChange={(e) =>
+                            updateClass(index, "title", e.target.value)
+                          }
+                          placeholder={autoTitle}
+                          disabled={loading}
+                        />
+                      </div>
 
                       <div className="col-lg-4 col-md-6">
                         <label className="form-label">Session Date</label>
@@ -2330,6 +2419,12 @@ const CreateLiveGroupModal = ({
                 {Number(form.show_on_web ?? 1) === 1
                   ? "Public - Show on website listing"
                   : "Private - Hide from listing, direct link booking allowed"}
+              </div>
+              <div className="gl-preview-line">
+                <strong>Web Sort Order:</strong>{" "}
+                {Number(form.web_sort_order || 0) === 0
+                  ? "Default"
+                  : Number(form.web_sort_order || 0)}
               </div>
 
               {previewClasses.map((item) => (

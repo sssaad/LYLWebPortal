@@ -154,16 +154,19 @@ const StudentfeedbackLayer = () => {
   const perPage = 15;
 
   const [savingReview, setSavingReview] = useState(false);
+  const [publishingId, setPublishingId] = useState(null);
   const [isDarkTheme, setIsDarkTheme] = useState(false);
 
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [publishFilter, setPublishFilter] = useState("all");
 
   const resetFilters = () => {
     setSearch("");
     setDateFrom("");
     setDateTo("");
+    setPublishFilter("all");
     setCurrentPage(1);
   };
 
@@ -309,6 +312,10 @@ const StudentfeedbackLayer = () => {
               rating: clampRating(item.rating),
               review: item.review ?? "",
 
+              publishedOnWeb: Number(item.published_on_web || 0),
+              publishStatusLabel:
+                Number(item.published_on_web || 0) === 1 ? "Published" : "Unpublished",
+
               subjectName: item.subjectname ?? item.subject_name ?? "",
             };
           });
@@ -385,6 +392,14 @@ const StudentfeedbackLayer = () => {
         if (toTs != null && targetTs > toTs) return false;
       }
 
+      if (publishFilter === "published" && Number(r.publishedOnWeb || 0) !== 1) {
+        return false;
+      }
+
+      if (publishFilter === "unpublished" && Number(r.publishedOnWeb || 0) === 1) {
+        return false;
+      }
+
       if (q) {
         const blob = `
           ${r.bookingid ?? ""}
@@ -419,7 +434,7 @@ const StudentfeedbackLayer = () => {
     });
 
     return filtered;
-  }, [rows, search, dateFrom, dateTo]);
+  }, [rows, search, dateFrom, dateTo, publishFilter]);
 
   const indexOfLast = currentPage * perPage;
   const indexOfFirst = indexOfLast - perPage;
@@ -435,7 +450,7 @@ const StudentfeedbackLayer = () => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, dateFrom, dateTo]);
+  }, [search, dateFrom, dateTo, publishFilter]);
 
   const openReviewModal = (row) => {
     setCurrentRow({
@@ -455,6 +470,94 @@ const StudentfeedbackLayer = () => {
       ...prev,
       rating: clampRating(value),
     }));
+  };
+
+  const handlePublishToggle = async (row) => {
+    if (!row?.ratingReviewId) {
+      return Swal.fire(
+        "Error",
+        "rating_review ID is missing. The update cannot be completed.",
+        "error"
+      );
+    }
+
+    const nextValue = Number(row.publishedOnWeb || 0) === 1 ? 0 : 1;
+
+    const confirm = await Swal.fire({
+      title: nextValue === 1 ? "Publish Review?" : "Unpublish Review?",
+      text:
+        nextValue === 1
+          ? "This review will be visible on the website landing page."
+          : "This review will be hidden from the website landing page.",
+      icon: "question",
+      showCancelButton: true,
+      confirmButtonText: nextValue === 1 ? "Yes, Publish" : "Yes, Unpublish",
+      cancelButtonText: "Cancel",
+    });
+
+    if (!confirm.isConfirmed) return;
+
+    try {
+      setPublishingId(row.ratingReviewId);
+
+      const token = await getToken();
+      if (!token) throw new Error("Token not found");
+
+      const payload = {
+        token,
+        tablename: "rating_review",
+        conditions: [{ id: Number(row.ratingReviewId) }],
+        updatedata: [
+          {
+            published_on_web: nextValue,
+          },
+        ],
+      };
+
+      const res = await axios.post(UPDATE_DYNAMIC_URL, payload, {
+        headers: BASE_HEADERS,
+      });
+
+      const ok = res?.data?.statusCode === 200;
+
+      if (!ok) {
+        return Swal.fire(
+          "Error",
+          res?.data?.message || "Failed to update publish status.",
+          "error"
+        );
+      }
+
+      setRows((prev) =>
+        prev.map((r) =>
+          Number(r.ratingReviewId) === Number(row.ratingReviewId)
+            ? {
+              ...r,
+              publishedOnWeb: nextValue,
+              publishStatusLabel:
+                nextValue === 1 ? "Published" : "Unpublished",
+            }
+            : r
+        )
+      );
+
+      Swal.fire(
+        "Updated!",
+        nextValue === 1
+          ? "Review published on website successfully."
+          : "Review unpublished from website successfully.",
+        "success"
+      );
+    } catch (error) {
+      console.error(error);
+      Swal.fire(
+        "Error",
+        "Something went wrong while updating publish status.",
+        "error"
+      );
+    } finally {
+      setPublishingId(null);
+    }
   };
 
   const handleSaveReview = async () => {
@@ -730,6 +833,70 @@ const StudentfeedbackLayer = () => {
           opacity: 1;
         }
 
+        .rr-publish-toggle {
+  min-width: 132px;
+  height: 34px;
+  border: 1px solid rgba(108, 117, 125, 0.35);
+  background: rgba(108, 117, 125, 0.12);
+  color: #6c757d;
+  border-radius: 999px;
+  padding: 4px 7px 4px 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  transition: all 0.2s ease;
+}
+
+.rr-publish-toggle:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: rgba(108, 117, 125, 0.18);
+}
+
+.rr-publish-toggle:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.rr-publish-switch {
+  width: 34px;
+  height: 18px;
+  border-radius: 999px;
+  background: #8b95a5;
+  position: relative;
+  flex: 0 0 auto;
+  transition: all 0.2s ease;
+}
+
+.rr-publish-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffffff;
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
+}
+
+.rr-publish-toggle.is-published {
+  border-color: rgba(69, 179, 105, 0.35);
+  background: rgba(69, 179, 105, 0.12);
+  color: #45b369;
+}
+
+.rr-publish-toggle.is-published .rr-publish-switch {
+  background: #45b369;
+}
+
+.rr-publish-toggle.is-published .rr-publish-dot {
+  left: 18px;
+}
+
         .rr-action-btn{
           min-width: 92px;
         }
@@ -767,6 +934,18 @@ const StudentfeedbackLayer = () => {
                   />
                 </div>
 
+                <div style={{ minWidth: 190 }}>
+                  <select
+                    className="form-select"
+                    value={publishFilter}
+                    onChange={(e) => setPublishFilter(e.target.value)}
+                  >
+                    <option value="all">All Web Status</option>
+                    <option value="published">Published</option>
+                    <option value="unpublished">Unpublished</option>
+                  </select>
+                </div>
+
                 <button
                   type="button"
                   className="btn btn-outline-secondary"
@@ -791,6 +970,7 @@ const StudentfeedbackLayer = () => {
                     <th className="text-center">Slot Start</th>
                     <th className="text-center">Slot End</th>
                     <th className="text-center">Rating</th>
+                    <th className="text-center">Web Status</th>
                     <th className="text-center">Action</th>
                   </tr>
                 </thead>
@@ -798,7 +978,7 @@ const StudentfeedbackLayer = () => {
                 <tbody>
                   {currentRows.length === 0 ? (
                     <tr>
-                      <td className="text-center" colSpan={8}>
+                      <td className="text-center" colSpan={10}>
                         No records found.
                       </td>
                     </tr>
@@ -831,13 +1011,38 @@ const StudentfeedbackLayer = () => {
                           <td className="text-center">{row.slotStart || "-"}</td>
                           <td className="text-center">{row.slotEnd || "-"}</td>
                           <td className="text-center">
-                            <div className="d-flex justify-content-center align-items-center" style={{ height: "100%" }}>
+                            <div
+                              className="d-flex justify-content-center align-items-center"
+                              style={{ height: "100%" }}
+                            >
                               {row.rating > 0 ? (
                                 renderStars(row.rating, null, true, 18)
                               ) : (
                                 "-"
                               )}
                             </div>
+                          </td>
+
+                          <td className="text-center">
+                            <button
+                              type="button"
+                              className={`rr-publish-toggle ${Number(row.publishedOnWeb || 0) === 1 ? "is-published" : ""
+                                }`}
+                              disabled={Number(publishingId) === Number(row.ratingReviewId)}
+                              onClick={() => handlePublishToggle(row)}
+                              title={
+                                Number(row.publishedOnWeb || 0) === 1
+                                  ? "Click to unpublish from website"
+                                  : "Click to publish on website"
+                              }
+                            >
+                              <span className="rr-publish-text">
+                                {Number(row.publishedOnWeb || 0) === 1 ? "Published" : "Unpublished"}
+                              </span>
+                              <span className="rr-publish-switch">
+                                <span className="rr-publish-dot" />
+                              </span>
+                            </button>
                           </td>
 
                           <td className="text-center">
