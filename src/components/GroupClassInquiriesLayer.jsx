@@ -121,7 +121,7 @@ const GroupClassInquiriesLayer = () => {
     } catch (error) {
       console.error(error);
       setRows([]);
-      Swal.fire("Error", "Failed to load group class inquiries.", "error");
+      Swal.fire("Error", "Failed to load group class enquiries.", "error");
     } finally {
       setInitialLoading(false);
     }
@@ -214,14 +214,14 @@ const GroupClassInquiriesLayer = () => {
 
   const handleStatusUpdate = async (row, newStatus) => {
     if (!row?.id) {
-      return Swal.fire("Error", "Inquiry ID is missing.", "error");
+      return Swal.fire("Error", "Enquiry ID is missing.", "error");
     }
 
     if (!newStatus || newStatus === row.inquiryStatus) return;
 
     const confirm = await Swal.fire({
       title: "Update Status?",
-      text: `Do you want to update this inquiry status to "${newStatus}"?`,
+      text: `Do you want to update this Enquiry status to "${newStatus}"?`,
       icon: "question",
       showCancelButton: true,
       confirmButtonText: "Yes, Update",
@@ -278,7 +278,7 @@ const GroupClassInquiriesLayer = () => {
       Swal.fire({
         icon: "success",
         title: "Updated!",
-        text: "Inquiry status updated successfully.",
+        text: "Enquiry status updated successfully.",
         timer: 1400,
         showConfirmButton: false,
       });
@@ -296,12 +296,12 @@ const GroupClassInquiriesLayer = () => {
 
   const handleSoftDelete = async (row) => {
     if (!row?.id) {
-      return Swal.fire("Error", "Inquiry ID is missing.", "error");
+      return Swal.fire("Error", "Enquiry ID is missing.", "error");
     }
 
     const confirm = await Swal.fire({
-      title: "Delete Inquiry?",
-      text: "Are you sure you want to delete this inquiry?",
+      title: "Delete Enquiry?",
+      text: "Are you sure you want to delete this enquiry?",
       icon: "warning",
       showCancelButton: true,
       confirmButtonText: "Yes, Delete",
@@ -356,7 +356,7 @@ const GroupClassInquiriesLayer = () => {
       Swal.fire({
         icon: "success",
         title: "Deleted!",
-        text: "Inquiry deleted successfully.",
+        text: "Enquiry deleted successfully.",
         timer: 1400,
         showConfirmButton: false,
       });
@@ -374,7 +374,7 @@ const GroupClassInquiriesLayer = () => {
 
   const statCards = [
     {
-      title: "Total Inquiries",
+      title: "Total Enquiries",
       value: stats.total,
       icon: "mdi:clipboard-list-outline",
       className: "bg-primary-50 text-primary-600",
@@ -659,9 +659,9 @@ const GroupClassInquiriesLayer = () => {
                 </div>
 
                 <div>
-                  <h6 className="mb-1">Group Class Inquiries</h6>
+                  <h6 className="mb-1">Group Class Enquiries</h6>
                   <p className="mb-0 text-secondary-light text-sm">
-                    Manage group class inquiries from the website.
+                    Manage group class enquiries from the website.
                   </p>
                 </div>
               </div>
@@ -723,7 +723,7 @@ const GroupClassInquiriesLayer = () => {
               <table className="table gci-table bordered-table mb-0">
                 <thead>
                   <tr>
-                    <th className="text-center">Inquiry ID</th>
+                    <th className="text-center">Enquiry ID</th>
                     <th>Programme</th>
                     <th>Student</th>
                     <th>Contact</th>
@@ -746,7 +746,7 @@ const GroupClassInquiriesLayer = () => {
                             <Icon icon="mdi:clipboard-search-outline" />
                           </div>
                           <h6 className="mb-1">
-                            No group class inquiries found
+                            No group class enquiries found
                           </h6>
                           <p className="mb-0 text-secondary-light">
                             Try changing your search or status filter.
@@ -890,7 +890,7 @@ const GroupClassInquiriesLayer = () => {
                               className="btn btn-sm btn-outline-danger gci-delete-btn d-inline-flex align-items-center justify-content-center gap-1"
                               onClick={() => handleSoftDelete(row)}
                               disabled={isBusy}
-                              title="Delete Inquiry"
+                              title="Delete Enquiry"
                             >
                               <Icon icon="mdi:trash-can-outline" />
                               {Number(deletingId) === Number(row.id)

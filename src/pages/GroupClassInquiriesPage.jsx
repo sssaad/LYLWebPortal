@@ -6,7 +6,7 @@ import GroupClassInquiriesLayer from "../components/GroupClassInquiriesLayer";
 const GroupClassInquiriesPage = () => {
   return (
     <MasterLayout>
-      <Breadcrumb title="Group Class Inquiries" />
+      <Breadcrumb title="Group Class Enquiries" />
       <GroupClassInquiriesLayer />
     </MasterLayout>
   );

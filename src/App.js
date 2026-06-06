@@ -228,7 +228,7 @@ function App() {
           ["/inperson-bookings", InpersonBookingPage],
           ["/leads-centre", LeadCentrePage],
           ["/registration-requests", RegistrationRequestsPage],
-          ["/group-class-inquiries", GroupClassInquiriesPage],
+          ["/group-class-enquiries", GroupClassInquiriesPage],
           ["/star-rating", StarRatingPage],
           ["/starred", StarredPage],
           ["/switch", SwitchPage],
