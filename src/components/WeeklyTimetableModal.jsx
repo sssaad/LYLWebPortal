@@ -25,7 +25,8 @@ const BASE_HEADERS = {
 
 const TABLE_NAME = "group_weekly_timetable";
 const TIMETABLE_SP = "sp_get_group_weekly_timetable";
-const PROGRAMMES_SP = "sp_get_group_live_programmes";
+const PROGRAMMES_SP = "sp_get_group_programmes_lookup";
+const SUBJECTS_SP = "sp_get_subjects_lookup";
 
 const DEFAULT_TIMEZONE_ID = 7;
 const DEFAULT_TIMEZONE_LOCATION = "Asia/Dubai";
@@ -43,6 +44,7 @@ const DAYS = [
 const getInitialForm = () => ({
   id: null,
   programme_id: "",
+  subjectid: "",
   day_of_week: "",
   slot_start: "",
   slot_end: "",
@@ -170,6 +172,7 @@ const dbTime = (value) => {
 const WeeklyTimetableModal = ({ onClose }) => {
   const [rows, setRows] = useState([]);
   const [programmes, setProgrammes] = useState([]);
+  const [subjects, setSubjects] = useState([]);
   const [timezones, setTimezones] = useState([]);
 
   const [loading, setLoading] = useState(true);
@@ -278,6 +281,37 @@ const WeeklyTimetableModal = ({ onClose }) => {
     }
   }, []);
 
+  const fetchSubjects = useCallback(async () => {
+    try {
+      const headers = await getHeaders();
+
+      const res = await axios.post(
+        RUN_SP_URL,
+        {
+          procedureName: SUBJECTS_SP,
+          parameters: [],
+        },
+        { headers }
+      );
+
+      const list = extractRows(res);
+
+      const mapped = list
+        .map((item) => ({
+          id: item.id || item.subjectid,
+          subjectname: item.subjectname || item.subject_name || item.name,
+        }))
+        .filter((item) => item.id && item.subjectname);
+
+      setSubjects(
+        Array.from(new Map(mapped.map((item) => [String(item.id), item])).values())
+      );
+    } catch (error) {
+      console.error("Subjects load failed:", error);
+      setSubjects([]);
+    }
+  }, []);
+
   const fetchTimezones = useCallback(async () => {
     try {
       const res = await getTimezonesLookup();
@@ -312,11 +346,11 @@ const WeeklyTimetableModal = ({ onClose }) => {
     try {
       setLookupsLoading(true);
 
-      await Promise.all([fetchProgrammes(), fetchTimezones()]);
+      await Promise.all([fetchProgrammes(), fetchSubjects(), fetchTimezones()]);
     } finally {
       setLookupsLoading(false);
     }
-  }, [fetchProgrammes, fetchTimezones]);
+  }, [fetchProgrammes, fetchSubjects, fetchTimezones]);
 
   useEffect(() => {
     fetchTimetable();
@@ -333,13 +367,15 @@ const WeeklyTimetableModal = ({ onClose }) => {
 
       if (q) {
         const blob = `
-          ${row.programme_name || ""}
-          ${row.day_name || ""}
-          ${row.slot_start || ""}
-          ${row.slot_end || ""}
-          ${row.timezone_location || ""}
-          ${row.timezoneid || ""}
-        `.toLowerCase();
+  ${row.programme_name || ""}
+  ${row.subject_name || ""}
+  ${row.timetable_title || ""}
+  ${row.day_name || ""}
+  ${row.slot_start || ""}
+  ${row.slot_end || ""}
+  ${row.timezone_location || ""}
+  ${row.timezoneid || ""}
+`.toLowerCase();
 
         if (!blob.includes(q)) return false;
       }
@@ -406,6 +442,7 @@ const WeeklyTimetableModal = ({ onClose }) => {
     setForm({
       id: row.id,
       programme_id: row.programme_id || "",
+      subjectid: row.subjectid || "",
       day_of_week: row.day_of_week || "",
       slot_start: inputTime(row.slot_start),
       slot_end: inputTime(row.slot_end),
@@ -453,7 +490,10 @@ const WeeklyTimetableModal = ({ onClose }) => {
       Swal.fire("Required", "Please select programme.", "warning");
       return false;
     }
-
+    if (!form.subjectid) {
+      Swal.fire("Required", "Please select subject.", "warning");
+      return false;
+    }
     if (!form.day_of_week) {
       Swal.fire("Required", "Please select day.", "warning");
       return false;
@@ -513,6 +553,7 @@ const WeeklyTimetableModal = ({ onClose }) => {
 
       const rowData = {
         programme_id: Number(form.programme_id),
+        subjectid: Number(form.subjectid),
         day_of_week: Number(form.day_of_week),
         slot_start: dbTime(form.slot_start),
         slot_end: dbTime(form.slot_end),
@@ -524,21 +565,21 @@ const WeeklyTimetableModal = ({ onClose }) => {
 
       const payload = isEdit
         ? {
-            token,
-            tablename: TABLE_NAME,
-            conditions: [{ id: Number(form.id) }],
-            updatedata: [rowData],
-          }
+          token,
+          tablename: TABLE_NAME,
+          conditions: [{ id: Number(form.id) }],
+          updatedata: [rowData],
+        }
         : {
-            token,
-            tablename: TABLE_NAME,
-            data: [
-              {
-                ...rowData,
-                deleted: 0,
-              },
-            ],
-          };
+          token,
+          tablename: TABLE_NAME,
+          data: [
+            {
+              ...rowData,
+              deleted: 0,
+            },
+          ],
+        };
 
       const url = isEdit ? UPDATE_DYNAMIC_URL : ADD_DYNAMIC_URL;
 
@@ -997,6 +1038,26 @@ const WeeklyTimetableModal = ({ onClose }) => {
                 </div>
 
                 <div className="col-lg-2">
+                  <label className="form-label wt-label">Subject</label>
+                  <select
+                    className="form-select"
+                    value={form.subjectid}
+                    onChange={(e) => updateForm("subjectid", e.target.value)}
+                    disabled={lookupsLoading || saving}
+                  >
+                    <option value="">
+                      {lookupsLoading ? "Loading subjects..." : "Select Subject"}
+                    </option>
+
+                    {subjects.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.subjectname}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="col-lg-2">
                   <label className="form-label wt-label">Day</label>
                   <select
                     className="form-select"
@@ -1102,8 +1163,8 @@ const WeeklyTimetableModal = ({ onClose }) => {
                     {saving
                       ? "Saving..."
                       : formMode === "edit"
-                      ? "Update Schedule"
-                      : "Add Schedule"}
+                        ? "Update Schedule"
+                        : "Add Schedule"}
                   </button>
                 </div>
               </div>
@@ -1135,9 +1196,10 @@ const WeeklyTimetableModal = ({ onClose }) => {
                       dayRows.map((row) => (
                         <div className="wt-slot" key={row.id}>
                           <div className="wt-slot-title">
-                            {row.programme_name ||
-                              `Programme #${row.programme_id}`}
-                          </div>
+  {row.timetable_title ||
+    [row.programme_name, row.subject_name].filter(Boolean).join(" ") ||
+    `Programme #${row.programme_id}`}
+</div>
 
                           <div className="wt-slot-meta">
                             {row.timezone_location ||
@@ -1207,9 +1269,10 @@ const WeeklyTimetableModal = ({ onClose }) => {
                         <td>{index + 1}</td>
 
                         <td className="fw-bold text-white">
-                          {row.programme_name ||
-                            `Programme #${row.programme_id}`}
-                        </td>
+  {row.timetable_title ||
+    [row.programme_name, row.subject_name].filter(Boolean).join(" ") ||
+    `Programme #${row.programme_id}`}
+</td>
 
                         <td>{row.day_name}</td>
 
@@ -1229,11 +1292,10 @@ const WeeklyTimetableModal = ({ onClose }) => {
 
                         <td>
                           <span
-                            className={`px-12 py-4 rounded-pill fw-bold text-sm ${
-                              Number(row.is_active) === 1
+                            className={`px-12 py-4 rounded-pill fw-bold text-sm ${Number(row.is_active) === 1
                                 ? "bg-success-focus text-success-main"
                                 : "bg-danger-focus text-danger-main"
-                            }`}
+                              }`}
                           >
                             {Number(row.is_active) === 1
                               ? "Active"
