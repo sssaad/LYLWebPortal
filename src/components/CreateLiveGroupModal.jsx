@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
-import moment from "moment";
+import moment from "moment-timezone";
 import { getToken } from "../api/getToken";
 import { getTimezonesLookup } from "../api/getTimezonesLookup";
 
@@ -16,6 +16,9 @@ const UPDATE_DYNAMIC_DATA_URL =
 const TEACHER_PROFILE_URL =
   "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=teacher_profile";
 
+const UPDATE_GROUP_TEACHER_SETUP_URL =
+  "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=update_group_session_teacher_setup";
+
 const API_HEADERS = {
   projectid: "1",
   userid: "test",
@@ -26,6 +29,7 @@ const API_HEADERS = {
 
 const PROGRAMME_PROCEDURE = "get_portal_programmes";
 const TEACHER_PROCEDURE = "GetAllTeachers";
+const PORTAL_TIMEZONE = "Asia/Dubai";
 
 const resolveToken = (tokenRes) => {
   if (typeof tokenRes === "string") return tokenRes;
@@ -49,11 +53,9 @@ const getArrayFromResponse = (res, procedureName = "") => {
     res?.data?.data,
     res?.data?.result,
     res?.result,
-
     data?.data,
     data?.result,
     data?.[procedureName],
-
     data?.get_portal_programmes,
     data?.GetAllTeachers,
     data?.getAllTeachers,
@@ -112,6 +114,47 @@ const isSuccessResponse = (response) => {
   return false;
 };
 
+const extractDynamicInsertedId = (payload) => {
+  return (
+    payload?.data?.id ||
+    payload?.id ||
+    payload?.data?.data?.id ||
+    payload?.result?.id ||
+    payload?.insert_id ||
+    payload?.insertId ||
+    ""
+  );
+};
+
+const normalizeAssistantTeacherIds = (value) => {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || "").trim()).filter(Boolean);
+  }
+
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .filter((item) => item.toLowerCase() !== "null")
+      .filter((item) => item.toLowerCase() !== "undefined");
+  }
+
+  if (typeof value === "number" && value > 0) {
+    return [String(value)];
+  }
+
+  return [];
+};
+
+const cleanAssistantTeacherIds = (value, mainTeacherId = "") => {
+  const mainId = String(mainTeacherId || "").trim();
+
+  return Array.from(new Set(normalizeAssistantTeacherIds(value))).filter(
+    (teacherId) => teacherId && teacherId !== mainId
+  );
+};
+
 const formatTimeForDb = (value) => {
   if (!value) return "";
   const parsed = moment(value, ["HH:mm", "HH:mm:ss"], true);
@@ -123,6 +166,130 @@ const formatTimeForInput = (value) => {
   const clean = String(value || "").split(".")[0];
   const parsed = moment(clean, ["HH:mm:ss", "HH:mm"], true);
   return parsed.isValid() ? parsed.format("HH:mm") : "";
+};
+
+const normaliseTime = (value = "") => {
+  const clean = String(value || "").split(".")[0].trim();
+  if (!clean) return "";
+
+  const parsed = moment(clean, ["HH:mm:ss", "HH:mm", "hh:mm A"], true);
+  return parsed.isValid() ? parsed.format("HH:mm:ss") : clean;
+};
+
+const convertTeacherSessionToPortalForm = (session) => {
+  const teacherTimezone =
+    session?.timezone_location ||
+    session?.teacher_timezone_location ||
+    session?.timezone ||
+    PORTAL_TIMEZONE;
+
+  const sourceDate = session?.session_date || "";
+  const sourceStart = normaliseTime(session?.slot_start || "");
+  const sourceEnd = normaliseTime(session?.slot_end || "");
+
+  if (!sourceDate || !sourceStart || !sourceEnd || !teacherTimezone) {
+    return {
+      session_date: sourceDate,
+      slot_start: formatTimeForInput(sourceStart),
+      slot_end: formatTimeForInput(sourceEnd),
+    };
+  }
+
+  const teacherStart = moment.tz(
+    `${sourceDate} ${sourceStart}`,
+    "YYYY-MM-DD HH:mm:ss",
+    teacherTimezone
+  );
+
+  let teacherEnd = moment.tz(
+    `${sourceDate} ${sourceEnd}`,
+    "YYYY-MM-DD HH:mm:ss",
+    teacherTimezone
+  );
+
+  if (!teacherStart.isValid() || !teacherEnd.isValid()) {
+    return {
+      session_date: sourceDate,
+      slot_start: formatTimeForInput(sourceStart),
+      slot_end: formatTimeForInput(sourceEnd),
+    };
+  }
+
+  if (!teacherEnd.isAfter(teacherStart)) {
+    teacherEnd = teacherEnd.add(1, "day");
+  }
+
+  const portalStart = teacherStart.clone().tz(PORTAL_TIMEZONE);
+  const portalEnd = teacherEnd.clone().tz(PORTAL_TIMEZONE);
+
+  return {
+    session_date: portalStart.format("YYYY-MM-DD"),
+    slot_start: portalStart.format("HH:mm"),
+    slot_end: portalEnd.format("HH:mm"),
+  };
+};
+
+const convertPortalClassToTeacherTimezone = (item) => {
+  const teacherTimezone = item?.teacher_timezone_location || PORTAL_TIMEZONE;
+
+  const portalDate = item?.session_date || "";
+  const portalStartTime = item?.slot_start || "";
+  const portalEndTime = item?.slot_end || "";
+
+  if (!portalDate || !portalStartTime || !portalEndTime || !teacherTimezone) {
+    return {
+      session_date: portalDate,
+      slot_start: formatTimeForDb(portalStartTime),
+      slot_end: formatTimeForDb(portalEndTime),
+      teacher_timezone: teacherTimezone,
+      isValid: false,
+    };
+  }
+
+  const portalStart = moment.tz(
+    `${portalDate} ${portalStartTime}`,
+    "YYYY-MM-DD HH:mm",
+    PORTAL_TIMEZONE
+  );
+
+  let portalEnd = moment.tz(
+    `${portalDate} ${portalEndTime}`,
+    "YYYY-MM-DD HH:mm",
+    PORTAL_TIMEZONE
+  );
+
+  if (!portalStart.isValid() || !portalEnd.isValid()) {
+    return {
+      session_date: portalDate,
+      slot_start: formatTimeForDb(portalStartTime),
+      slot_end: formatTimeForDb(portalEndTime),
+      teacher_timezone: teacherTimezone,
+      isValid: false,
+    };
+  }
+
+  if (!portalEnd.isAfter(portalStart)) {
+    portalEnd = portalEnd.add(1, "day");
+  }
+
+  const teacherStart = portalStart.clone().tz(teacherTimezone);
+  const teacherEnd = portalEnd.clone().tz(teacherTimezone);
+
+  return {
+    session_date: teacherStart.format("YYYY-MM-DD"),
+    slot_start: teacherStart.format("HH:mm:ss"),
+    slot_end: teacherEnd.format("HH:mm:ss"),
+    teacher_date_label: teacherStart.format("DD MMM YYYY"),
+    teacher_time_label: `${teacherStart.format("hh:mm A")} - ${teacherEnd.format(
+      "hh:mm A"
+    )}`,
+    portal_date_label: portalStart.format("DD MMM YYYY"),
+    portal_time_label: `${portalStart.format("hh:mm A")} - ${portalEnd.format(
+      "hh:mm A"
+    )}`,
+    teacher_timezone: teacherTimezone,
+    isValid: true,
+  };
 };
 
 const addOneHourToTime = (value) => {
@@ -206,11 +373,11 @@ const getProgrammeBookedCount = (programme) => {
 
   const sessionBooked = Array.isArray(programme?.sessions)
     ? Math.max(
-      ...programme.sessions.map((session) =>
-        Number(session?.booked_count || 0)
-      ),
-      0
-    )
+        ...programme.sessions.map((session) =>
+          Number(session?.booked_count || 0)
+        ),
+        0
+      )
     : 0;
 
   return Math.max(programmeBooked, sessionBooked);
@@ -308,8 +475,7 @@ const SearchableTeacherSelect = ({
                   <button
                     type="button"
                     key={teacherId}
-                    className={`gl-teacher-option ${isSelected ? "active" : ""
-                      }`}
+                    className={`gl-teacher-option ${isSelected ? "active" : ""}`}
                     onClick={() => {
                       onChange?.(teacherId);
                       setOpen(false);
@@ -340,6 +506,187 @@ const SearchableTeacherSelect = ({
   );
 };
 
+const SearchableAssistantTeachersSelect = ({
+  teachers = [],
+  value = [],
+  mainTeacherId = "",
+  onChange,
+  disabled = false,
+  placeholder = "Select Assistant Teachers",
+}) => {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const selectedIds = cleanAssistantTeacherIds(value, mainTeacherId);
+
+  const selectedTeachers = selectedIds
+    .map((id) =>
+      teachers.find((teacher) => String(getTeacherId(teacher)) === String(id))
+    )
+    .filter(Boolean);
+
+  const filteredTeachers = teachers.filter((teacher) => {
+    const teacherId = String(getTeacherId(teacher) || "");
+    const searchValue = String(search || "").toLowerCase().trim();
+
+    if (String(mainTeacherId || "") && teacherId === String(mainTeacherId)) {
+      return false;
+    }
+
+    if (!searchValue) return true;
+
+    return (
+      String(getTeacherName(teacher) || "")
+        .toLowerCase()
+        .includes(searchValue) ||
+      String(teacher?.email || "").toLowerCase().includes(searchValue)
+    );
+  });
+
+  const toggleTeacher = (teacherId) => {
+    const id = String(teacherId || "");
+    if (!id || id === String(mainTeacherId || "")) return;
+
+    const nextIds = selectedIds.includes(id)
+      ? selectedIds.filter((item) => item !== id)
+      : [...selectedIds, id];
+
+    onChange?.(cleanAssistantTeacherIds(nextIds, mainTeacherId));
+  };
+
+  const selectedLabel =
+    selectedTeachers.length > 0
+      ? `${selectedTeachers.length} assistant teacher${
+          selectedTeachers.length > 1 ? "s" : ""
+        } selected`
+      : "";
+
+  return (
+    <div className="gl-teacher-select-wrap">
+      <button
+        type="button"
+        className="gl-teacher-select-btn"
+        disabled={disabled}
+        onClick={() => {
+          if (!disabled) setOpen((prev) => !prev);
+        }}
+      >
+        <span
+          className={selectedLabel ? "gl-teacher-selected" : "gl-teacher-placeholder"}
+        >
+          {selectedLabel || placeholder}
+        </span>
+
+        <span className="gl-teacher-arrow">{open ? "▴" : "▾"}</span>
+      </button>
+
+      {selectedTeachers.length > 0 ? (
+        <div className="gl-assistant-chip-row">
+          {selectedTeachers.map((teacher) => {
+            const teacherId = String(getTeacherId(teacher));
+            const teacherName = getTeacherName(teacher);
+
+            return (
+              <span className="gl-assistant-chip" key={teacherId}>
+                {teacherName || `Teacher ${teacherId}`}
+                {!disabled ? (
+                  <button
+                    type="button"
+                    onClick={() => toggleTeacher(teacherId)}
+                    aria-label="Remove assistant teacher"
+                  >
+                    ×
+                  </button>
+                ) : null}
+              </span>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {open ? (
+        <div className="gl-teacher-dropdown">
+          <div className="gl-teacher-search-box">
+            <input
+              type="text"
+              className="gl-teacher-search-input"
+              placeholder="Search assistant teacher..."
+              value={search}
+              autoFocus
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+
+          <div className="gl-teacher-options">
+            {filteredTeachers.length === 0 ? (
+              <div className="gl-teacher-empty">No teacher found.</div>
+            ) : (
+              filteredTeachers.map((teacher) => {
+                const teacherId = String(getTeacherId(teacher) || "");
+                const teacherName = getTeacherName(teacher);
+                const imageUrl = buildImageUrl(getTeacherImage(teacher));
+                const isSelected = selectedIds.includes(teacherId);
+
+                return (
+                  <button
+                    type="button"
+                    key={teacherId}
+                    className={`gl-teacher-option ${
+                      isSelected ? "active" : ""
+                    }`}
+                    onClick={() => toggleTeacher(teacherId)}
+                  >
+                    <span className="gl-assistant-check">
+                      {isSelected ? "✓" : ""}
+                    </span>
+
+                    <span className="gl-teacher-avatar">
+                      {imageUrl ? (
+                        <img src={imageUrl} alt={teacherName || "Teacher"} />
+                      ) : (
+                        <span className="gl-teacher-avatar-fallback">
+                          {String(teacherName || "T").charAt(0).toUpperCase()}
+                        </span>
+                      )}
+                    </span>
+
+                    <span className="gl-teacher-name">
+                      {teacherName || "Unnamed Teacher"}
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+
+          <div className="gl-assistant-dropdown-footer">
+            <button
+              type="button"
+              onClick={() => {
+                onChange?.([]);
+                setSearch("");
+              }}
+              disabled={!selectedIds.length}
+            >
+              Clear
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                setSearch("");
+              }}
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
 const makeEmptyClass = (index) => ({
   uid: `${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`,
   id: "",
@@ -347,6 +694,7 @@ const makeEmptyClass = (index) => ({
   subjectid: "",
   teacherid: "",
   teacher_name: "",
+  assistant_teacher_ids: [],
 
   teacher_timezoneid: "",
   teacher_timezone_location: "",
@@ -364,6 +712,7 @@ const makeEmptyClass = (index) => ({
 const generateGroupBatchId = () => {
   return Math.floor(Date.now() / 1000);
 };
+
 const CreateLiveGroupModal = ({
   isOpen,
   onClose,
@@ -371,8 +720,13 @@ const CreateLiveGroupModal = ({
   preselectedProgramme = null,
   mode = "create",
   editProgramme = null,
+  lockCurriculum = false,
+  teacherOnlyEdit = false,
 }) => {
   const isEditMode = mode === "edit" && !!editProgramme;
+  const isTeacherOnlyEdit = isEditMode && !!teacherOnlyEdit;
+  const isCurriculumLocked = isEditMode && !!lockCurriculum;
+
   const [programmes, setProgrammes] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [timezones, setTimezones] = useState([]);
@@ -489,11 +843,17 @@ const CreateLiveGroupModal = ({
     const firstSession = editSessions[0] || {};
 
     setForm({
-      programme_id: String(programme?.programme_id || firstSession?.programme_id || ""),
+      programme_id: String(
+        programme?.programme_id || firstSession?.programme_id || ""
+      ),
       capacity: String(programme?.capacity || firstSession?.capacity || "10"),
       status: String(programme?.status || firstSession?.status || "active"),
-      show_on_web: String(programme?.show_on_web ?? firstSession?.show_on_web ?? 1),
-      web_sort_order: String(programme?.web_sort_order ?? firstSession?.web_sort_order ?? 0),
+      show_on_web: String(
+        programme?.show_on_web ?? firstSession?.show_on_web ?? 1
+      ),
+      web_sort_order: String(
+        programme?.web_sort_order ?? firstSession?.web_sort_order ?? 0
+      ),
     });
 
     const mappedClasses = editSessions.map((session, index) => {
@@ -510,23 +870,40 @@ const CreateLiveGroupModal = ({
       const matchedTimezone = timezoneFromId || timezoneFromValue;
       const subjectOption = makeSubjectOptionFromSession(session);
 
+      const portalTime = convertTeacherSessionToPortalForm({
+        ...session,
+        timezone_location:
+          getTimezoneValue(matchedTimezone) ||
+          session?.timezone_location ||
+          session?.timezone ||
+          "",
+      });
+
+      const mainTeacherId = String(
+        session?.teacherid || session?.teacher_id || session?.userid || ""
+      );
+
       return {
         uid: `edit-${session?.id || index}-${Date.now()}`,
         id: session?.id || "",
         group_batch_id:
-          session?.group_batch_id ||
-          programme?.group_batch_id ||
-          "",
+          session?.group_batch_id || programme?.group_batch_id || "",
         class_no: index + 1,
         subjectid: String(session?.subjectid || ""),
-        teacherid: String(
-          session?.teacherid || session?.teacher_id || session?.userid || ""
-        ),
+        teacherid: mainTeacherId,
         teacher_name:
           session?.teacher_name ||
           session?.teacher_fullname ||
           session?.fullname ||
           "",
+
+        assistant_teacher_ids: cleanAssistantTeacherIds(
+          session?.assistant_teacher_ids ||
+            session?.assistant_teacherids ||
+            session?.assistant_teachers ||
+            "",
+          mainTeacherId
+        ),
 
         teacher_timezoneid: String(
           getTimezoneId(matchedTimezone) || session?.timezoneid || ""
@@ -537,9 +914,9 @@ const CreateLiveGroupModal = ({
           session?.timezone ||
           "",
 
-        session_date: session?.session_date || "",
-        slot_start: formatTimeForInput(session?.slot_start),
-        slot_end: formatTimeForInput(session?.slot_end),
+        session_date: portalTime.session_date,
+        slot_start: portalTime.slot_start,
+        slot_end: portalTime.slot_end,
         title: session?.title || "",
         status: session?.status || programme?.status || "active",
         subjectOptions: subjectOption ? [subjectOption] : [],
@@ -599,8 +976,12 @@ const CreateLiveGroupModal = ({
           programme_id: String(preselectedProgramme.programme_id),
           capacity: String(preselectedProgramme.capacity || prev.capacity),
           status: String(preselectedProgramme.status || prev.status),
-          show_on_web: String(preselectedProgramme.show_on_web ?? prev.show_on_web ?? 1),
-          web_sort_order: String(preselectedProgramme.web_sort_order ?? prev.web_sort_order ?? 0),
+          show_on_web: String(
+            preselectedProgramme.show_on_web ?? prev.show_on_web ?? 1
+          ),
+          web_sort_order: String(
+            preselectedProgramme.web_sort_order ?? prev.web_sort_order ?? 0
+          ),
         }));
       }
 
@@ -645,9 +1026,9 @@ const CreateLiveGroupModal = ({
       ...prev,
       capacity: String(
         selectedProgramme?.capacity ??
-        selectedProgramme?.class_capacity ??
-        prev.capacity ??
-        "10"
+          selectedProgramme?.class_capacity ??
+          prev.capacity ??
+          "10"
       ),
     }));
 
@@ -815,31 +1196,86 @@ const CreateLiveGroupModal = ({
       .join(" - ");
   };
 
-  const fetchTeacherSubjectsForClass = async (index, teacherid) => {
+  const fetchTeacherSubjectsForClass = async (
+    index,
+    teacherid,
+    options = {}
+  ) => {
+    const preserveCurriculumFields = !!options.preserveCurriculumFields;
+
     if (!teacherid) {
-      setClassPatch(index, {
-        teacherid: "",
-        subjectid: "",
-        title: "",
-        teacher_timezoneid: "",
-        teacher_timezone_location: "",
-        subjectOptions: [],
-        subjectLoading: false,
-        subjectError: "",
-      });
+      setClasses((prev) =>
+        prev.map((item, i) => {
+          if (i !== index) return item;
+
+          if (preserveCurriculumFields) {
+            return {
+              ...item,
+              teacherid: "",
+              teacher_name: "",
+              assistant_teacher_ids: [],
+              teacher_timezoneid: "",
+              teacher_timezone_location: "",
+              subjectLoading: false,
+              subjectError: "",
+            };
+          }
+
+          return {
+            ...item,
+            teacherid: "",
+            teacher_name: "",
+            assistant_teacher_ids: [],
+            subjectid: "",
+            title: "",
+            teacher_timezoneid: "",
+            teacher_timezone_location: "",
+            subjectOptions: [],
+            subjectLoading: false,
+            subjectError: "",
+          };
+        })
+      );
       return;
     }
 
-    setClassPatch(index, {
-      teacherid,
-      subjectid: "",
-      title: "",
-      teacher_timezoneid: "",
-      teacher_timezone_location: "",
-      subjectOptions: [],
-      subjectLoading: true,
-      subjectError: "",
-    });
+    const selectedTeacher = teachers.find(
+      (teacher) => String(getTeacherId(teacher)) === String(teacherid)
+    );
+
+    setClasses((prev) =>
+      prev.map((item, i) => {
+        if (i !== index) return item;
+
+        const basePatch = {
+          teacherid: String(teacherid),
+          teacher_name: getTeacherName(selectedTeacher) || item.teacher_name || "",
+          assistant_teacher_ids: cleanAssistantTeacherIds(
+            item.assistant_teacher_ids,
+            teacherid
+          ),
+          teacher_timezoneid: "",
+          teacher_timezone_location: "",
+          subjectLoading: true,
+          subjectError: "",
+        };
+
+        if (preserveCurriculumFields) {
+          return {
+            ...item,
+            ...basePatch,
+          };
+        }
+
+        return {
+          ...item,
+          ...basePatch,
+          subjectid: "",
+          title: "",
+          subjectOptions: [],
+        };
+      })
+    );
 
     try {
       const headers = await buildHeadersWithToken();
@@ -867,38 +1303,101 @@ const CreateLiveGroupModal = ({
         ? String(getSubjectId(firstSubject))
         : "";
 
-      setClassPatch(index, {
-        subjectOptions,
-        subjectLoading: false,
-        subjectError: subjectOptions.length
-          ? ""
-          : "No subjects found for this teacher.",
-        subjectid: firstSubjectId,
-        title:
-          selectedProgrammeName && firstSubject
-            ? `${selectedProgrammeName} - ${getSubjectName(firstSubject)}`
-            : "",
+      setClasses((prev) =>
+        prev.map((item, i) => {
+          if (i !== index) return item;
 
-        teacher_timezoneid: teacherTimezone.timezoneid,
-        teacher_timezone_location: teacherTimezone.timezone_location,
-      });
+          if (preserveCurriculumFields) {
+            return {
+              ...item,
+              subjectOptions: item.subjectOptions?.length
+                ? item.subjectOptions
+                : subjectOptions,
+              subjectLoading: false,
+              subjectError: "",
+              teacher_timezoneid: teacherTimezone.timezoneid,
+              teacher_timezone_location: teacherTimezone.timezone_location,
+              assistant_teacher_ids: cleanAssistantTeacherIds(
+                item.assistant_teacher_ids,
+                teacherid
+              ),
+            };
+          }
+
+          return {
+            ...item,
+            subjectOptions,
+            subjectLoading: false,
+            subjectError: subjectOptions.length
+              ? ""
+              : "No subjects found for this teacher.",
+            subjectid: firstSubjectId,
+            title:
+              selectedProgrammeName && firstSubject
+                ? `${selectedProgrammeName} - ${getSubjectName(firstSubject)}`
+                : "",
+            teacher_timezoneid: teacherTimezone.timezoneid,
+            teacher_timezone_location: teacherTimezone.timezone_location,
+            assistant_teacher_ids: cleanAssistantTeacherIds(
+              item.assistant_teacher_ids,
+              teacherid
+            ),
+          };
+        })
+      );
     } catch (err) {
       console.error("Teacher subjects load failed:", err);
 
-      setClassPatch(index, {
-        subjectOptions: [],
-        subjectLoading: false,
-        subjectError: err?.message || "Teacher subjects could not be loaded.",
-        subjectid: "",
-        title: "",
-        teacher_timezoneid: "",
-        teacher_timezone_location: "",
-      });
+      setClasses((prev) =>
+        prev.map((item, i) => {
+          if (i !== index) return item;
+
+          if (preserveCurriculumFields) {
+            return {
+              ...item,
+              subjectLoading: false,
+              subjectError:
+                err?.message || "Teacher profile could not be loaded.",
+              teacher_timezoneid: "",
+              teacher_timezone_location: "",
+            };
+          }
+
+          return {
+            ...item,
+            subjectOptions: [],
+            subjectLoading: false,
+            subjectError: err?.message || "Teacher subjects could not be loaded.",
+            subjectid: "",
+            title: "",
+            teacher_timezoneid: "",
+            teacher_timezone_location: "",
+          };
+        })
+      );
     }
   };
 
   const handleTeacherChange = (index, teacherid) => {
-    fetchTeacherSubjectsForClass(index, teacherid);
+    fetchTeacherSubjectsForClass(index, teacherid, {
+      preserveCurriculumFields: isTeacherOnlyEdit,
+    });
+  };
+
+  const handleAssistantTeachersChange = (index, selectedIds) => {
+    setClasses((prev) =>
+      prev.map((item, i) => {
+        if (i !== index) return item;
+
+        return {
+          ...item,
+          assistant_teacher_ids: cleanAssistantTeacherIds(
+            selectedIds,
+            item.teacherid
+          ),
+        };
+      })
+    );
   };
 
   const handleSubjectChange = (index, subjectid) => {
@@ -941,10 +1440,13 @@ const CreateLiveGroupModal = ({
   };
 
   const handleAddClass = () => {
+    if (isCurriculumLocked) return;
     setClasses((prev) => [...prev, makeEmptyClass(prev.length)]);
   };
 
   const handleRemoveClass = (index) => {
+    if (isCurriculumLocked) return;
+
     setClasses((prev) => {
       if (prev.length <= 1) return prev;
 
@@ -981,8 +1483,54 @@ const CreateLiveGroupModal = ({
   const getTeacherById = (teacherid) =>
     teachers.find((t) => String(getTeacherId(t)) === String(teacherid));
 
+  const getAssistantTeacherNamesByIds = (assistantIds) => {
+    const ids = normalizeAssistantTeacherIds(assistantIds);
+
+    return ids
+      .map((id) => getTeacherById(id))
+      .filter(Boolean)
+      .map((teacher) => getTeacherName(teacher))
+      .filter(Boolean);
+  };
+
   const validateForm = () => {
     if (!form.programme_id) return "Please select a curriculum.";
+
+    if (isTeacherOnlyEdit) {
+      if (!classes || classes.length < 1) {
+        return "No classes found for teacher update.";
+      }
+
+      for (let i = 0; i < classes.length; i += 1) {
+        const item = classes[i];
+        const label = `Class ${i + 1}`;
+
+        if (!item.id) {
+          return `${label}: Session ID missing. Teacher setup can only update existing sessions.`;
+        }
+
+        if (!item.teacherid) return `${label}: Please select a main teacher.`;
+
+        if (!item.teacher_timezoneid || !item.teacher_timezone_location) {
+          return `${label}: Please select the teacher timezone.`;
+        }
+
+        if (item.subjectLoading) {
+          return `${label}: Teacher profile is still loading.`;
+        }
+
+        const assistantIds = cleanAssistantTeacherIds(
+          item.assistant_teacher_ids,
+          item.teacherid
+        );
+
+        if (assistantIds.includes(String(item.teacherid))) {
+          return `${label}: Main teacher cannot be selected as assistant teacher.`;
+        }
+      }
+
+      return "";
+    }
 
     const cap = Number(form.capacity);
     if (!Number.isFinite(cap) || cap <= 0) {
@@ -1010,8 +1558,7 @@ const CreateLiveGroupModal = ({
       }
 
       if (!item.subjectid) return `${label}: Please select a subject.`;
-      if (!item.session_date)
-        return `${label}: Please select a session date.`;
+      if (!item.session_date) return `${label}: Please select a session date.`;
       if (!item.slot_start) return `${label}: Please select a start time.`;
       if (!item.slot_end)
         return `${label}: End time will be generated automatically. Please select a start time again.`;
@@ -1047,9 +1594,9 @@ const CreateLiveGroupModal = ({
 
     const existingGroupBatchId = Number(
       editProgramme?.group_batch_id ||
-      firstEditSession?.group_batch_id ||
-      classes?.[0]?.group_batch_id ||
-      0
+        firstEditSession?.group_batch_id ||
+        classes?.[0]?.group_batch_id ||
+        0
     );
 
     const groupBatchId =
@@ -1058,6 +1605,12 @@ const CreateLiveGroupModal = ({
         : generateGroupBatchId();
 
     return classes.map((item, index) => {
+      const convertedTime = convertPortalClassToTeacherTimezone(item);
+      const assistantTeacherIds = cleanAssistantTeacherIds(
+        item.assistant_teacher_ids,
+        item.teacherid
+      );
+
       return {
         tablename: "group_live_sessions",
 
@@ -1067,19 +1620,21 @@ const CreateLiveGroupModal = ({
         title: item.title || buildSessionTitle(item, index),
         subjectid: Number(item.subjectid),
         teacherid: Number(item.teacherid),
+        assistant_teacher_ids: assistantTeacherIds.join(","),
 
         timezoneid: Number(item.teacher_timezoneid),
         timezone_location: item.teacher_timezone_location,
 
-        session_date: item.session_date,
-        slot_start: formatTimeForDb(item.slot_start),
-        slot_end: formatTimeForDb(item.slot_end),
+        session_date: convertedTime.session_date,
+        slot_start: convertedTime.slot_start,
+        slot_end: convertedTime.slot_end,
         capacity: Number(form.capacity || 10),
 
         classid: null,
         roomid: null,
         classhostlink: null,
         classcommonlink: null,
+        classcommonhostlink: null,
 
         status: item.status || form.status || "active",
         show_on_web: Number(form.show_on_web ?? 1),
@@ -1096,25 +1651,33 @@ const CreateLiveGroupModal = ({
 
     const existingGroupBatchId = Number(
       item?.group_batch_id ||
-      editProgramme?.group_batch_id ||
-      firstEditSession?.group_batch_id ||
-      0
+        editProgramme?.group_batch_id ||
+        firstEditSession?.group_batch_id ||
+        0
+    );
+
+    const convertedTime = convertPortalClassToTeacherTimezone(item);
+    const assistantTeacherIds = cleanAssistantTeacherIds(
+      item.assistant_teacher_ids,
+      item.teacherid
     );
 
     return {
       programme_id: Number(form.programme_id),
-      group_batch_id: existingGroupBatchId > 0 ? existingGroupBatchId : generateGroupBatchId(),
+      group_batch_id:
+        existingGroupBatchId > 0 ? existingGroupBatchId : generateGroupBatchId(),
 
       title: item.title || buildSessionTitle(item, index),
       subjectid: Number(item.subjectid),
       teacherid: Number(item.teacherid),
+      assistant_teacher_ids: assistantTeacherIds.join(","),
 
       timezoneid: Number(item.teacher_timezoneid),
       timezone_location: item.teacher_timezone_location,
 
-      session_date: item.session_date,
-      slot_start: formatTimeForDb(item.slot_start),
-      slot_end: formatTimeForDb(item.slot_end),
+      session_date: convertedTime.session_date,
+      slot_start: convertedTime.slot_start,
+      slot_end: convertedTime.slot_end,
       capacity: Number(form.capacity || 10),
 
       status: item.status || form.status || "active",
@@ -1131,8 +1694,8 @@ const CreateLiveGroupModal = ({
     if (!isSuccessResponse(response)) {
       throw new Error(
         response?.data?.message ||
-        response?.data?.error ||
-        "Live group session could not be created."
+          response?.data?.error ||
+          "Live group session could not be created."
       );
     }
 
@@ -1164,17 +1727,80 @@ const CreateLiveGroupModal = ({
     if (!isSuccessResponse(response)) {
       throw new Error(
         response?.data?.message ||
-        response?.data?.error ||
-        "Live group session could not be updated."
+          response?.data?.error ||
+          "Live group session could not be updated."
       );
     }
 
     return response?.data;
   };
 
-  const handleCreateSubmit = async (headers) => {
+  const updateSingleGroupTeacherSetup = async (
+    sessionId,
+    classItem,
+    token,
+    sendEmails = false
+  ) => {
+    const assistantTeacherIds = cleanAssistantTeacherIds(
+      classItem.assistant_teacher_ids,
+      classItem.teacherid
+    ).map((id) => Number(id));
+
+    const response = await axios.post(
+      UPDATE_GROUP_TEACHER_SETUP_URL,
+      {
+        token,
+        group_live_session_id: Number(sessionId),
+        main_teacherid: Number(classItem.teacherid),
+        assistant_teacher_ids: assistantTeacherIds,
+        send_emails: sendEmails,
+      },
+      {
+        headers: API_HEADERS,
+      }
+    );
+
+    if (!isSuccessResponse(response)) {
+      throw new Error(
+        response?.data?.message ||
+          response?.data?.error ||
+          `Teacher setup could not be updated for session ${sessionId}.`
+      );
+    }
+
+    return response?.data;
+  };
+
+  const updateGroupTeacherSetup = async (token, sendEmails = true) => {
+    const responses = [];
+
+    for (let i = 0; i < classes.length; i += 1) {
+      const item = classes[i];
+
+      if (!item.id) {
+        throw new Error(`Class ${i + 1}: Session ID missing.`);
+      }
+
+      const res = await updateSingleGroupTeacherSetup(
+        item.id,
+        item,
+        token,
+        sendEmails
+      );
+
+      responses.push(res);
+    }
+
+    return {
+      sessions_updated: responses.length,
+      responses,
+    };
+  };
+
+  const handleCreateSubmit = async (headers, token) => {
     const insertRows = buildInsertRows();
     const insertedResponses = [];
+    const teacherSetupResponses = [];
 
     console.log("GROUP LIVE SESSION INSERT ROWS =>", insertRows);
 
@@ -1184,9 +1810,27 @@ const CreateLiveGroupModal = ({
       try {
         const res = await addDynamicData(row, headers);
         insertedResponses.push(res);
+
+        const insertedSessionId = extractDynamicInsertedId(res);
+
+        if (!insertedSessionId) {
+          throw new Error(
+            "Session created but inserted session ID was not returned from API."
+          );
+        }
+
+        const teacherSetupRes = await updateSingleGroupTeacherSetup(
+          insertedSessionId,
+          classes[i],
+          token,
+          false
+        );
+
+        teacherSetupResponses.push(teacherSetupRes);
       } catch (insertErr) {
         throw new Error(
-          `Class ${i + 1} insert failed: ${insertErr?.message || "Unknown error"
+          `Class ${i + 1} insert failed: ${
+            insertErr?.message || "Unknown error"
           }`
         );
       }
@@ -1195,15 +1839,20 @@ const CreateLiveGroupModal = ({
     return {
       insertedRows: insertRows,
       insertedResponses,
+      teacherSetupResponses,
     };
   };
 
   const handleUpdateSubmit = async (headers, token) => {
+    if (isTeacherOnlyEdit) {
+      return updateGroupTeacherSetup(token, true);
+    }
+
     const bookedCount = getProgrammeBookedCount(editProgramme);
 
     if (bookedCount > 0) {
       throw new Error(
-        "This curriculum already has a group booking, so it cannot be edited."
+        "This curriculum already has a group booking, so only teachers and assistant teachers can be updated."
       );
     }
 
@@ -1219,10 +1868,36 @@ const CreateLiveGroupModal = ({
         const updateRow = buildUpdateRow(item, i);
         const res = await updateDynamicData(item.id, updateRow, token);
         updatedResponses.push(res);
+
+        const teacherSetupRes = await updateSingleGroupTeacherSetup(
+          item.id,
+          item,
+          token,
+          false
+        );
+
+        updatedResponses.push(teacherSetupRes);
       } else {
         const insertRow = insertRows[i];
         const res = await addDynamicData(insertRow, headers);
         insertedResponses.push(res);
+
+        const insertedSessionId = extractDynamicInsertedId(res);
+
+        if (!insertedSessionId) {
+          throw new Error(
+            `Class ${i + 1}: Session created but inserted ID was not returned.`
+          );
+        }
+
+        const teacherSetupRes = await updateSingleGroupTeacherSetup(
+          insertedSessionId,
+          item,
+          token,
+          false
+        );
+
+        insertedResponses.push(teacherSetupRes);
       }
     }
 
@@ -1274,18 +1949,22 @@ const CreateLiveGroupModal = ({
 
       const result = isEditMode
         ? await handleUpdateSubmit(headers, token)
-        : await handleCreateSubmit(headers);
+        : await handleCreateSubmit(headers, token);
 
-      const successText = isEditMode
+      const successText = isTeacherOnlyEdit
+        ? "Teachers and assistant teachers updated successfully."
+        : isEditMode
         ? "Live group sessions updated successfully."
-        : `${classes.length} live group session${classes.length > 1 ? "s" : ""
-        } created successfully.`;
+        : `${classes.length} live group session${
+            classes.length > 1 ? "s" : ""
+          } created successfully.`;
 
       setSuccessMsg(successText);
 
       setTimeout(() => {
         onSuccess?.({
           mode: isEditMode ? "edit" : "create",
+          teacherOnlyEdit: isTeacherOnlyEdit,
           result,
         });
         onClose?.();
@@ -1307,17 +1986,34 @@ const CreateLiveGroupModal = ({
     return classes.map((item, index) => {
       const teacher = getTeacherById(item.teacherid);
       const subject = getSubjectByClassItem(item);
+      const convertedTime = convertPortalClassToTeacherTimezone(item);
+      const assistantNames = getAssistantTeacherNamesByIds(
+        item.assistant_teacher_ids
+      );
 
       return {
         index,
         teacherName: getTeacherName(teacher) || item.teacher_name || "",
+        assistantNames,
         subjectName: getSubjectName(subject),
         title: item.title || buildSessionTitle(item, index),
-        date: item.session_date,
-        time:
-          item.slot_start && item.slot_end
-            ? `${item.slot_start} - ${item.slot_end}`
-            : "",
+
+        adminDate: convertedTime.isValid
+          ? convertedTime.portal_date_label
+          : item.session_date || "-",
+        adminTime: convertedTime.isValid
+          ? convertedTime.portal_time_label
+          : item.slot_start && item.slot_end
+          ? `${item.slot_start} - ${item.slot_end}`
+          : "-",
+
+        teacherDate: convertedTime.isValid
+          ? convertedTime.teacher_date_label
+          : "-",
+        teacherTime: convertedTime.isValid
+          ? convertedTime.teacher_time_label
+          : "-",
+
         timezone: item.teacher_timezone_location || "",
         timezoneid: item.teacher_timezoneid || "",
       };
@@ -1486,163 +2182,160 @@ const CreateLiveGroupModal = ({
           cursor: not-allowed;
           background: #172033 !important;
         }
+
+        .gl-lock-note {
+          border-radius: 14px;
+          background: rgba(245, 158, 11, 0.12);
+          border: 1px solid rgba(245, 158, 11, 0.28);
+          color: #fde68a;
+          font-weight: 800;
+          padding: 11px 14px;
+          margin-bottom: 14px;
+          font-size: 13px;
+          line-height: 1.55;
+        }
+
         .gl-visibility-card {
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 16px;
-  background: rgba(15, 23, 42, 0.46);
-  padding: 14px 16px;
-  height: 100%;
-}
+          border: 1px solid rgba(148, 163, 184, 0.18);
+          border-radius: 16px;
+          background: rgba(15, 23, 42, 0.46);
+          padding: 14px 16px;
+          height: 100%;
+        }
 
-.gl-visibility-toggle-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-}
+        .gl-visibility-title {
+          color: #ffffff;
+          font-size: 14px;
+          font-weight: 900;
+          margin-bottom: 3px;
+        }
 
-.gl-visibility-title {
-  color: #ffffff;
-  font-size: 14px;
-  font-weight: 900;
-  margin-bottom: 3px;
-}
+        .gl-visibility-subtitle {
+          color: #9fb0c8;
+          font-size: 12px;
+          font-weight: 700;
+          line-height: 1.45;
+        }
 
-.gl-visibility-subtitle {
-  color: #9fb0c8;
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1.45;
-}
+        .gl-visibility-switch {
+          position: relative;
+          width: 54px;
+          height: 30px;
+          flex: 0 0 auto;
+        }
 
-.gl-visibility-switch {
-  position: relative;
-  width: 54px;
-  height: 30px;
-  flex: 0 0 auto;
-}
+        .gl-visibility-switch input {
+          opacity: 0;
+          width: 0;
+          height: 0;
+        }
 
-.gl-visibility-switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
+        .gl-visibility-slider {
+          position: absolute;
+          cursor: pointer;
+          inset: 0;
+          background: #475569;
+          transition: 0.2s;
+          border-radius: 999px;
+        }
 
-.gl-visibility-slider {
-  position: absolute;
-  cursor: pointer;
-  inset: 0;
-  background: #475569;
-  transition: 0.2s;
-  border-radius: 999px;
-}
+        .gl-visibility-slider:before {
+          position: absolute;
+          content: "";
+          height: 22px;
+          width: 22px;
+          left: 4px;
+          top: 4px;
+          background: #ffffff;
+          transition: 0.2s;
+          border-radius: 50%;
+        }
 
-.gl-visibility-slider:before {
-  position: absolute;
-  content: "";
-  height: 22px;
-  width: 22px;
-  left: 4px;
-  top: 4px;
-  background: #ffffff;
-  transition: 0.2s;
-  border-radius: 50%;
-}
+        .gl-visibility-switch input:checked + .gl-visibility-slider {
+          background: #22c55e;
+        }
 
-.gl-visibility-switch input:checked + .gl-visibility-slider {
-  background: #22c55e;
-}
+        .gl-visibility-switch input:checked + .gl-visibility-slider:before {
+          transform: translateX(24px);
+        }
 
-.gl-visibility-switch input:checked + .gl-visibility-slider:before {
-  transform: translateX(24px);
-}
+        .gl-visibility-badge-text {
+          display: inline-flex;
+          align-items: center;
+          width: fit-content;
+          margin-top: 8px;
+          border-radius: 999px;
+          padding: 4px 10px;
+          font-size: 11px;
+          font-weight: 900;
+        }
 
-.gl-visibility-badge-text {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  margin-top: 8px;
-  border-radius: 999px;
-  padding: 4px 10px;
-  font-size: 11px;
-  font-weight: 900;
-}
+        .gl-web-settings-row {
+          display: grid;
+          grid-template-columns: 1fr 150px 60px;
+          align-items: center;
+          gap: 18px;
+        }
 
-.gl-web-settings-row {
-  display: grid;
-  grid-template-columns: 1fr 150px 60px;
-  align-items: center;
-  gap: 18px;
-}
+        .gl-web-visibility-content {
+          min-width: 0;
+        }
 
-.gl-web-visibility-content {
-  min-width: 0;
-}
+        .gl-web-sort-wrap {
+          width: 150px;
+        }
 
-.gl-web-sort-wrap {
-  width: 150px;
-}
+        .gl-web-sort-label {
+          color: #dbe4f0;
+          font-size: 12px;
+          font-weight: 900;
+          margin-bottom: 6px;
+          display: block;
+        }
 
-.gl-web-sort-label {
-  color: #dbe4f0;
-  font-size: 12px;
-  font-weight: 900;
-  margin-bottom: 6px;
-  display: block;
-}
+        .gl-web-sort-input {
+          width: 100%;
+          height: 42px;
+          border-radius: 12px;
+          border: 1px solid rgba(148, 163, 184, 0.18);
+          background: #1b2738;
+          color: #ffffff;
+          padding: 0 12px;
+          font-size: 14px;
+          font-weight: 900;
+          outline: none;
+        }
 
-.gl-web-sort-input {
-  width: 100%;
-  height: 42px;
-  border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  background: #1b2738;
-  color: #ffffff;
-  padding: 0 12px;
-  font-size: 14px;
-  font-weight: 900;
-  outline: none;
-}
+        .gl-web-sort-input:focus {
+          border-color: #3b82f6;
+        }
 
-.gl-web-sort-input:focus {
-  border-color: #3b82f6;
-}
+        .gl-web-sort-input:disabled {
+          opacity: 0.75;
+          cursor: not-allowed;
+        }
 
-.gl-web-sort-help {
-  display: block;
-  color: #9fb0c8;
-  font-size: 10px;
-  font-weight: 700;
-  margin-top: 5px;
-  line-height: 1.3;
-}
+        .gl-web-sort-help {
+          display: block;
+          color: #9fb0c8;
+          font-size: 10px;
+          font-weight: 700;
+          margin-top: 5px;
+          line-height: 1.3;
+        }
 
-@media (max-width: 767px) {
-  .gl-web-settings-row {
-    grid-template-columns: 1fr;
-    align-items: flex-start;
-  }
+        .gl-visibility-badge-public {
+          color: #86efac;
+          background: rgba(34, 197, 94, 0.12);
+          border: 1px solid rgba(34, 197, 94, 0.25);
+        }
 
-  .gl-web-sort-wrap {
-    width: 100%;
-  }
+        .gl-visibility-badge-private {
+          color: #fcd34d;
+          background: rgba(245, 158, 11, 0.12);
+          border: 1px solid rgba(245, 158, 11, 0.28);
+        }
 
-  .gl-visibility-switch {
-    margin-left: auto;
-  }
-}
-
-.gl-visibility-badge-public {
-  color: #86efac;
-  background: rgba(34, 197, 94, 0.12);
-  border: 1px solid rgba(34, 197, 94, 0.25);
-}
-
-.gl-visibility-badge-private {
-  color: #fcd34d;
-  background: rgba(245, 158, 11, 0.12);
-  border: 1px solid rgba(245, 158, 11, 0.28);
-}
         .gl-top-card {
           border: 1px solid rgba(148, 163, 184, 0.18);
           border-radius: 18px;
@@ -1966,6 +2659,75 @@ const CreateLiveGroupModal = ({
           font-weight: 800;
         }
 
+        .gl-assistant-chip-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 7px;
+          margin-top: 8px;
+        }
+
+        .gl-assistant-chip {
+          display: inline-flex;
+          align-items: center;
+          gap: 7px;
+          border-radius: 999px;
+          padding: 5px 9px;
+          color: #bfdbfe;
+          background: rgba(59, 130, 246, 0.14);
+          border: 1px solid rgba(59, 130, 246, 0.26);
+          font-size: 11px;
+          font-weight: 900;
+          line-height: 1;
+        }
+
+        .gl-assistant-chip button {
+          border: 0;
+          background: transparent;
+          color: #ffffff;
+          padding: 0;
+          font-size: 14px;
+          line-height: 1;
+          cursor: pointer;
+        }
+
+        .gl-assistant-check {
+          width: 20px;
+          height: 20px;
+          border-radius: 7px;
+          border: 1px solid rgba(148, 163, 184, 0.34);
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          color: #86efac;
+          font-size: 12px;
+          font-weight: 900;
+          flex: 0 0 auto;
+        }
+
+        .gl-assistant-dropdown-footer {
+          display: flex;
+          justify-content: flex-end;
+          gap: 8px;
+          padding: 10px;
+          border-top: 1px solid rgba(148, 163, 184, 0.18);
+          background: #111827;
+        }
+
+        .gl-assistant-dropdown-footer button {
+          border: 1px solid rgba(148, 163, 184, 0.28);
+          background: rgba(15, 23, 42, 0.78);
+          color: #ffffff;
+          border-radius: 10px;
+          padding: 7px 12px;
+          font-size: 12px;
+          font-weight: 900;
+        }
+
+        .gl-assistant-dropdown-footer button:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+        }
+
         @media (max-width: 767px) {
           .gl-create-modal {
             width: 100%;
@@ -2013,6 +2775,19 @@ const CreateLiveGroupModal = ({
           .gl-class-header {
             align-items: flex-start;
           }
+
+          .gl-web-settings-row {
+            grid-template-columns: 1fr;
+            align-items: flex-start;
+          }
+
+          .gl-web-sort-wrap {
+            width: 100%;
+          }
+
+          .gl-visibility-switch {
+            margin-left: auto;
+          }
         }
       `}</style>
 
@@ -2020,10 +2795,17 @@ const CreateLiveGroupModal = ({
         <div className="gl-create-header d-flex justify-content-between align-items-start gap-3">
           <div>
             <h4 className="gl-create-title">
-              {isEditMode ? "Edit Live Group Sessions" : "Create Live Group Sessions"}
+              {isTeacherOnlyEdit
+                ? "Update Teachers & Assistants"
+                : isEditMode
+                ? "Edit Live Group Sessions"
+                : "Create Live Group Sessions"}
             </h4>
+
             <div className="gl-create-subtitle">
-              {isEditMode
+              {isTeacherOnlyEdit
+                ? "This batch already has bookings, so only main teachers and assistant teachers can be updated."
+                : isEditMode
                 ? "Update curriculum classes, teacher, subject, timezone, date and time."
                 : "Select curriculum and create one or more live classes."}
             </div>
@@ -2055,6 +2837,14 @@ const CreateLiveGroupModal = ({
               <div className="alert alert-info gl-alert py-2">Loading...</div>
             ) : null}
 
+            {isTeacherOnlyEdit ? (
+              <div className="gl-lock-note">
+                Bookings already exist for this batch. Curriculum, subject, date,
+                time, capacity and web settings are locked. You can update only
+                teachers and assistant teachers.
+              </div>
+            ) : null}
+
             <div className="gl-top-card">
               <div className="row g-3">
                 <div className="col-lg-6">
@@ -2063,7 +2853,7 @@ const CreateLiveGroupModal = ({
                     className="form-select"
                     value={form.programme_id}
                     onChange={(e) => setField("programme_id", e.target.value)}
-                    disabled={loading || lookupsLoading}
+                    disabled={loading || lookupsLoading || isCurriculumLocked}
                   >
                     <option value="">Select Curriculum</option>
 
@@ -2097,7 +2887,7 @@ const CreateLiveGroupModal = ({
                     value={form.capacity}
                     onChange={(e) => setField("capacity", e.target.value)}
                     min="1"
-                    disabled={loading}
+                    disabled={loading || isCurriculumLocked}
                   />
                 </div>
 
@@ -2107,28 +2897,35 @@ const CreateLiveGroupModal = ({
                     className="form-select"
                     value={form.status}
                     onChange={(e) => setField("status", e.target.value)}
-                    disabled={loading}
+                    disabled={loading || isCurriculumLocked}
                   >
                     <option value="active">Active</option>
                     <option value="cancelled">Cancelled</option>
                     <option value="completed">Completed</option>
                   </select>
                 </div>
+
                 <div className="col-lg-12">
                   <div className="gl-visibility-card">
                     <div className="gl-web-settings-row">
                       <div className="gl-web-visibility-content">
-                        <div className="gl-visibility-title">Website Visibility</div>
+                        <div className="gl-visibility-title">
+                          Website Visibility
+                        </div>
 
                         <div className="gl-visibility-subtitle">
-                          If public, this batch will appear on the website listing. If private, it will be hidden from the listing but users can still book through the direct link.
+                          If public, this batch will appear on the website
+                          listing. If private, it will be hidden from the
+                          listing but users can still book through the direct
+                          link.
                         </div>
 
                         <span
-                          className={`gl-visibility-badge-text ${Number(form.show_on_web ?? 1) === 1
+                          className={`gl-visibility-badge-text ${
+                            Number(form.show_on_web ?? 1) === 1
                               ? "gl-visibility-badge-public"
                               : "gl-visibility-badge-private"
-                            }`}
+                          }`}
                         >
                           {Number(form.show_on_web ?? 1) === 1
                             ? "Public Batch"
@@ -2144,9 +2941,11 @@ const CreateLiveGroupModal = ({
                           className="gl-web-sort-input"
                           min="0"
                           value={form.web_sort_order}
-                          onChange={(e) => setField("web_sort_order", e.target.value)}
+                          onChange={(e) =>
+                            setField("web_sort_order", e.target.value)
+                          }
                           placeholder="1"
-                          disabled={loading}
+                          disabled={loading || isCurriculumLocked}
                         />
 
                         <small className="gl-web-sort-help">
@@ -2158,7 +2957,7 @@ const CreateLiveGroupModal = ({
                         <input
                           type="checkbox"
                           checked={Number(form.show_on_web ?? 1) === 1}
-                          disabled={loading}
+                          disabled={loading || isCurriculumLocked}
                           onChange={(e) =>
                             setField("show_on_web", e.target.checked ? "1" : "0")
                           }
@@ -2175,12 +2974,16 @@ const CreateLiveGroupModal = ({
               const teacher = getTeacherById(item.teacherid);
               const subject = getSubjectByClassItem(item);
               const autoTitle = buildSessionTitle(item, index);
+              const assistantNames = getAssistantTeacherNamesByIds(
+                item.assistant_teacher_ids
+              );
 
               return (
                 <div className="gl-class-card" key={item.uid || item.class_no}>
                   <div className="gl-class-header">
                     <div>
                       <h6 className="gl-class-title">Class {index + 1}</h6>
+
                       <div className="gl-class-subtitle">
                         {getTeacherName(teacher) ||
                           item.teacher_name ||
@@ -2189,6 +2992,12 @@ const CreateLiveGroupModal = ({
                           ? ` • ${getSubjectName(subject)}`
                           : ""}
                       </div>
+
+                      {assistantNames.length ? (
+                        <div className="gl-class-subtitle mt-1">
+                          Assistants: {assistantNames.join(", ")}
+                        </div>
+                      ) : null}
 
                       {item.teacher_timezone_location ? (
                         <div className="gl-timezone-note">
@@ -2201,9 +3010,11 @@ const CreateLiveGroupModal = ({
                     </div>
 
                     <div className="d-flex align-items-center gap-2">
-                      <span className="badge bg-primary">Required</span>
+                      <span className="badge bg-primary">
+                        {isTeacherOnlyEdit ? "Teachers Only" : "Required"}
+                      </span>
 
-                      {classes.length > 1 ? (
+                      {!isCurriculumLocked && classes.length > 1 ? (
                         <button
                           type="button"
                           className="gl-remove-class-btn"
@@ -2219,7 +3030,7 @@ const CreateLiveGroupModal = ({
                   <div className="gl-class-body">
                     <div className="row g-3">
                       <div className="col-lg-4 col-md-6">
-                        <label className="form-label">Teacher</label>
+                        <label className="form-label">Main Teacher</label>
 
                         <SearchableTeacherSelect
                           teachers={teachers}
@@ -2234,6 +3045,21 @@ const CreateLiveGroupModal = ({
                       </div>
 
                       <div className="col-lg-4 col-md-6">
+                        <label className="form-label">Assistant Teachers</label>
+
+                        <SearchableAssistantTeachersSelect
+                          teachers={teachers}
+                          value={item.assistant_teacher_ids}
+                          mainTeacherId={item.teacherid}
+                          disabled={loading || lookupsLoading}
+                          placeholder="Select Assistant Teachers"
+                          onChange={(selectedIds) =>
+                            handleAssistantTeachersChange(index, selectedIds)
+                          }
+                        />
+                      </div>
+
+                      <div className="col-lg-4 col-md-6">
                         <label className="form-label">Subject</label>
                         <select
                           className="form-select"
@@ -2243,6 +3069,7 @@ const CreateLiveGroupModal = ({
                           }
                           disabled={
                             loading ||
+                            isCurriculumLocked ||
                             item.subjectLoading ||
                             !item.teacherid ||
                             !item.subjectOptions?.length
@@ -2252,8 +3079,8 @@ const CreateLiveGroupModal = ({
                             {item.subjectLoading
                               ? "Loading subjects..."
                               : item.teacherid
-                                ? "Select Subject"
-                                : "Select teacher first"}
+                              ? "Select Subject"
+                              : "Select teacher first"}
                           </option>
 
                           {(item.subjectOptions || []).map((s) => (
@@ -2268,11 +3095,11 @@ const CreateLiveGroupModal = ({
 
                         {item.subjectLoading ? (
                           <div className="gl-subject-note">
-                            Teacher subjects loading...
+                            Teacher profile loading...
                           </div>
                         ) : null}
 
-                        {item.subjectError ? (
+                        {item.subjectError && !isTeacherOnlyEdit ? (
                           <div className="gl-subject-error">
                             {item.subjectError}
                           </div>
@@ -2328,12 +3155,14 @@ const CreateLiveGroupModal = ({
                             updateClass(index, "title", e.target.value)
                           }
                           placeholder={autoTitle}
-                          disabled={loading}
+                          disabled={loading || isCurriculumLocked}
                         />
                       </div>
 
                       <div className="col-lg-4 col-md-6">
-                        <label className="form-label">Session Date</label>
+                        <label className="form-label">
+                          Session Date - Admin Time (Asia/Dubai)
+                        </label>
                         <input
                           type="date"
                           className="form-control"
@@ -2341,12 +3170,14 @@ const CreateLiveGroupModal = ({
                           onChange={(e) =>
                             updateClass(index, "session_date", e.target.value)
                           }
-                          disabled={loading}
+                          disabled={loading || isCurriculumLocked}
                         />
                       </div>
 
                       <div className="col-lg-4 col-md-6">
-                        <label className="form-label">Start Time</label>
+                        <label className="form-label">
+                          Start Time - Admin Time (Asia/Dubai)
+                        </label>
                         <input
                           type="time"
                           className="form-control"
@@ -2354,7 +3185,7 @@ const CreateLiveGroupModal = ({
                           onChange={(e) =>
                             handleStartTimeChange(index, e.target.value)
                           }
-                          disabled={loading}
+                          disabled={loading || isCurriculumLocked}
                         />
                       </div>
 
@@ -2373,16 +3204,18 @@ const CreateLiveGroupModal = ({
               );
             })}
 
-            <div className="gl-add-class-wrap">
-              <button
-                type="button"
-                className="gl-add-class-btn"
-                onClick={handleAddClass}
-                disabled={loading}
-              >
-                + Add Another Class
-              </button>
-            </div>
+            {!isCurriculumLocked ? (
+              <div className="gl-add-class-wrap">
+                <button
+                  type="button"
+                  className="gl-add-class-btn"
+                  onClick={handleAddClass}
+                  disabled={loading}
+                >
+                  + Add Another Class
+                </button>
+              </div>
+            ) : null}
 
             <div className="gl-preview-card">
               <div className="gl-preview-title">Preview</div>
@@ -2402,24 +3235,27 @@ const CreateLiveGroupModal = ({
               <div className="gl-preview-line">
                 <strong>Group Session Price:</strong>{" "}
                 {selectedProgramme?.weekly_price ||
-                  editProgramme?.weekly_price ||
-                  preselectedProgramme?.weekly_price
-                  ? `AED ${selectedProgramme?.weekly_price ||
-                  editProgramme?.weekly_price ||
-                  preselectedProgramme?.weekly_price
-                  }`
+                editProgramme?.weekly_price ||
+                preselectedProgramme?.weekly_price
+                  ? `AED ${
+                      selectedProgramme?.weekly_price ||
+                      editProgramme?.weekly_price ||
+                      preselectedProgramme?.weekly_price
+                    }`
                   : "-"}
               </div>
 
               <div className="gl-preview-line">
                 <strong>Capacity:</strong> {form.capacity || "-"} students
               </div>
+
               <div className="gl-preview-line">
                 <strong>Website Visibility:</strong>{" "}
                 {Number(form.show_on_web ?? 1) === 1
                   ? "Public - Show on website listing"
                   : "Private - Hide from listing, direct link booking allowed"}
               </div>
+
               <div className="gl-preview-line">
                 <strong>Web Sort Order:</strong>{" "}
                 {Number(form.web_sort_order || 0) === 0
@@ -2430,8 +3266,18 @@ const CreateLiveGroupModal = ({
               {previewClasses.map((item) => (
                 <div className="gl-preview-line" key={item.index}>
                   <strong>Class {item.index + 1}:</strong> {item.title || "-"} |{" "}
-                  {item.teacherName || "-"} | {item.date || "-"} |{" "}
-                  {item.time || "-"} | {item.timezone || "Timezone not selected"}
+                  Main Teacher: {item.teacherName || "-"}
+                  <br />
+                  <strong>Assistant Teachers:</strong>{" "}
+                  {item.assistantNames?.length
+                    ? item.assistantNames.join(", ")
+                    : "-"}
+                  <br />
+                  <strong>Admin Time:</strong> {item.adminDate} |{" "}
+                  {item.adminTime} | Asia/Dubai
+                  <br />
+                  <strong>Teacher Save Time:</strong> {item.teacherDate} |{" "}
+                  {item.teacherTime} | {item.timezone || "Timezone not selected"}
                   {item.timezoneid ? ` | Timezone ID: ${item.timezoneid}` : ""}
                 </div>
               ))}
@@ -2454,12 +3300,16 @@ const CreateLiveGroupModal = ({
               disabled={loading || lookupsLoading}
             >
               {loading
-                ? isEditMode
+                ? isTeacherOnlyEdit
+                  ? "Updating Teachers..."
+                  : isEditMode
                   ? "Updating..."
                   : "Creating..."
+                : isTeacherOnlyEdit
+                ? "Update Teachers & Assistants"
                 : isEditMode
-                  ? "Update Sessions"
-                  : "Create Sessions"}
+                ? "Update Sessions"
+                : "Create Sessions"}
             </button>
           </div>
         </form>

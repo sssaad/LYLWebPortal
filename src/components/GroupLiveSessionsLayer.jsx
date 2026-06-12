@@ -132,6 +132,16 @@ const convertSessionToPortalTimezone = (session) => {
   };
 };
 
+const getTeacherTimezoneLabel = (session) => {
+  return (
+    session?.timezone_location ||
+    session?.teacher_timezone_location ||
+    session?.source_timezone ||
+    session?.timezone ||
+    "Asia/Dubai"
+  );
+};
+
 const getStatusBadgeClass = (status) => {
   const s = String(status || "").toLowerCase();
 
@@ -164,24 +174,37 @@ const getGroupBatchId = (item) => {
   return batchId > 0 ? batchId : 0;
 };
 
-
 const getProgrammeBookedCount = (programme) => {
   const programmeBooked = Number(programme?.booked_count || 0);
 
   const sessionBooked = Array.isArray(programme?.sessions)
     ? Math.max(
-      ...programme.sessions.map((session) =>
-        Number(session?.booked_count || 0)
-      ),
-      0
-    )
+        ...programme.sessions.map((session) =>
+          Number(session?.booked_count || 0)
+        ),
+        0
+      )
     : 0;
 
   return Math.max(programmeBooked, sessionBooked);
 };
 
-const canEditProgramme = (programme) => {
-  return getProgrammeBookedCount(programme) <= 0;
+const getAssistantTeachersLabel = (session) => {
+  const value = String(session?.assistant_teacher_names || "").trim();
+
+  if (
+    !value ||
+    value.toLowerCase() === "null" ||
+    value.toLowerCase() === "undefined"
+  ) {
+    return "-";
+  }
+
+  return value
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean)
+    .join(", ");
 };
 
 const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
@@ -202,7 +225,7 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
     >
       <style>{`
         .gl-details-modal {
-          width: min(1140px, 98vw);
+          width: min(1380px, 98vw);
           max-height: 94vh;
           overflow: hidden;
           border-radius: 22px;
@@ -276,6 +299,10 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
           border-radius: 999px;
         }
 
+        .gl-details-body::-webkit-scrollbar-thumb:hover {
+          background: #94a3b8;
+        }
+
         .gl-stat-card {
           border: 1px solid rgba(148, 163, 184, 0.22);
           border-radius: 16px;
@@ -334,45 +361,110 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
           gap: 12px;
         }
 
-        .gl-class-row {
-          display: grid;
-          grid-template-columns: 54px 1.1fr 1.4fr 1.1fr 1fr 1.1fr 90px 90px 110px;
-          gap: 14px;
-          align-items: center;
-          padding: 16px 18px;
-          border-bottom: 1px solid rgba(148, 163, 184, 0.14);
-          background: #243247;
+        .gl-table-scroll {
+          width: 100%;
+          overflow-x: auto;
+          overflow-y: hidden;
+          padding-bottom: 8px;
         }
 
-        .gl-class-row:last-child {
-          border-bottom: 0;
+        .gl-table-scroll::-webkit-scrollbar {
+          height: 9px;
         }
 
-        .gl-class-row:hover {
-          background: #2a3a51;
+        .gl-table-scroll::-webkit-scrollbar-track {
+          background: #172438;
+          border-radius: 999px;
         }
 
-        .gl-class-head {
+        .gl-table-scroll::-webkit-scrollbar-thumb {
+          background: #64748b;
+          border-radius: 999px;
+        }
+
+        .gl-table-scroll::-webkit-scrollbar-thumb:hover {
+          background: #94a3b8;
+        }
+
+        .gl-classes-table {
+          width: 100%;
+          min-width: 1180px;
+          border-collapse: collapse;
+        }
+
+        .gl-classes-table th {
+          background: #172438;
           color: #ffffff;
           font-size: 13px;
           font-weight: 900;
-          background: #172438;
+          padding: 14px 16px;
+          white-space: nowrap;
+          border-bottom: 1px solid rgba(148, 163, 184, 0.14);
         }
 
-        .gl-class-cell {
+        .gl-classes-table td {
+          background: #243247;
           color: #dbe4f0;
           font-size: 14px;
           font-weight: 700;
-          min-width: 0;
+          padding: 18px 16px;
+          vertical-align: middle;
+          border-bottom: 1px solid rgba(148, 163, 184, 0.14);
         }
 
-        .gl-class-muted {
-          color: #9fb0c8;
-          font-weight: 700;
+        .gl-classes-table tr:last-child td {
+          border-bottom: 0;
         }
 
-        .gl-class-subject {
+        .gl-classes-table tbody tr:hover td {
+          background: #2a3a51;
+        }
+
+        .gl-subject-text {
           color: #ffffff;
+          font-weight: 900;
+          white-space: nowrap;
+        }
+
+        .gl-title-text {
+          min-width: 180px;
+          max-width: 260px;
+          line-height: 1.45;
+        }
+
+        .gl-teacher-text {
+          min-width: 130px;
+          white-space: nowrap;
+        }
+
+        .gl-time-clean {
+          min-width: 260px;
+          max-width: 310px;
+        }
+
+        .gl-time-main {
+          color: #ffffff;
+          font-size: 14px;
+          font-weight: 900;
+          line-height: 1.4;
+          white-space: nowrap;
+        }
+
+        .gl-time-prefix {
+          color: #93c5fd;
+          font-weight: 900;
+        }
+
+        .gl-time-sub {
+          margin-top: 6px;
+          color: #9fb0c8;
+          font-size: 11px;
+          font-weight: 700;
+          line-height: 1.4;
+        }
+
+        .gl-time-sub strong {
+          color: #cbd5e1;
           font-weight: 900;
         }
 
@@ -399,34 +491,12 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
           color: #ffffff;
         }
 
-        @media (max-width: 1199px) {
-          .gl-class-row {
-            grid-template-columns: 48px 1fr 1.2fr 1fr 1fr 1fr 80px 80px 100px;
-            gap: 10px;
-            padding: 14px;
-          }
-
-          .gl-class-cell {
-            font-size: 13px;
-          }
-        }
-
-        @media (max-width: 991px) {
-          .gl-details-title {
-            font-size: 30px;
-          }
-
-          .gl-class-row {
-            grid-template-columns: 1fr;
-            gap: 8px;
-          }
-
-          .gl-class-head {
-            display: none;
-          }
-        }
-
         @media (max-width: 767px) {
+          .gl-details-modal {
+            width: 100%;
+            max-height: 94vh;
+          }
+
           .gl-details-header,
           .gl-details-body,
           .gl-details-footer {
@@ -441,6 +511,10 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
           .gl-desc-title {
             font-size: 20px;
           }
+
+          .gl-classes-table {
+            min-width: 1180px;
+          }
         }
       `}</style>
 
@@ -448,13 +522,16 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
         <div className="gl-details-header d-flex justify-content-between align-items-start gap-3">
           <div>
             <h2 className="gl-details-title">{programme.programme_name}</h2>
+
             <div className="gl-details-stage">
               {programme.programme_stage || "-"}
             </div>
+
             <div className="mt-2 d-flex flex-wrap gap-2">
               <span className={`badge ${getStatusBadgeClass(programme.status)}`}>
                 {getStatusLabel(programme.status || "active")}
               </span>
+
               {programme.group_batch_id ? (
                 <span className="badge bg-secondary">
                   Batch #{programme.group_batch_id}
@@ -524,68 +601,130 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
           <div className="gl-classes-card">
             <div className="gl-classes-title">
               <span>Curriculum Classes</span>
-              <span className="badge bg-primary">{sessions.length} Classes</span>
+              <span className="badge bg-primary">
+                {sessions.length} {sessions.length === 1 ? "Class" : "Classes"}
+              </span>
             </div>
 
-            <div className="gl-class-row gl-class-head">
-              <div>S.L</div>
-              <div>Subject</div>
-              <div>Title</div>
-              <div>Teacher</div>
-              <div>Date</div>
-              <div>Slot</div>
-              <div>Capacity</div>
-              <div>Booked</div>
-              <div>Status</div>
+            <div className="gl-table-scroll">
+              <table className="gl-classes-table">
+                <thead>
+                  <tr>
+                    <th>S.L</th>
+                    <th>Subject</th>
+                    <th>Title</th>
+                    <th>Teacher</th>
+                    <th>Assistant Teachers</th>
+                    <th>Date</th>
+                    <th>Slot</th>
+                    <th>Capacity</th>
+                    <th>Booked</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {sessions.length === 0 ? (
+                    <tr>
+                      <td colSpan="10" className="text-center py-4">
+                        No classes added for this curriculum.
+                      </td>
+                    </tr>
+                  ) : (
+                    sessions.map((session, index) => {
+                      const converted = convertSessionToPortalTimezone(session);
+                      const teacherTimezone = getTeacherTimezoneLabel(session);
+
+                      const teacherStart = formatTime(
+                        normaliseTime(session?.slot_start || "")
+                      );
+
+                      const teacherEnd = formatTime(
+                        normaliseTime(session?.slot_end || "")
+                      );
+
+                      return (
+                        <tr key={session?.id || index}>
+                          <td>{index + 1}</td>
+
+                          <td>
+                            <div className="gl-subject-text">
+                              {session?.subjectname || "-"}
+                            </div>
+                          </td>
+
+                          <td>
+                            <div className="gl-title-text">
+                              {session?.title || "-"}
+                            </div>
+                          </td>
+
+                          <td>
+                            <div className="gl-teacher-text">
+                              {session?.teacher_name || "-"}
+                            </div>
+                          </td>
+
+                          <td>
+                            <div className="gl-teacher-text">
+                              {getAssistantTeachersLabel(session)}
+                            </div>
+                          </td>
+
+                          <td>
+                            <div className="gl-time-clean">
+                              <div className="gl-time-main">
+                                <span className="gl-time-prefix">
+                                  Admin Asia/Dubai:
+                                </span>{" "}
+                                {converted.date}
+                              </div>
+
+                              <div className="gl-time-sub">
+                                <strong>Teacher:</strong>{" "}
+                                {formatDate(session?.session_date)}
+                              </div>
+                            </div>
+                          </td>
+
+                          <td>
+                            <div className="gl-time-clean">
+                              <div className="gl-time-main">
+                                <span className="gl-time-prefix">
+                                  Admin Asia/Dubai:
+                                </span>{" "}
+                                {converted.slot}
+                              </div>
+
+                              <div className="gl-time-sub">
+                                <strong>Teacher:</strong> {teacherStart} -{" "}
+                                {teacherEnd}
+                                <br />
+                                {teacherTimezone}
+                              </div>
+                            </div>
+                          </td>
+
+                          <td>{session?.capacity || "-"}</td>
+
+                          <td>{session?.booked_count ?? 0}</td>
+
+                          <td>
+                            <span
+                              className={`badge ${getStatusBadgeClass(
+                                session?.status
+                              )}`}
+                            >
+                              {getStatusLabel(session?.status)}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
             </div>
-
-            {sessions.length === 0 ? (
-              <div className="p-4 text-center gl-class-muted">
-                No classes added for this curriculum.
-              </div>
-            ) : (
-              sessions.map((session, index) => {
-                const converted = convertSessionToPortalTimezone(session);
-
-                return (
-                  <div className="gl-class-row" key={session?.id || index}>
-                    <div className="gl-class-cell">{index + 1}</div>
-
-                    <div className="gl-class-cell gl-class-subject">
-                      {session?.subjectname || "-"}
-                    </div>
-
-                    <div className="gl-class-cell">{session?.title || "-"}</div>
-
-                    <div className="gl-class-cell">
-                      {session?.teacher_name || "-"}
-                    </div>
-
-                    <div className="gl-class-cell">{converted.date}</div>
-
-                    <div className="gl-class-cell">{converted.slot}</div>
-
-                    <div className="gl-class-cell">
-                      {session?.capacity || "-"}
-                    </div>
-
-                    <div className="gl-class-cell">
-                      {session?.booked_count ?? 0}
-                    </div>
-
-                    <div className="gl-class-cell">
-                      <span
-                        className={`badge ${getStatusBadgeClass(
-                          session?.status
-                        )}`}
-                      >
-                        {getStatusLabel(session?.status)}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })
-            )}
           </div>
         </div>
 
@@ -689,6 +828,8 @@ const GroupLiveSessionsLayer = () => {
         item?.title,
         item?.subjectname,
         item?.teacher_name,
+        item?.assistant_teacher_names,
+        item?.assistant_teacher_ids,
         item?.session_date,
         item?.slot_start,
         item?.slot_end,
@@ -714,8 +855,11 @@ const GroupLiveSessionsLayer = () => {
       const programmeId = String(item?.programme_id || "unknown");
       const status = String(item?.status || "active").toLowerCase();
       const groupBatchId = getGroupBatchId(item);
+
       const batchKey =
-        groupBatchId > 0 ? `batch_${groupBatchId}` : getWeekKey(item?.session_date);
+        groupBatchId > 0
+          ? `batch_${groupBatchId}`
+          : getWeekKey(item?.session_date);
 
       const groupKey = [programmeId, status, batchKey].join("_");
 
@@ -848,9 +992,9 @@ const GroupLiveSessionsLayer = () => {
       prev.map((row) =>
         idSet.has(String(row?.id))
           ? {
-            ...row,
-            status: nextStatus,
-          }
+              ...row,
+              status: nextStatus,
+            }
           : row
       )
     );
@@ -883,7 +1027,7 @@ const GroupLiveSessionsLayer = () => {
     if (Number(response?.data?.statusCode) !== 200) {
       throw new Error(
         response?.data?.message ||
-        `Session ID ${sessionId} status update failed.`
+          `Session ID ${sessionId} status update failed.`
       );
     }
 
@@ -979,7 +1123,7 @@ const GroupLiveSessionsLayer = () => {
             <strong>Curriculum:</strong> ${programme?.programme_name || "-"}<br/>
             <strong>Classes:</strong> ${sessionIds.length}<br/>
             <strong>Current:</strong> ${getStatusLabel(currentStatus)}<br/>
-<strong>New:</strong> ${getStatusLabel(nextStatus)}
+            <strong>New:</strong> ${getStatusLabel(nextStatus)}
           </div>
         </div>
       `,
@@ -1059,19 +1203,18 @@ const GroupLiveSessionsLayer = () => {
       return;
     }
 
-    if (!canEditProgramme(programme)) {
-      Swal.fire({
-        icon: "info",
-        title: "Edit Not Allowed",
-        text: "This curriculum already has a group booking, so it cannot be edited.",
-        timer: 2200,
-        timerProgressBar: true,
-      });
-      return;
-    }
+    const bookedCount = getProgrammeBookedCount(programme);
+    const teacherOnlyEdit = bookedCount > 0;
 
     setCreateModalMode("edit");
-    setSelectedProgrammeForCreate(programme);
+
+    setSelectedProgrammeForCreate({
+      ...programme,
+      _booked_count: bookedCount,
+      _teacher_only_edit: teacherOnlyEdit,
+      _lock_curriculum: teacherOnlyEdit,
+    });
+
     setIsCreateOpen(true);
   };
 
@@ -1199,22 +1342,22 @@ const GroupLiveSessionsLayer = () => {
         }
 
         .gl-create-btn,
-.gl-weekly-btn,
-.gl-group-programme-btn {
-  border-radius: 999px;
-  padding: 10px 18px;
-  width: fit-content;
-  max-width: fit-content;
-  flex: 0 0 auto;
-  font-weight: 800;
-}
+        .gl-weekly-btn,
+        .gl-group-programme-btn {
+          border-radius: 999px;
+          padding: 10px 18px;
+          width: fit-content;
+          max-width: fit-content;
+          flex: 0 0 auto;
+          font-weight: 800;
+        }
 
-.gl-group-programme-btn {
-  color: #f59e0b !important;
-  border: 1px solid #f59e0b !important;
-  background: transparent !important;
-  box-shadow: 0 10px 24px rgba(245, 158, 11, 0.14);
-}
+        .gl-group-programme-btn {
+          color: #f59e0b !important;
+          border: 1px solid #f59e0b !important;
+          background: transparent !important;
+          box-shadow: 0 10px 24px rgba(245, 158, 11, 0.14);
+        }
 
         .gl-create-btn {
           box-shadow: 0 10px 24px rgba(25, 135, 84, 0.20);
@@ -1248,56 +1391,39 @@ const GroupLiveSessionsLayer = () => {
           cursor: not-allowed;
           color: #111827 !important;
         }
-          .gl-visibility-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  width: fit-content;
-  margin-top: 6px;
-  padding: 4px 9px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 900;
-}
 
-.gl-visibility-public {
-  color: #065f46;
-  background: rgba(16, 185, 129, 0.14);
-  border: 1px solid rgba(16, 185, 129, 0.28);
-}
+        .gl-visibility-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          width: fit-content;
+          margin-top: 8px;
+          padding: 5px 12px;
+          border-radius: 999px;
+          font-size: 11px;
+          font-weight: 900;
+          letter-spacing: 0.2px;
+          line-height: 1;
+        }
 
-.gl-visibility-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  width: fit-content;
-  margin-top: 8px;
-  padding: 5px 12px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 900;
-  letter-spacing: 0.2px;
-  line-height: 1;
-}
+        .gl-visibility-public {
+          color: #ffffff !important;
+          background: #16a34a !important;
+          border: 1px solid #22c55e !important;
+          box-shadow: 0 6px 16px rgba(34, 197, 94, 0.22);
+        }
 
-.gl-visibility-public {
-  color: #ffffff !important;
-  background: #16a34a !important;
-  border: 1px solid #22c55e !important;
-  box-shadow: 0 6px 16px rgba(34, 197, 94, 0.22);
-}
+        .gl-visibility-private {
+          color: #ffffff !important;
+          background: #ea580c !important;
+          border: 1px solid #fb923c !important;
+          box-shadow: 0 6px 16px rgba(249, 115, 22, 0.22);
+        }
 
-.gl-visibility-private {
-  color: #ffffff !important;
-  background: #ea580c !important;
-  border: 1px solid #fb923c !important;
-  box-shadow: 0 6px 16px rgba(249, 115, 22, 0.22);
-}
-
-.gl-visibility-badge svg {
-  color: #ffffff !important;
-  font-size: 13px;
-}
+        .gl-visibility-badge svg {
+          color: #ffffff !important;
+          font-size: 13px;
+        }
       `}</style>
 
       <div className="card-body p-24">
@@ -1393,7 +1519,7 @@ const GroupLiveSessionsLayer = () => {
                   <th>Group Session Price</th>
                   <th>Classes</th>
                   <th>Capacity</th>
-                  <th> Booked Seats</th>
+                  <th>Booked Seats</th>
                   <th>Seats Left</th>
                   <th>Status</th>
                   <th>Action</th>
@@ -1429,7 +1555,8 @@ const GroupLiveSessionsLayer = () => {
                     const isCompleted = currentStatus === "completed";
                     const isActive = currentStatus === "active";
                     const bookedCount = getProgrammeBookedCount(programme);
-                    const editAllowed = canEditProgramme(programme);
+                    const editAllowed = true;
+                    const hasBookings = bookedCount > 0;
 
                     return (
                       <tr key={groupKey}>
@@ -1439,6 +1566,7 @@ const GroupLiveSessionsLayer = () => {
                           <div className="gl-programme-title">
                             {programme.programme_name}
                           </div>
+
                           <div className="gl-programme-desc">
                             {getShortDescription(
                               programme.programme_description,
@@ -1455,11 +1583,13 @@ const GroupLiveSessionsLayer = () => {
                               Batch: {formatDate(programme.createddate)}
                             </div>
                           ) : null}
+
                           <div
-                            className={`gl-visibility-badge ${Number(programme.show_on_web ?? 1) === 1
-                              ? "gl-visibility-public"
-                              : "gl-visibility-private"
-                              }`}
+                            className={`gl-visibility-badge ${
+                              Number(programme.show_on_web ?? 1) === 1
+                                ? "gl-visibility-public"
+                                : "gl-visibility-private"
+                            }`}
                           >
                             <Icon
                               icon={
@@ -1468,8 +1598,11 @@ const GroupLiveSessionsLayer = () => {
                                   : "mdi:eye-off-outline"
                               }
                             />
-                            {Number(programme.show_on_web ?? 1) === 1 ? "Public" : "Private"}
+                            {Number(programme.show_on_web ?? 1) === 1
+                              ? "Public"
+                              : "Private"}
                           </div>
+
                           <div className="gl-batch-text">
                             Web Sort Order:{" "}
                             <strong>
@@ -1489,7 +1622,9 @@ const GroupLiveSessionsLayer = () => {
                         <td>
                           <span className="badge bg-success">
                             {Number(programme.total_classes || 0)}{" "}
-                            {Number(programme.total_classes || 0) === 1 ? "Class" : "Classes"}
+                            {Number(programme.total_classes || 0) === 1
+                              ? "Class"
+                              : "Classes"}
                           </span>
                         </td>
 
@@ -1572,24 +1707,26 @@ const GroupLiveSessionsLayer = () => {
                               className="btn btn-sm btn-warning d-inline-flex align-items-center gap-1 gl-action-btn gl-action-edit-btn"
                               disabled={!editAllowed}
                               title={
-                                editAllowed
-                                  ? "Edit Curriculum"
-                                  : "Booking already exists, edit disabled"
+                                hasBookings
+                                  ? "Update Teachers & Assistant Teachers"
+                                  : "Edit Curriculum"
                               }
                               onClick={() => openEditModal(programme)}
                             >
                               <Icon icon="mdi:pencil-outline" />
-                              Edit
+                              {hasBookings ? "Teachers" : "Edit"}
                             </button>
+
                             {isActive ? (
                               <button
                                 type="button"
                                 className="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1 gl-copy-link-btn"
                                 onClick={async () => {
-                                  const link = `https://gostudy.ae/group-tuition/${programme.programme_id}${programme.group_batch_id
-                                    ? `?group_batch_id=${programme.group_batch_id}`
-                                    : ""
-                                    }`;
+                                  const link = `https://gostudy.ae/group-tuition/${programme.programme_id}${
+                                    programme.group_batch_id
+                                      ? `?group_batch_id=${programme.group_batch_id}`
+                                      : ""
+                                  }`;
 
                                   try {
                                     await navigator.clipboard.writeText(link);
@@ -1663,6 +1800,14 @@ const GroupLiveSessionsLayer = () => {
         preselectedProgramme={
           createModalMode === "create" ? selectedProgrammeForCreate : null
         }
+        lockCurriculum={
+          createModalMode === "edit" &&
+          !!selectedProgrammeForCreate?._lock_curriculum
+        }
+        teacherOnlyEdit={
+          createModalMode === "edit" &&
+          !!selectedProgrammeForCreate?._teacher_only_edit
+        }
         onClose={closeCreateModal}
         onSuccess={handleCreateSuccess}
       />
@@ -1670,6 +1815,7 @@ const GroupLiveSessionsLayer = () => {
       {weeklyTimetableOpen && (
         <WeeklyTimetableModal onClose={closeWeeklyTimetableModal} />
       )}
+
       <CreateGroupProgrammeModal
         open={groupProgrammeModalOpen}
         onClose={closeGroupProgrammeModal}

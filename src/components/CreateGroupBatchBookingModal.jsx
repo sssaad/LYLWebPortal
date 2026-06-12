@@ -74,26 +74,13 @@ const normaliseTime = (value = "") => {
   return parsed.isValid() ? parsed.format("HH:mm:ss") : clean;
 };
 
-const getSafeTimezone = (
-  timezone,
-  fallback = DEFAULT_PORTAL_DISPLAY_TIMEZONE
-) => {
-  const value = String(timezone || "").trim();
-
-  if (!value) return fallback;
-
-  if (moment.tz.zone(value)) return value;
-
-  return fallback;
-};
-
 const convertSessionToDisplayTimezone = (session, targetTimezone) => {
   const sourceTimezone = String(
     session?.timezone_location ||
-    session?.timezone ||
-    session?.teacher_timezone_location ||
-    session?.source_timezone ||
-    DEFAULT_PORTAL_DISPLAY_TIMEZONE
+      session?.timezone ||
+      session?.teacher_timezone_location ||
+      session?.source_timezone ||
+      DEFAULT_PORTAL_DISPLAY_TIMEZONE
   ).trim();
 
   const displayTimezone = String(
@@ -134,7 +121,7 @@ const convertSessionToDisplayTimezone = (session, targetTimezone) => {
     sourceTimezone
   );
 
-  const end = moment.tz(
+  let end = moment.tz(
     `${sourceDate} ${sourceEnd}`,
     "YYYY-MM-DD HH:mm:ss",
     sourceTimezone
@@ -150,6 +137,10 @@ const convertSessionToDisplayTimezone = (session, targetTimezone) => {
       sourceTimezone,
       displayTimezone,
     };
+  }
+
+  if (!end.isAfter(start)) {
+    end = end.add(1, "day");
   }
 
   const convertedStart = start.clone().tz(displayTimezone);
@@ -176,6 +167,51 @@ const getStatusBadgeClass = (status) => {
   if (s === "cancelled") return "bg-danger";
 
   return "bg-secondary";
+};
+
+const getAssistantTeacherNames = (session) => {
+  const value = String(
+    session?.assistant_teacher_names ||
+      session?.assistant_names ||
+      session?.assistant_teacher_name ||
+      session?.assistantTeachers ||
+      ""
+  ).trim();
+
+  if (
+    !value ||
+    value.toLowerCase() === "null" ||
+    value.toLowerCase() === "undefined"
+  ) {
+    return "";
+  }
+
+  return value
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean)
+    .join(", ");
+};
+
+const getAssistantTeacherIds = (session) => {
+  const raw =
+    session?.assistant_teacher_ids ||
+    session?.assistant_teacherids ||
+    session?.assistant_teachers ||
+    session?.assistant_teacher_ids_array ||
+    "";
+
+  if (Array.isArray(raw)) {
+    return raw
+      .map((item) => item?.teacherid ?? item?.userid ?? item?.id ?? item)
+      .map((item) => Number(String(item || "").trim()))
+      .filter(Boolean);
+  }
+
+  return String(raw || "")
+    .split(",")
+    .map((item) => Number(String(item || "").trim()))
+    .filter(Boolean);
 };
 
 const getStudentId = (student) =>
@@ -208,6 +244,7 @@ const getStudentMeta = (student) => {
 
   return [year, email].filter(Boolean).join(" • ");
 };
+
 const buildStudentImageUrl = (imagePath) => {
   const value = String(imagePath || "").trim();
 
@@ -415,6 +452,7 @@ const SearchableStudentSelect = ({
     </div>
   );
 };
+
 const CreateGroupBatchBookingModal = ({
   open,
   programme,
@@ -660,14 +698,14 @@ const CreateGroupBatchBookingModal = ({
     setStudentId(value);
     setError("");
 
-    console.log("SELECTED STUDENT RAW =>", {
-      value,
-      student: students.find((s) => String(getStudentId(s)) === String(value)),
-    });
-
     const student = students.find(
       (s) => String(getStudentId(s)) === String(value)
     );
+
+    console.log("SELECTED STUDENT RAW =>", {
+      value,
+      student,
+    });
 
     if (student) {
       const tz = resolveStudentTimezone(student);
@@ -686,9 +724,7 @@ const CreateGroupBatchBookingModal = ({
     const batchCreatedDate = moment().format("YYYY-MM-DD HH:mm:ss");
 
     const groupBatchId = Number(
-      programme?.group_batch_id ||
-      activeSessions?.[0]?.group_batch_id ||
-      0
+      programme?.group_batch_id || activeSessions?.[0]?.group_batch_id || 0
     );
 
     return {
@@ -711,13 +747,16 @@ const CreateGroupBatchBookingModal = ({
       booking_createddate: batchCreatedDate,
 
       payment_status: paymentStatus,
-      paymentmethod: paymentStatus === "Paid" ? "portal_manual" : "portal_unpaid",
+      paymentmethod:
+        paymentStatus === "Paid" ? "portal_manual" : "portal_unpaid",
       paymentType: "Group",
       sessionType: "Online",
       bookingType: "Manual",
 
       sessions: activeSessions.map((session) => {
         const converted = convertSessionToDisplayTimezone(session, studentTz);
+        const assistantTeacherIds = getAssistantTeacherIds(session);
+        const assistantTeacherNames = getAssistantTeacherNames(session);
 
         console.log("PORTAL BOOKING TIME CHECK =>", {
           subject: session?.subjectname,
@@ -728,13 +767,19 @@ const CreateGroupBatchBookingModal = ({
           dbEnd: session?.slot_end,
           shownDate: converted.date,
           shownSlot: converted.slot,
+          assistantTeacherIds,
+          assistantTeacherNames,
         });
 
         return {
           group_live_session_id: Number(session?.id),
           group_batch_id: Number(session?.group_batch_id || groupBatchId || 0),
           group_programme_id: Number(session?.programme_id),
+
           teacherid: Number(session?.teacherid),
+          assistant_teacher_ids: assistantTeacherIds,
+          assistant_teacher_names: assistantTeacherNames,
+
           subjectid: Number(session?.subjectid),
 
           bookdate: converted.dbDate,
@@ -744,6 +789,12 @@ const CreateGroupBatchBookingModal = ({
           timezoneid,
           timezone: studentTz,
           user_timezone: studentTz,
+
+          classid: session?.classid || null,
+          roomid: session?.roomid || null,
+          classhostlink: session?.classhostlink || null,
+          classcommonlink: session?.classcommonlink || null,
+          classcommonhostlink: session?.classcommonhostlink || null,
 
           source_bookdate: String(session?.session_date || ""),
           source_slot_start: String(session?.slot_start || ""),
@@ -804,18 +855,18 @@ const CreateGroupBatchBookingModal = ({
       icon: "warning",
       title: "Create Group Booking?",
       html: `
-    <div style="text-align:center; line-height:1.7;">
-      <div>Please confirm the details before creating this group booking.</div>
-      <div style="margin-top:10px;">
-        <strong>Programme:</strong> ${programme?.programme_name || "-"}<br/>
-        <strong>Batch:</strong> #${payload?.group_batch_id || "-"}<br/>
-        <strong>Student:</strong> ${getStudentName(selectedStudent) || "-"}<br/>
-        <strong>Timezone:</strong> ${studentTz}<br/>
-        <strong>Payment Status:</strong> ${paymentStatus}<br/>
-        <strong>Classes:</strong> ${activeSessions.length}
-      </div>
-    </div>
-  `,
+        <div style="text-align:center; line-height:1.7;">
+          <div>Please confirm the details before creating this group booking.</div>
+          <div style="margin-top:10px;">
+            <strong>Programme:</strong> ${programme?.programme_name || "-"}<br/>
+            <strong>Batch:</strong> #${payload?.group_batch_id || "-"}<br/>
+            <strong>Student:</strong> ${getStudentName(selectedStudent) || "-"}<br/>
+            <strong>Timezone:</strong> ${studentTz}<br/>
+            <strong>Payment Status:</strong> ${paymentStatus}<br/>
+            <strong>Classes:</strong> ${activeSessions.length}
+          </div>
+        </div>
+      `,
       showCancelButton: true,
       confirmButtonText: "Yes, Create Booking",
       cancelButtonText: "Cancel",
@@ -854,8 +905,7 @@ const CreateGroupBatchBookingModal = ({
       await Swal.fire({
         icon: "success",
         title: "Booking Created",
-        text:
-          response?.data?.message || "Group booking created successfully.",
+        text: response?.data?.message || "Group booking created successfully.",
         timer: 1800,
         timerProgressBar: true,
       });
@@ -909,8 +959,8 @@ const CreateGroupBatchBookingModal = ({
         }
 
         .swal2-container {
-  z-index: 99999 !important;
-}
+          z-index: 99999 !important;
+        }
 
         .gb-booking-modal {
           width: min(760px, 96vw);
@@ -1045,6 +1095,14 @@ const CreateGroupBatchBookingModal = ({
           font-weight: 750;
         }
 
+        .gb-session-helper {
+          color: #93c5fd;
+          font-size: 11px;
+          font-weight: 800;
+          margin-top: 5px;
+          line-height: 1.45;
+        }
+
         .gb-muted {
           color: #b8c4d6;
           font-size: 13px;
@@ -1052,208 +1110,208 @@ const CreateGroupBatchBookingModal = ({
         }
 
         .gb-student-select-wrap {
-  position: relative;
-  width: 100%;
-}
+          position: relative;
+          width: 100%;
+        }
 
-.gb-student-select-btn {
-  width: 100%;
-  min-height: 48px;
-  border-radius: 13px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  background: #1b2738;
-  color: #ffffff;
-  padding: 7px 14px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  font-weight: 750;
-  text-align: left;
-}
+        .gb-student-select-btn {
+          width: 100%;
+          min-height: 48px;
+          border-radius: 13px;
+          border: 1px solid rgba(148, 163, 184, 0.18);
+          background: #1b2738;
+          color: #ffffff;
+          padding: 7px 14px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          font-weight: 750;
+          text-align: left;
+        }
 
-.gb-student-select-btn:disabled {
-  opacity: 0.75;
-  cursor: not-allowed;
-}
+        .gb-student-select-btn:disabled {
+          opacity: 0.75;
+          cursor: not-allowed;
+        }
 
-.gb-student-selected-left {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  min-width: 0;
-}
+        .gb-student-selected-left {
+          display: flex;
+          align-items: center;
+          gap: 11px;
+          min-width: 0;
+        }
 
-.gb-student-placeholder {
-  color: #8296b1;
-}
+        .gb-student-placeholder {
+          color: #8296b1;
+        }
 
-.gb-student-selected-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
+        .gb-student-selected-info {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          min-width: 0;
+        }
 
-.gb-student-selected-name {
-  color: #ffffff;
-  font-size: 14px;
-  font-weight: 850;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+        .gb-student-selected-name {
+          color: #ffffff;
+          font-size: 14px;
+          font-weight: 850;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
 
-.gb-student-selected-meta {
-  color: #9fb0c8;
-  font-size: 12px;
-  font-weight: 650;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+        .gb-student-selected-meta {
+          color: #9fb0c8;
+          font-size: 12px;
+          font-weight: 650;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
 
-.gb-student-arrow {
-  color: #ffffff;
-  font-size: 12px;
-  flex: 0 0 auto;
-}
+        .gb-student-arrow {
+          color: #ffffff;
+          font-size: 12px;
+          flex: 0 0 auto;
+        }
 
-.gb-student-dropdown {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  right: 0;
-  z-index: 2800;
-  border-radius: 16px;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  background: #0b1220;
-  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.42);
-  overflow: hidden;
-}
+        .gb-student-dropdown {
+          position: absolute;
+          top: calc(100% + 8px);
+          left: 0;
+          right: 0;
+          z-index: 2800;
+          border-radius: 16px;
+          border: 1px solid rgba(148, 163, 184, 0.28);
+          background: #0b1220;
+          box-shadow: 0 20px 45px rgba(0, 0, 0, 0.42);
+          overflow: hidden;
+        }
 
-.gb-student-search-box {
-  padding: 10px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
-  background: #111827;
-}
+        .gb-student-search-box {
+          padding: 10px;
+          border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+          background: #111827;
+        }
 
-.gb-student-search-input {
-  width: 100%;
-  height: 48px;
-  border-radius: 13px;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  background: #0f172a;
-  color: #ffffff;
-  padding: 0 14px;
-  font-weight: 800;
-  outline: none;
-}
+        .gb-student-search-input {
+          width: 100%;
+          height: 48px;
+          border-radius: 13px;
+          border: 1px solid rgba(148, 163, 184, 0.28);
+          background: #0f172a;
+          color: #ffffff;
+          padding: 0 14px;
+          font-weight: 800;
+          outline: none;
+        }
 
-.gb-student-search-input::placeholder {
-  color: #8b97aa;
-}
+        .gb-student-search-input::placeholder {
+          color: #8b97aa;
+        }
 
-.gb-student-search-input:focus {
-  border-color: rgba(59, 130, 246, 0.85);
-  box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.16);
-}
+        .gb-student-search-input:focus {
+          border-color: rgba(59, 130, 246, 0.85);
+          box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.16);
+        }
 
-.gb-student-options {
-  max-height: 280px;
-  overflow-y: auto;
-  padding: 8px;
-}
+        .gb-student-options {
+          max-height: 280px;
+          overflow-y: auto;
+          padding: 8px;
+        }
 
-.gb-student-options::-webkit-scrollbar {
-  width: 8px;
-}
+        .gb-student-options::-webkit-scrollbar {
+          width: 8px;
+        }
 
-.gb-student-options::-webkit-scrollbar-track {
-  background: #111827;
-}
+        .gb-student-options::-webkit-scrollbar-track {
+          background: #111827;
+        }
 
-.gb-student-options::-webkit-scrollbar-thumb {
-  background: #6b7280;
-  border-radius: 999px;
-}
+        .gb-student-options::-webkit-scrollbar-thumb {
+          background: #6b7280;
+          border-radius: 999px;
+        }
 
-.gb-student-option {
-  width: 100%;
-  border: 0;
-  background: transparent;
-  color: #ffffff;
-  border-radius: 12px;
-  padding: 10px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  text-align: left;
-  cursor: pointer;
-}
+        .gb-student-option {
+          width: 100%;
+          border: 0;
+          background: transparent;
+          color: #ffffff;
+          border-radius: 12px;
+          padding: 10px;
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          text-align: left;
+          cursor: pointer;
+        }
 
-.gb-student-option:hover,
-.gb-student-option.active {
-  background: rgba(59, 130, 246, 0.14);
-}
+        .gb-student-option:hover,
+        .gb-student-option.active {
+          background: rgba(59, 130, 246, 0.14);
+        }
 
-.gb-student-avatar {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  overflow: hidden;
-  flex: 0 0 auto;
-  background: #1f2937;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #cbd5e1;
-}
+        .gb-student-avatar {
+          width: 34px;
+          height: 34px;
+          border-radius: 50%;
+          overflow: hidden;
+          flex: 0 0 auto;
+          background: #1f2937;
+          border: 1px solid rgba(148, 163, 184, 0.28);
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          color: #cbd5e1;
+        }
 
-.gb-student-avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
+        .gb-student-avatar img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
 
-.gb-student-avatar-fallback {
-  font-size: 13px;
-  font-weight: 900;
-  color: #cbd5e1;
-}
+        .gb-student-avatar-fallback {
+          font-size: 13px;
+          font-weight: 900;
+          color: #cbd5e1;
+        }
 
-.gb-student-option-info {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
+        .gb-student-option-info {
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
 
-.gb-student-option-name {
-  color: #ffffff;
-  font-size: 14px;
-  font-weight: 850;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+        .gb-student-option-name {
+          color: #ffffff;
+          font-size: 14px;
+          font-weight: 850;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
 
-.gb-student-option-meta {
-  color: #9fb0c8;
-  font-size: 12px;
-  font-weight: 650;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+        .gb-student-option-meta {
+          color: #9fb0c8;
+          font-size: 12px;
+          font-weight: 650;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
 
-.gb-student-empty {
-  padding: 18px 12px;
-  text-align: center;
-  color: #94a3b8;
-  font-weight: 800;
-}
+        .gb-student-empty {
+          padding: 18px 12px;
+          text-align: center;
+          color: #94a3b8;
+          font-weight: 800;
+        }
 
         @media (max-width: 767px) {
           .gb-booking-header,
@@ -1297,9 +1355,7 @@ const CreateGroupBatchBookingModal = ({
         </div>
 
         <div className="gb-booking-body">
-          {error ? (
-            <div className="alert alert-danger py-2">{error}</div>
-          ) : null}
+          {error ? <div className="alert alert-danger py-2">{error}</div> : null}
 
           <div className="gb-card">
             <div className="row g-3">
@@ -1350,7 +1406,9 @@ const CreateGroupBatchBookingModal = ({
                 value={studentId}
                 disabled={creating}
                 placeholder="Select Student"
-                onChange={(selectedStudentId) => handleStudentChange(selectedStudentId)}
+                onChange={(selectedStudentId) =>
+                  handleStudentChange(selectedStudentId)
+                }
               />
             )}
           </div>
@@ -1377,6 +1435,7 @@ const CreateGroupBatchBookingModal = ({
               </select>
             )}
           </div>
+
           <div className="gb-card">
             <div className="gb-label">Payment Status</div>
 
@@ -1422,6 +1481,12 @@ const CreateGroupBatchBookingModal = ({
                       <div className="gb-session-value">
                         {session?.teacher_name || "-"}
                       </div>
+
+                      {getAssistantTeacherNames(session) ? (
+                        <div className="gb-session-helper">
+                          Assistants: {getAssistantTeacherNames(session)}
+                        </div>
+                      ) : null}
                     </div>
 
                     <div>
