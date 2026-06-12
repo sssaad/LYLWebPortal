@@ -739,11 +739,13 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
         const price = Number(String(s?.price ?? "").replace(/[^\d.]/g, "")) || 0;
 
         return {
-          value: uid,
-          label: fullName,
-          avatar: String(s?.imagepath || "").trim() || "",
-          price,
-        };
+  value: uid,
+  label: fullName,
+  avatar: String(s?.imagepath || "").trim() || "",
+  price,
+  timezoneid: s?.timezoneid ?? "",
+  timezone_name: String(s?.timezone_name || "").trim(),
+};
       })
       .filter(Boolean);
   }, [studentsRaw]);
@@ -1078,6 +1080,15 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
     const st = students.find((s) => String(s.value) === String(nextId)) || null;
     const price = Number(st?.price ?? 0) || 0;
     const nextAmount = price > 0 ? String(price) : "";
+
+    const studentTimezoneName = String(st?.timezone_name || "").trim();
+
+if (studentTimezoneName) {
+  setStudentTz(studentTimezoneName);
+  setCustomSlotTz(studentTimezoneName);
+  setWeekAnchorDateStr(getTodayDateStr(studentTimezoneName));
+  setCustomSlotDate(getTodayDateStr(studentTimezoneName));
+}
 
     if (paymentStatus === "Free") {
       lastNonFreeAmountRef.current = nextAmount;
