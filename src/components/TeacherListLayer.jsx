@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Icon } from "@iconify/react";
 import Swal from "sweetalert2";
+import axios from "axios";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -10,40 +11,122 @@ import moment from "moment";
 import { getAllTeacherProfiles } from "../api/getAllTeacherProfiles";
 import { updateTeacherStatus } from "../api/updateTeacherStatus";
 import { hardDeleteUser } from "../api/hardDeleteUser";
-import { getNationalities } from "../api/getNationalities"; // ✅ NEW (lookup list)
+import { getNationalities } from "../api/getNationalities";
+import { getToken } from "../api/getToken";
 
 import TeacherDetailsModal from "../components/TeacherDetailsModal";
 import BankDetailModal from "../components/BankDetailModal";
 
-const FALLBACK_AVATAR =
-  "https://gostudy.ae/assets/invalid-square.png";
+const FALLBACK_AVATAR = "https://gostudy.ae/assets/invalid-square.png";
+
+const SET_PASSWORD_URL =
+  "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=set_password";
+
+const API_HEADERS = {
+  "Content-Type": "application/json",
+  Accept: "application/json",
+  "x-api-key": "abc123456789",
+  userid: "test",
+  password: "test",
+  projectid: "1",
+};
+
+const EYE_ICON = `
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+    xmlns="http://www.w3.org/2000/svg">
+    <path d="M2.25 12C3.75 7.75 7.45 5 12 5C16.55 5 20.25 7.75 21.75 12C20.25 16.25 16.55 19 12 19C7.45 19 3.75 16.25 2.25 12Z"
+      stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M12 15.25C13.7949 15.25 15.25 13.7949 15.25 12C15.25 10.2051 13.7949 8.75 12 8.75C10.2051 8.75 8.75 10.2051 8.75 12C8.75 13.7949 10.2051 15.25 12 15.25Z"
+      stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+`;
+
+const EYE_OFF_ICON = `
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+    xmlns="http://www.w3.org/2000/svg">
+    <path d="M3 3L21 21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+    <path d="M10.6 5.14C11.06 5.05 11.53 5 12 5C16.55 5 20.25 7.75 21.75 12C21.27 13.36 20.56 14.56 19.67 15.55"
+      stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M6.15 6.73C4.36 7.88 3 9.71 2.25 12C3.75 16.25 7.45 19 12 19C13.79 19 15.45 18.57 16.87 17.81"
+      stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M9.75 9.88C9.13 10.47 8.75 11.21 8.75 12C8.75 13.79 10.21 15.25 12 15.25C12.79 15.25 13.53 14.87 14.12 14.25"
+      stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+`;
+
+const escapeHtml = (value) =>
+  String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+
+const isPortalDarkMode = () => {
+  return (
+    document.documentElement.getAttribute("data-bs-theme") === "dark" ||
+    document.documentElement.getAttribute("data-theme") === "dark" ||
+    document.body.getAttribute("data-theme") === "dark" ||
+    document.documentElement.classList.contains("dark") ||
+    document.body.classList.contains("dark") ||
+    document.body.classList.contains("dark-theme") ||
+    document.body.classList.contains("theme-dark")
+  );
+};
+
+const getSwalTheme = () => {
+  const dark = isPortalDarkMode();
+
+  return {
+    dark,
+    background: dark ? "#1f2937" : "#ffffff",
+    color: dark ? "#f8fafc" : "#111827",
+    popupClass: dark
+      ? "reset-pass-swal reset-pass-swal-dark"
+      : "reset-pass-swal reset-pass-swal-light",
+  };
+};
+
+const resolveToken = (tokenRes) => {
+  if (typeof tokenRes === "string") return tokenRes;
+
+  return (
+    tokenRes?.token ||
+    tokenRes?.access_token ||
+    tokenRes?.accessToken ||
+    tokenRes?.data?.token ||
+    tokenRes?.data?.access_token ||
+    tokenRes?.data?.accessToken ||
+    tokenRes?.data?.data?.token ||
+    tokenRes?.data?.data?.access_token ||
+    tokenRes?.data?.data?.accessToken ||
+    tokenRes?.data?.[0]?.token ||
+    tokenRes?.data?.[0]?.access_token ||
+    ""
+  );
+};
 
 const TeacherListLayer = () => {
   const [teachers, setTeachers] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
-  const [compFilter, setCompFilter] = useState("all"); // all | complete | incomplete
+  const [compFilter, setCompFilter] = useState("all");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
 
-  // ✅ NEW: Nationality + Subject filters
   const [nationalityFilter, setNationalityFilter] = useState("");
   const [subjectFilter, setSubjectFilter] = useState("");
 
-  // ✅ NEW: Nationalities lookup list (same as TeacherDetailsModal)
   const [nationalities, setNationalities] = useState([]);
 
-  // ✅ NEW: Subjects modal
   const [showSubjectsModal, setShowSubjectsModal] = useState(false);
   const [subjectsModalTeacher, setSubjectsModalTeacher] = useState(null);
 
-  // ✅ Teacher Add/Edit modal state
   const [showTeacherModal, setShowTeacherModal] = useState(false);
-  const [selectedTeacherId, setSelectedTeacherId] = useState(null); // null => Add mode
-  const [seedTeacher, setSeedTeacher] = useState(null); // seed for Add mode
+  const [selectedTeacherId, setSelectedTeacherId] = useState(null);
+  const [seedTeacher, setSeedTeacher] = useState(null);
 
-  // Bank + Preview
   const [selectedTeacher, setSelectedTeacher] = useState(null);
   const [showBankModal, setShowBankModal] = useState(false);
   const [previewUrl, setPreviewUrl] = useState(null);
@@ -51,7 +134,7 @@ const TeacherListLayer = () => {
   const teachersPerPage = 15;
 
   // ---------- helpers ----------
-  const isIncomplete = (t) => !t?.userid; // userid missing/null => incomplete
+  const isIncomplete = (t) => !t?.userid;
   const getJoinDate = (t) => t?.user_createddate || t?.createddate || "";
 
   const displayName = (t) => {
@@ -67,7 +150,32 @@ const TeacherListLayer = () => {
       ? t?.user_phonenumber || t?.phonenumber || "-"
       : t?.phonenumber || "-";
 
-  // ✅ Subjects array helper (prefer teacherSubjects_array, else parse teacherSubjects string, else fallback)
+  const getResetPasswordEmail = (t) => {
+    const email = String(t?.email || t?.user_email || "").trim();
+    return email;
+  };
+
+  const getAccountLabel = (t) => {
+    const email = String(t?.email || t?.user_email || "").trim();
+    return email || "-";
+  };
+
+  const getRawImage = (t) => {
+    const raw = String(t?.imagepath || t?.user_imagepath || "").trim();
+
+    if (!raw) return "";
+    if (raw === FALLBACK_AVATAR) return "";
+    if (raw.includes("invalid-square.png")) return "";
+    if (!raw.startsWith("http")) return "";
+
+    return raw;
+  };
+
+  const getTeacherImage = (t) => {
+    const raw = getRawImage(t);
+    return raw || FALLBACK_AVATAR;
+  };
+
   const getTeacherSubjectsArray = (t) => {
     if (Array.isArray(t?.teacherSubjects_array)) return t.teacherSubjects_array;
 
@@ -92,7 +200,6 @@ const TeacherListLayer = () => {
     return [];
   };
 
-  // ✅ for SEARCH only (subject names)
   const getTeacherSubjectsText = (t) => {
     const arr = getTeacherSubjectsArray(t);
     if (arr?.length) {
@@ -104,9 +211,7 @@ const TeacherListLayer = () => {
     return t?.subjectname || "";
   };
 
-  // ✅ Nationality lookup (id -> name) using getNationalities list
   const getNationalityName = (t) => {
-    // prefer API provided name
     if (t?.nationalityname) return String(t.nationalityname);
 
     const nid = t?.nationalityid;
@@ -115,12 +220,10 @@ const TeacherListLayer = () => {
     const found = (nationalities || []).find((n) => String(n?.id) === String(nid));
     if (found?.nationality) return String(found.nationality);
 
-    // fallback
     if (String(nid) === "0") return "Unknown";
     return `Nationality #${nid}`;
   };
 
-  // ✅ Unique stable key (pagination/filters safe)
   const getRowKey = (t) =>
     String(
       t?.uid ??
@@ -129,14 +232,12 @@ const TeacherListLayer = () => {
         `${t?.email ?? t?.user_email ?? ""}-${t?.phonenumber ?? t?.user_phonenumber ?? ""}-${getJoinDate(t) ?? ""}`
     );
 
-  // ✅ Add-mode seed userid: prefer userid, else uid/id
   const getSeedUserId = (t) => {
     const raw = t?.userid ?? t?.uid ?? t?.id ?? null;
     const n = Number(raw);
     return Number.isFinite(n) ? n : null;
   };
 
-  // ✅ Subjects modal open/close
   const openSubjectsModal = (teacher) => {
     const subjects = getTeacherSubjectsArray(teacher);
     setSubjectsModalTeacher({
@@ -151,19 +252,38 @@ const TeacherListLayer = () => {
     setSubjectsModalTeacher(null);
   };
 
+  const fetchTeachers = async () => {
+    try {
+      const data = await getAllTeacherProfiles();
+
+      const activeOrInactive = (data || []).filter((t) => t.is_active !== 2);
+
+      const formatted = activeOrInactive.map((t) => ({
+        ...t,
+        fees: parseFloat(t.fees) || 0,
+      }));
+
+      setTeachers(
+        formatted.sort(
+          (a, b) => new Date(getJoinDate(b)) - new Date(getJoinDate(a))
+        )
+      );
+    } catch (e) {
+      console.error("getAllTeacherProfiles error:", e);
+      setTeachers([]);
+    }
+  };
+
   // ---------- mount fetch ----------
   useEffect(() => {
     fetchTeachers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ NEW: load nationalities list (same pattern as TeacherDetailsModal)
   useEffect(() => {
     (async () => {
       try {
         const res = await getNationalities();
-        // your modal uses: setNationalities(res || [])
-        // keep compatible but safer:
         const list = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
         setNationalities(list || []);
       } catch (e) {
@@ -173,23 +293,6 @@ const TeacherListLayer = () => {
     })();
   }, []);
 
-  const fetchTeachers = async () => {
-    const data = await getAllTeacherProfiles();
-
-    // soft delete hidden (is_active === 2)
-    const activeOrInactive = (data || []).filter((t) => t.is_active !== 2);
-
-    const formatted = activeOrInactive.map((t) => ({
-      ...t,
-      fees: parseFloat(t.fees) || 0, // keep existing field (no UI usage now)
-    }));
-
-    setTeachers(
-      formatted.sort((a, b) => new Date(getJoinDate(b)) - new Date(getJoinDate(a)))
-    );
-  };
-
-  // ✅ Open modal (Student jaisa): incomplete => Add mode, complete => Edit mode
   const openTeacher = (t) => {
     const incomplete = isIncomplete(t);
 
@@ -203,9 +306,9 @@ const TeacherListLayer = () => {
         fullname: displayName(t),
       });
 
-      setSelectedTeacherId(null); // Add mode
+      setSelectedTeacherId(null);
     } else {
-      setSelectedTeacherId(Number(t.userid)); // Edit mode
+      setSelectedTeacherId(Number(t.userid));
       setSeedTeacher(null);
     }
 
@@ -218,7 +321,314 @@ const TeacherListLayer = () => {
     setSeedTeacher(null);
   };
 
-  // ✅ STATUS TOGGLE (pagination safe)
+  // ---------- RESET PASSWORD ----------
+  const handleResetPassword = async (teacher) => {
+    const name = displayName(teacher) || "this teacher";
+    const resetEmail = getResetPasswordEmail(teacher);
+    const accountLabel = getAccountLabel(teacher);
+    const profileImage = getRawImage(teacher);
+    const theme = getSwalTheme();
+
+    if (!resetEmail || resetEmail === "-") {
+      Swal.fire({
+        title: "Email Missing",
+        text: "Teacher email is missing.",
+        icon: "error",
+        background: theme.background,
+        color: theme.color,
+        customClass: {
+          popup: theme.popupClass,
+          confirmButton: "btn btn-primary px-20 py-10 radius-8",
+        },
+        buttonsStyling: false,
+      });
+      return;
+    }
+
+    const imageHtml = profileImage
+      ? `
+        <img
+          src="${escapeHtml(profileImage)}"
+          alt="${escapeHtml(name)}"
+          class="reset-pass-profile-img"
+          onerror="this.style.display='none'"
+        />
+      `
+      : "";
+
+    const passwordPopup = await Swal.fire({
+      title: "Add New Password",
+      html: `
+        <div class="reset-pass-inner">
+          <div class="reset-pass-student-box ${profileImage ? "" : "no-image"}">
+            ${imageHtml}
+
+            <div class="reset-pass-student-info">
+              <div class="reset-pass-student-name">${escapeHtml(name)}</div>
+              <div class="reset-pass-student-account">${escapeHtml(accountLabel)}</div>
+            </div>
+          </div>
+
+          <div class="reset-pass-field">
+            <label>New Password</label>
+            <div class="reset-pass-input-wrap">
+              <input
+                id="newTeacherPassword"
+                type="password"
+                class="reset-pass-input"
+                placeholder="Enter new password"
+                autocomplete="new-password"
+              />
+              <button
+                type="button"
+                class="reset-pass-eye"
+                data-target="newTeacherPassword"
+                data-icon="newPasswordIcon"
+                aria-label="Show password"
+              >
+                <span id="newPasswordIcon">${EYE_ICON}</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="reset-pass-field">
+            <label>Confirm Password</label>
+            <div class="reset-pass-input-wrap">
+              <input
+                id="confirmTeacherPassword"
+                type="password"
+                class="reset-pass-input"
+                placeholder="Confirm new password"
+                autocomplete="new-password"
+              />
+              <button
+                type="button"
+                class="reset-pass-eye"
+                data-target="confirmTeacherPassword"
+                data-icon="confirmPasswordIcon"
+                aria-label="Show password"
+              >
+                <span id="confirmPasswordIcon">${EYE_ICON}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: "Continue",
+      cancelButtonText: "Cancel",
+      focusConfirm: false,
+      buttonsStyling: false,
+      background: theme.background,
+      color: theme.color,
+      customClass: {
+        popup: theme.popupClass,
+        title: "reset-pass-title",
+        htmlContainer: "reset-pass-html",
+        confirmButton: "btn btn-primary px-20 py-10 radius-8",
+        cancelButton: "btn btn-outline-secondary px-20 py-10 radius-8 ms-2",
+      },
+      didOpen: () => {
+        const popup = Swal.getPopup();
+        if (!popup) return;
+
+        const toggleButtons = popup.querySelectorAll(".reset-pass-eye");
+
+        toggleButtons.forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const targetId = btn.getAttribute("data-target");
+            const iconId = btn.getAttribute("data-icon");
+
+            const input = popup.querySelector(`#${targetId}`);
+            const icon = popup.querySelector(`#${iconId}`);
+
+            if (!input || !icon) return;
+
+            const isPassword = input.getAttribute("type") === "password";
+            input.setAttribute("type", isPassword ? "text" : "password");
+            icon.innerHTML = isPassword ? EYE_OFF_ICON : EYE_ICON;
+          });
+        });
+      },
+      preConfirm: () => {
+        const popup = Swal.getPopup();
+
+        const newPassword = popup
+          ?.querySelector("#newTeacherPassword")
+          ?.value?.trim();
+
+        const confirmPassword = popup
+          ?.querySelector("#confirmTeacherPassword")
+          ?.value?.trim();
+
+        if (!newPassword) {
+          Swal.showValidationMessage("Please enter new password.");
+          return false;
+        }
+
+        if (newPassword.length < 6) {
+          Swal.showValidationMessage("Password must be at least 6 characters.");
+          return false;
+        }
+
+        if (!confirmPassword) {
+          Swal.showValidationMessage("Please confirm password.");
+          return false;
+        }
+
+        if (newPassword !== confirmPassword) {
+          Swal.showValidationMessage("Password and confirm password do not match.");
+          return false;
+        }
+
+        return { newPassword };
+      },
+    });
+
+    if (!passwordPopup.isConfirmed) return;
+
+    const newPassword = passwordPopup.value?.newPassword;
+    const confirmTheme = getSwalTheme();
+
+    const confirm = await Swal.fire({
+      title: "Confirm Password Update",
+      html: `
+        <div class="reset-confirm-box">
+          <div class="reset-confirm-name">${escapeHtml(name)}</div>
+          <div class="reset-confirm-desc">Ready to update password?</div>
+        </div>
+      `,
+      icon: "question",
+      showCancelButton: true,
+      confirmButtonText: "Yes, Update",
+      cancelButtonText: "Cancel",
+      buttonsStyling: false,
+      background: confirmTheme.background,
+      color: confirmTheme.color,
+      customClass: {
+        popup: confirmTheme.popupClass,
+        title: "reset-pass-title",
+        htmlContainer: "reset-pass-html",
+        confirmButton: "btn btn-primary px-20 py-10 radius-8",
+        cancelButton: "btn btn-outline-secondary px-20 py-10 radius-8 ms-2",
+      },
+    });
+
+    if (!confirm.isConfirmed) return;
+
+    try {
+      const loadingTheme = getSwalTheme();
+
+      Swal.fire({
+        title: "Updating Password...",
+        text: "Please wait while we update teacher password.",
+        allowOutsideClick: false,
+        showConfirmButton: false,
+        background: loadingTheme.background,
+        color: loadingTheme.color,
+        customClass: {
+          popup: loadingTheme.popupClass,
+          title: "reset-pass-title",
+        },
+        didOpen: () => Swal.showLoading(),
+      });
+
+      const tokenRes = await getToken();
+      const token = resolveToken(tokenRes);
+
+      if (!token) {
+        Swal.close();
+
+        const errorTheme = getSwalTheme();
+        Swal.fire({
+          title: "Token Missing",
+          text: "Token not found. Please try again.",
+          icon: "error",
+          background: errorTheme.background,
+          color: errorTheme.color,
+          customClass: {
+            popup: errorTheme.popupClass,
+            confirmButton: "btn btn-primary px-20 py-10 radius-8",
+          },
+          buttonsStyling: false,
+        });
+        return;
+      }
+
+      const payload = {
+        token,
+        email: resetEmail,
+        newpassword: newPassword,
+      };
+
+      const res = await axios.post(SET_PASSWORD_URL, payload, {
+        headers: API_HEADERS,
+      });
+
+      const result = res?.data;
+
+      if (Number(result?.statusCode) === 200) {
+        await fetchTeachers();
+
+        const successTheme = getSwalTheme();
+
+        Swal.fire({
+          title: "Password Updated",
+          html: `<div class="reset-success-text">${escapeHtml(
+            name
+          )}'s password has been updated successfully.</div>`,
+          icon: "success",
+          confirmButtonText: "Done",
+          background: successTheme.background,
+          color: successTheme.color,
+          buttonsStyling: false,
+          customClass: {
+            popup: successTheme.popupClass,
+            title: "reset-pass-title",
+            htmlContainer: "reset-pass-html",
+            confirmButton: "btn btn-primary px-20 py-10 radius-8",
+          },
+        });
+      } else {
+        const errorTheme = getSwalTheme();
+
+        Swal.fire({
+          title: "Update Failed",
+          text: result?.message || "Password reset failed. Please try again.",
+          icon: "error",
+          background: errorTheme.background,
+          color: errorTheme.color,
+          customClass: {
+            popup: errorTheme.popupClass,
+            confirmButton: "btn btn-primary px-20 py-10 radius-8",
+          },
+          buttonsStyling: false,
+        });
+      }
+    } catch (error) {
+      console.error("set_password teacher error:", error);
+
+      const errorTheme = getSwalTheme();
+
+      Swal.fire({
+        title: "Update Failed",
+        text:
+          error?.response?.data?.message ||
+          error?.message ||
+          "Something went wrong while resetting password.",
+        icon: "error",
+        background: errorTheme.background,
+        color: errorTheme.color,
+        customClass: {
+          popup: errorTheme.popupClass,
+          confirmButton: "btn btn-primary px-20 py-10 radius-8",
+        },
+        buttonsStyling: false,
+      });
+    }
+  };
+
+  // ✅ STATUS TOGGLE
   const handleStatusToggle = async (teacher) => {
     if (!teacher?.userid) {
       Swal.fire("Error", "Incomplete teacher (userid missing). Status change nahi ho sakta.", "error");
@@ -287,17 +697,15 @@ const TeacherListLayer = () => {
     }
   };
 
-  // ✅ Dropdown options (Nationality + Subject)
+  // ✅ Dropdown options
   const nationalityOptions = useMemo(() => {
     const map = new Map();
 
-    // 1) from lookup list (best)
     (nationalities || []).forEach((n) => {
       if (n?.id == null) return;
       map.set(String(n.id), String(n.nationality || `Nationality #${n.id}`));
     });
 
-    // 2) add any ids from teachers not found in lookup (fallback)
     (teachers || []).forEach((t) => {
       const id = t?.nationalityid;
       if (id === null || id === undefined || id === "") return;
@@ -343,7 +751,6 @@ const TeacherListLayer = () => {
       statusFilter === "" ||
       (teacher.is_active === 1 ? "Active" : "Inactive") === statusFilter;
 
-    // ✅ FIX: search now includes nationality + subjects text
     const fullText = `${displayName(teacher)} ${getEmail(teacher)} ${getPhone(teacher)} ${getNationalityName(teacher)} ${getTeacherSubjectsText(teacher)}`.toLowerCase();
     const matchesSearch = fullText.includes((searchTerm || "").toLowerCase());
 
@@ -352,7 +759,6 @@ const TeacherListLayer = () => {
     const afterStart = startDate ? joinDate && joinDate >= new Date(startDate) : true;
     const beforeEnd = endDate ? joinDate && joinDate <= new Date(endDate) : true;
 
-    // ✅ nationality + subject filters
     const matchesNationality =
       nationalityFilter === "" ||
       String(teacher?.nationalityid ?? "") === String(nationalityFilter);
@@ -381,7 +787,7 @@ const TeacherListLayer = () => {
 
   const handlePageChange = (pageNumber) => setCurrentPage(pageNumber);
 
-  // ----- exports ----- (unchanged behavior)
+  // ----- exports -----
   const exportToExcel = () => {
     const heading = [["Teacher List"]];
     const data = filteredTeachers.map((t, i) => ({
@@ -460,6 +866,312 @@ const TeacherListLayer = () => {
         .avatar-ring-danger {
           box-shadow: 0 0 0 2px #ffffff, 0 0 0 5px #dc3545;
         }
+
+        .reset-pass-swal {
+          width: min(520px, calc(100vw - 24px)) !important;
+          border-radius: 18px !important;
+          padding: 26px 28px !important;
+          border: 1px solid rgba(148, 163, 184, 0.26) !important;
+          box-shadow: 0 24px 70px rgba(15, 23, 42, 0.25) !important;
+        }
+
+        .reset-pass-swal-light {
+          background: #ffffff !important;
+          color: #111827 !important;
+        }
+
+        .reset-pass-swal-dark {
+          background: #1f2937 !important;
+          color: #f8fafc !important;
+          border-color: rgba(148, 163, 184, 0.25) !important;
+          box-shadow: 0 24px 70px rgba(0, 0, 0, 0.52) !important;
+        }
+
+        .reset-pass-swal-dark .swal2-title {
+          color: #f8fafc !important;
+        }
+
+        .reset-pass-swal-dark .swal2-html-container {
+          color: #cbd5e1 !important;
+          opacity: 1 !important;
+        }
+
+        .reset-pass-swal-light .swal2-title {
+          color: #111827 !important;
+        }
+
+        .reset-pass-swal-light .swal2-html-container {
+          color: #475569 !important;
+          opacity: 1 !important;
+        }
+
+        .reset-pass-title {
+          font-size: 22px !important;
+          font-weight: 800 !important;
+          margin-bottom: 16px !important;
+          color: inherit !important;
+        }
+
+        .reset-pass-html {
+          margin: 0 !important;
+          padding: 0 !important;
+          color: inherit !important;
+        }
+
+        .reset-pass-inner {
+          text-align: left;
+        }
+
+        .reset-pass-student-box {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 14px;
+          border-radius: 14px;
+          margin-bottom: 18px;
+        }
+
+        .reset-pass-student-box.no-image {
+          padding-left: 16px;
+        }
+
+        .reset-pass-swal-light .reset-pass-student-box {
+          background: #eefaf3;
+          border: 1px solid rgba(69, 179, 105, 0.22);
+        }
+
+        .reset-pass-swal-dark .reset-pass-student-box {
+          background: rgba(69, 179, 105, 0.14);
+          border: 1px solid rgba(69, 179, 105, 0.32);
+        }
+
+        .reset-pass-profile-img {
+          width: 46px;
+          height: 46px;
+          min-width: 46px;
+          border-radius: 50%;
+          object-fit: cover;
+          border: 2px solid rgba(69, 179, 105, 0.55);
+          background: rgba(255, 255, 255, 0.08);
+        }
+
+        .reset-pass-student-info {
+          min-width: 0;
+          flex: 1;
+        }
+
+        .reset-pass-student-name {
+          font-size: 15px;
+          font-weight: 800;
+          line-height: 1.25;
+          word-break: break-word;
+        }
+
+        .reset-pass-swal-light .reset-pass-student-name {
+          color: #111827 !important;
+        }
+
+        .reset-pass-swal-dark .reset-pass-student-name {
+          color: #f8fafc !important;
+        }
+
+        .reset-pass-student-account {
+          font-size: 12px;
+          font-weight: 600;
+          margin-top: 4px;
+          line-height: 1.35;
+          word-break: break-all;
+        }
+
+        .reset-pass-swal-light .reset-pass-student-account {
+          color: #64748b !important;
+        }
+
+        .reset-pass-swal-dark .reset-pass-student-account {
+          color: #cbd5e1 !important;
+        }
+
+        .reset-pass-field {
+          margin-top: 14px;
+        }
+
+        .reset-pass-field label {
+          display: block;
+          font-size: 13px;
+          font-weight: 800;
+          margin-bottom: 7px;
+        }
+
+        .reset-pass-swal-light .reset-pass-field label {
+          color: #1f2937 !important;
+        }
+
+        .reset-pass-swal-dark .reset-pass-field label {
+          color: #f1f5f9 !important;
+        }
+
+        .reset-pass-input-wrap {
+          position: relative;
+        }
+
+        .reset-pass-input {
+          width: 100%;
+          height: 46px;
+          border-radius: 10px;
+          padding: 10px 48px 10px 13px;
+          font-size: 14px;
+          outline: none;
+          transition: 0.18s ease;
+        }
+
+        .reset-pass-swal-light .reset-pass-input {
+          background: #ffffff !important;
+          color: #111827 !important;
+          border: 1px solid #d9dee3 !important;
+        }
+
+        .reset-pass-swal-dark .reset-pass-input {
+          background: #111827 !important;
+          color: #f8fafc !important;
+          border: 1px solid rgba(148, 163, 184, 0.34) !important;
+        }
+
+        .reset-pass-swal-light .reset-pass-input::placeholder {
+          color: #9ca3af !important;
+        }
+
+        .reset-pass-swal-dark .reset-pass-input::placeholder {
+          color: #94a3b8 !important;
+        }
+
+        .reset-pass-input:focus {
+          border-color: #45B369 !important;
+          box-shadow: 0 0 0 4px rgba(69, 179, 105, 0.16) !important;
+        }
+
+        .reset-pass-eye {
+          position: absolute;
+          top: 50%;
+          right: 10px;
+          transform: translateY(-50%);
+          width: 34px;
+          height: 34px;
+          border: 0;
+          border-radius: 9px;
+          background: transparent;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: 0.18s ease;
+        }
+
+        .reset-pass-swal-light .reset-pass-eye {
+          color: #64748b !important;
+        }
+
+        .reset-pass-swal-dark .reset-pass-eye {
+          color: #cbd5e1 !important;
+        }
+
+        .reset-pass-eye:hover {
+          background: rgba(100, 116, 139, 0.14);
+          color: #45B369 !important;
+        }
+
+        .reset-confirm-box {
+          text-align: center;
+          padding: 2px 4px 8px;
+        }
+
+        .reset-confirm-name {
+          font-size: 16px;
+          font-weight: 800;
+          margin-bottom: 6px;
+        }
+
+        .reset-pass-swal-light .reset-confirm-name {
+          color: #111827 !important;
+        }
+
+        .reset-pass-swal-dark .reset-confirm-name {
+          color: #f8fafc !important;
+        }
+
+        .reset-confirm-desc {
+          font-size: 13px;
+          font-weight: 600;
+        }
+
+        .reset-pass-swal-light .reset-confirm-desc {
+          color: #64748b !important;
+        }
+
+        .reset-pass-swal-dark .reset-confirm-desc {
+          color: #cbd5e1 !important;
+        }
+
+        .reset-success-text {
+          font-size: 14px;
+          font-weight: 600;
+          line-height: 1.6;
+        }
+
+        .reset-pass-swal-light .reset-success-text {
+          color: #475569 !important;
+        }
+
+        .reset-pass-swal-dark .reset-success-text {
+          color: #cbd5e1 !important;
+        }
+
+        .reset-pass-swal-dark .swal2-success-ring {
+          border-color: rgba(69, 179, 105, 0.45) !important;
+        }
+
+        .reset-pass-swal-dark .swal2-success-line-tip,
+        .reset-pass-swal-dark .swal2-success-line-long {
+          background-color: #86efac !important;
+        }
+
+        .reset-pass-swal .swal2-icon-content {
+          font-weight: 800 !important;
+        }
+
+        .reset-pass-swal .swal2-actions {
+          margin-top: 22px !important;
+        }
+
+        .reset-pass-swal .btn-outline-secondary {
+          border-color: rgba(148, 163, 184, 0.5) !important;
+        }
+
+        .reset-pass-swal-dark .btn-outline-secondary {
+          color: #e5e7eb !important;
+          border-color: rgba(203, 213, 225, 0.38) !important;
+          background: transparent !important;
+        }
+
+        .reset-pass-swal-dark .btn-outline-secondary:hover {
+          background: rgba(148, 163, 184, 0.12) !important;
+        }
+
+        .swal2-validation-message {
+          border-radius: 10px !important;
+          font-size: 13px !important;
+          font-weight: 600 !important;
+          margin-top: 14px !important;
+        }
+
+        .reset-pass-swal-dark .swal2-validation-message {
+          background: rgba(127, 29, 29, 0.24) !important;
+          color: #fecaca !important;
+        }
+
+        .reset-pass-swal-light .swal2-validation-message {
+          background: #fff1f2 !important;
+          color: #be123c !important;
+        }
       `}</style>
 
       {/* Header */}
@@ -494,7 +1206,6 @@ const TeacherListLayer = () => {
             }}
           />
 
-          {/* Profile filter */}
           <select
             className="form-select form-select-sm w-auto"
             value={compFilter}
@@ -508,7 +1219,6 @@ const TeacherListLayer = () => {
             <option value="incomplete">Incomplete Profiles</option>
           </select>
 
-          {/* Status filter */}
           <select
             className="form-select form-select-sm w-auto"
             value={statusFilter}
@@ -522,7 +1232,6 @@ const TeacherListLayer = () => {
             <option value="Inactive">Inactive</option>
           </select>
 
-          {/* ✅ Nationality filter (lookup list) */}
           <select
             className="form-select form-select-sm w-auto"
             value={nationalityFilter}
@@ -539,7 +1248,6 @@ const TeacherListLayer = () => {
             ))}
           </select>
 
-          {/* ✅ Subject filter */}
           <select
             className="form-select form-select-sm w-auto"
             value={subjectFilter}
@@ -604,7 +1312,7 @@ const TeacherListLayer = () => {
             <tbody>
               {currentTeachers.map((teacher, index) => {
                 const incomplete = isIncomplete(teacher);
-                const imgSrc = teacher.imagepath?.startsWith("http") ? teacher.imagepath : FALLBACK_AVATAR;
+                const imgSrc = getTeacherImage(teacher);
                 const rowKey = getRowKey(teacher);
 
                 const subjectsArr = getTeacherSubjectsArray(teacher);
@@ -653,7 +1361,6 @@ const TeacherListLayer = () => {
                       )}
                     </td>
 
-                    {/* ✅ Subject eye (opens subjects array) */}
                     <td className="text-center">
                       {subjectsArr?.length ? (
                         <button
@@ -668,7 +1375,6 @@ const TeacherListLayer = () => {
                       )}
                     </td>
 
-                    {/* Bank Detail */}
                     <td className="text-center">
                       <button
                         className="btn btn-info btn-sm"
@@ -690,7 +1396,6 @@ const TeacherListLayer = () => {
                       </button>
                     </td>
 
-                    {/* Status */}
                     <td className="text-center">
                       <button
                         className={`btn btn-sm ${teacher.is_active === 1 ? "btn-outline-danger" : "btn-outline-success"}`}
@@ -702,7 +1407,6 @@ const TeacherListLayer = () => {
                       </button>
                     </td>
 
-                    {/* Action */}
                     <td className="text-center">
                       <div className="d-flex justify-content-center gap-2">
                         <button
@@ -711,6 +1415,14 @@ const TeacherListLayer = () => {
                           title={incomplete ? "Add Details" : "View / Edit"}
                         >
                           <Icon icon="majesticons:eye-line" />
+                        </button>
+
+                        <button
+                          className="btn btn-warning btn-sm"
+                          onClick={() => handleResetPassword(teacher)}
+                          title="Reset Password"
+                        >
+                          <Icon icon="mdi:lock-reset" />
                         </button>
 
                         <button
@@ -769,7 +1481,7 @@ const TeacherListLayer = () => {
         />
       )}
 
-      {/* ✅ Subjects Modal */}
+      {/* Subjects Modal */}
       {showSubjectsModal && subjectsModalTeacher && (
         <div className="modal fade show d-block" tabIndex="-1" style={{ background: "rgba(0,0,0,0.6)" }}>
           <div className="modal-dialog modal-lg modal-dialog-centered">
