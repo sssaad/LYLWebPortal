@@ -214,6 +214,254 @@ const getAssistantTeacherIds = (session) => {
     .filter(Boolean);
 };
 
+const getSessionId = (session) => {
+  const id = Number(
+    session?.id || session?.group_live_session_id || session?.session_id || 0
+  );
+
+  return Number.isFinite(id) && id > 0 ? id : 0;
+};
+
+const getSafeSelectedWeeks = (value, maxWeeks = 4) => {
+  const max = Number(maxWeeks || 0);
+
+  if (max <= 0) return 0;
+
+  const weeks = Number(value || 1);
+
+  if (!Number.isFinite(weeks) || weeks < 1) return 1;
+  if (weeks > max) return max;
+  if (weeks > 4) return 4;
+
+  return weeks;
+};
+
+const getRecurrenceWeekNo = (session) => {
+  const weekNo = Number(
+    session?.week_no ||
+      session?.actual_week_no ||
+      session?.group_week_no ||
+      session?.group_batch_week_no ||
+      session?.recurrence_week_no ||
+      1
+  );
+
+  return Number.isFinite(weekNo) && weekNo > 0 ? weekNo : 1;
+};
+
+const getRecurrenceDayNo = (session, fallbackIndex = 0) => {
+  const dayNo = Number(
+    session?.class_order ||
+      session?.recurrence_day_no ||
+      session?.class_no ||
+      fallbackIndex + 1
+  );
+
+  return Number.isFinite(dayNo) && dayNo > 0 ? dayNo : fallbackIndex + 1;
+};
+
+const getGroupBatchWeekId = (session) => {
+  const id = Number(
+    session?.group_batch_week_id ||
+      session?.week_id ||
+      session?.groupBatchWeekId ||
+      0
+  );
+
+  return Number.isFinite(id) && id > 0 ? id : 0;
+};
+
+const isCancelledStatus = (value) => {
+  const s = String(value || "").toLowerCase().trim();
+  return s === "cancelled" || s === "canceled";
+};
+
+const isActiveStatus = (value) => {
+  const s = String(value || "active").toLowerCase().trim();
+  return s === "active" || s === "1";
+};
+
+const isSessionBookable = (session) => {
+  if (!session) return false;
+
+  if (!getSessionId(session)) return false;
+
+  if (!isActiveStatus(session?.status)) return false;
+
+  if (isCancelledStatus(session?.week_status)) return false;
+  if (isCancelledStatus(session?.batch_week_status)) return false;
+  if (isCancelledStatus(session?.group_batch_week_status)) return false;
+
+  return true;
+};
+
+const getSessionStartMoment = (session) => {
+  const sourceTimezone = String(
+    session?.timezone_location ||
+      session?.timezone ||
+      session?.teacher_timezone_location ||
+      session?.source_timezone ||
+      DEFAULT_PORTAL_DISPLAY_TIMEZONE
+  ).trim();
+
+  const sourceDate = session?.session_date || "";
+  const sourceStart = normaliseTime(session?.slot_start || "");
+
+  if (!sourceDate || !sourceStart) return null;
+
+  if (moment.tz.zone(sourceTimezone)) {
+    const start = moment.tz(
+      `${sourceDate} ${sourceStart}`,
+      "YYYY-MM-DD HH:mm:ss",
+      sourceTimezone
+    );
+
+    return start.isValid() ? start : null;
+  }
+
+  const fallbackStart = moment(
+    `${sourceDate} ${sourceStart}`,
+    "YYYY-MM-DD HH:mm:ss"
+  );
+
+  return fallbackStart.isValid() ? fallbackStart : null;
+};
+
+const isSessionFull = (session) => {
+  if (
+    session?.seats_left === undefined ||
+    session?.seats_left === null ||
+    session?.seats_left === ""
+  ) {
+    return false;
+  }
+
+  return Number(session.seats_left || 0) <= 0;
+};
+
+const compareSessions = (a, b) => {
+  const weekA = getRecurrenceWeekNo(a);
+  const weekB = getRecurrenceWeekNo(b);
+
+  if (weekA !== weekB) return weekA - weekB;
+
+  const dayA = getRecurrenceDayNo(a, 0);
+  const dayB = getRecurrenceDayNo(b, 0);
+
+  if (dayA !== dayB) return dayA - dayB;
+
+  const startA = getSessionStartMoment(a);
+  const startB = getSessionStartMoment(b);
+
+  const timeA = startA?.valueOf?.() || 0;
+  const timeB = startB?.valueOf?.() || 0;
+
+  if (timeA !== timeB) return timeA - timeB;
+
+  return getSessionId(a) - getSessionId(b);
+};
+
+const getExactDuplicateKey = (session, index = 0) => {
+  const sessionId = getSessionId(session);
+
+  if (sessionId) {
+    return `id_${sessionId}`;
+  }
+
+  return [
+    getRecurrenceWeekNo(session),
+    getRecurrenceDayNo(session, index),
+    session?.subjectid || "",
+    session?.teacherid || "",
+    session?.session_date || "",
+    normaliseTime(session?.slot_start || ""),
+    normaliseTime(session?.slot_end || ""),
+  ].join("_");
+};
+
+const dedupeExactSessions = (sessions = []) => {
+  const map = new Map();
+
+  (Array.isArray(sessions) ? sessions : []).forEach((session, index) => {
+    if (!isSessionBookable(session)) return;
+
+    const key = getExactDuplicateKey(session, index);
+    const existing = map.get(key);
+
+    if (!existing) {
+      map.set(key, {
+        ...session,
+        _originalIndex: index,
+      });
+      return;
+    }
+
+    if (getSessionId(session) >= getSessionId(existing)) {
+      map.set(key, {
+        ...session,
+        _originalIndex: index,
+      });
+    }
+  });
+
+  return Array.from(map.values()).sort(compareSessions);
+};
+
+const buildAvailableRecurringWeeks = (sessions = []) => {
+  const grouped = {};
+  const safeSessions = dedupeExactSessions(sessions);
+
+  safeSessions.forEach((session, index) => {
+    const weekNo = getRecurrenceWeekNo(session);
+
+    if (!grouped[weekNo]) {
+      grouped[weekNo] = [];
+    }
+
+    grouped[weekNo].push({
+      ...session,
+      _originalIndex: index,
+    });
+  });
+
+  const now = moment();
+
+  return Object.keys(grouped)
+    .sort((a, b) => Number(a) - Number(b))
+    .map((weekNo) => {
+      const weekSessions = [...grouped[weekNo]].sort(compareSessions);
+
+      const hasPastSession = weekSessions.some((session) => {
+        const start = getSessionStartMoment(session);
+
+        if (!start) return false;
+
+        return start.isBefore(now);
+      });
+
+      const hasFullSession = weekSessions.some(isSessionFull);
+
+      if (hasPastSession || hasFullSession) {
+        return null;
+      }
+
+      const firstSession = weekSessions[0] || {};
+
+      return {
+        actual_week_no: Number(weekNo),
+        group_batch_week_id: getGroupBatchWeekId(firstSession),
+        week_start_date: firstSession?.week_start_date || "",
+        week_end_date: firstSession?.week_end_date || "",
+        sessions: weekSessions,
+      };
+    })
+    .filter(Boolean)
+    .map((week, index) => ({
+      ...week,
+      display_week_no: index + 1,
+    }));
+};
+
 const getStudentId = (student) =>
   student?.userid ||
   student?.id ||
@@ -302,7 +550,9 @@ const SearchableStudentSelect = ({
 
     return students.filter((student) => {
       const name = String(getStudentName(student) || "").toLowerCase();
-      const email = String(student?.email || student?.username || "").toLowerCase();
+      const email = String(
+        student?.email || student?.username || ""
+      ).toLowerCase();
       const meta = String(getStudentMeta(student) || "").toLowerCase();
 
       return (
@@ -465,6 +715,7 @@ const CreateGroupBatchBookingModal = ({
   const [studentId, setStudentId] = useState("");
   const [studentTz, setStudentTz] = useState(DEFAULT_PORTAL_DISPLAY_TIMEZONE);
   const [paymentStatus, setPaymentStatus] = useState("Paid");
+  const [selectedWeeks, setSelectedWeeks] = useState("1");
 
   const [loadingStudents, setLoadingStudents] = useState(false);
   const [loadingTimezones, setLoadingTimezones] = useState(false);
@@ -474,10 +725,76 @@ const CreateGroupBatchBookingModal = ({
   const sessions = Array.isArray(programme?.sessions) ? programme.sessions : [];
 
   const activeSessions = useMemo(() => {
-    return sessions.filter(
-      (s) => String(s?.status || "").toLowerCase() === "active"
-    );
+    return dedupeExactSessions(sessions);
   }, [sessions]);
+
+  const availableWeeks = useMemo(() => {
+    return buildAvailableRecurringWeeks(activeSessions);
+  }, [activeSessions]);
+
+  const maxSelectableWeeks = Math.min(4, availableWeeks.length);
+
+  const selectedWeeksNumber = useMemo(() => {
+    return getSafeSelectedWeeks(selectedWeeks, maxSelectableWeeks);
+  }, [selectedWeeks, maxSelectableWeeks]);
+
+  const weeklyPrice = useMemo(() => {
+    return Number(programme?.weekly_price || 0);
+  }, [programme?.weekly_price]);
+
+  const selectedWeeksData = useMemo(() => {
+    if (selectedWeeksNumber <= 0) return [];
+
+    return availableWeeks.slice(0, selectedWeeksNumber);
+  }, [availableWeeks, selectedWeeksNumber]);
+
+  const selectedSessions = useMemo(() => {
+    return dedupeExactSessions(
+      selectedWeeksData.flatMap((week) => week.sessions || [])
+    );
+  }, [selectedWeeksData]);
+
+  const selectedSessionIds = useMemo(() => {
+    return Array.from(
+      new Set(selectedSessions.map(getSessionId).filter(Boolean))
+    );
+  }, [selectedSessions]);
+
+  const selectedWeekIds = useMemo(() => {
+    return Array.from(
+      new Set(
+        selectedWeeksData
+          .map((week) => Number(week?.group_batch_week_id || 0))
+          .filter(Boolean)
+      )
+    );
+  }, [selectedWeeksData]);
+
+  const selectedWeekNumbers = useMemo(() => {
+    return selectedWeeksData
+      .map((week) => Number(week?.actual_week_no || 0))
+      .filter(Boolean);
+  }, [selectedWeeksData]);
+
+  const totalSelectedClasses = selectedSessions.length;
+  const totalAmount = weeklyPrice * selectedWeeksNumber;
+
+  const durationOptions = useMemo(() => {
+    if (maxSelectableWeeks <= 0) return [];
+
+    return Array.from({ length: maxSelectableWeeks }, (_, index) => {
+      const weeks = index + 1;
+      const classesCount = availableWeeks
+        .slice(0, weeks)
+        .reduce((total, week) => total + (week.sessions?.length || 0), 0);
+
+      return {
+        weeks,
+        classesCount,
+        amount: weeklyPrice * weeks,
+      };
+    });
+  }, [availableWeeks, maxSelectableWeeks, weeklyPrice]);
 
   const buildHeaders = async () => {
     const tokenRes = await getToken();
@@ -681,6 +998,7 @@ const CreateGroupBatchBookingModal = ({
     setStudentId("");
     setStudentTz(DEFAULT_PORTAL_DISPLAY_TIMEZONE);
     setPaymentStatus("Paid");
+    setSelectedWeeks("1");
     setError("");
     setCreating(false);
 
@@ -689,6 +1007,24 @@ const CreateGroupBatchBookingModal = ({
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    if (maxSelectableWeeks <= 0) {
+      if (String(selectedWeeks) !== "1") {
+        setSelectedWeeks("1");
+      }
+
+      return;
+    }
+
+    const safeWeeks = getSafeSelectedWeeks(selectedWeeks, maxSelectableWeeks);
+
+    if (String(safeWeeks) !== String(selectedWeeks)) {
+      setSelectedWeeks(String(safeWeeks));
+    }
+  }, [open, selectedWeeks, maxSelectableWeeks]);
 
   const selectedStudent = useMemo(() => {
     return students.find((s) => String(getStudentId(s)) === String(studentId));
@@ -741,7 +1077,15 @@ const CreateGroupBatchBookingModal = ({
       group_batch_id: groupBatchId,
       programme_name: programme?.programme_name || "",
       programme_stage: programme?.programme_stage || "",
-      weekly_price: programme?.weekly_price || "",
+
+      weekly_price: Number(totalAmount || 0).toFixed(2),
+      programme_weekly_price: Number(weeklyPrice || 0).toFixed(2),
+      selected_weeks: selectedWeeksNumber,
+      selected_week_ids: selectedWeekIds,
+      selected_week_numbers: selectedWeekNumbers,
+      selected_session_ids: selectedSessionIds,
+      total_selected_classes: totalSelectedClasses,
+      price_per_week_at_booking: Number(weeklyPrice || 0).toFixed(2),
       batch_key: programme?.batch_key || "",
       group_key: programme?.group_key || "",
       booking_createddate: batchCreatedDate,
@@ -753,13 +1097,19 @@ const CreateGroupBatchBookingModal = ({
       sessionType: "Online",
       bookingType: "Manual",
 
-      sessions: activeSessions.map((session) => {
+      sessions: selectedSessions.map((session, index) => {
         const converted = convertSessionToDisplayTimezone(session, studentTz);
         const assistantTeacherIds = getAssistantTeacherIds(session);
         const assistantTeacherNames = getAssistantTeacherNames(session);
+        const weekNo = getRecurrenceWeekNo(session);
+        const classOrder = getRecurrenceDayNo(session, index);
+        const groupBatchWeekId = getGroupBatchWeekId(session);
 
         console.log("PORTAL BOOKING TIME CHECK =>", {
           subject: session?.subjectname,
+          weekNo,
+          classOrder,
+          groupBatchWeekId,
           sourceTimezone: converted.sourceTimezone,
           displayTimezone: converted.displayTimezone,
           dbDate: session?.session_date,
@@ -775,6 +1125,13 @@ const CreateGroupBatchBookingModal = ({
           group_live_session_id: Number(session?.id),
           group_batch_id: Number(session?.group_batch_id || groupBatchId || 0),
           group_programme_id: Number(session?.programme_id),
+
+          group_batch_week_id: groupBatchWeekId || null,
+          week_no: weekNo,
+          actual_week_no: weekNo,
+          recurrence_week_no: weekNo,
+          class_order: classOrder,
+          recurrence_day_no: classOrder,
 
           teacherid: Number(session?.teacherid),
           assistant_teacher_ids: assistantTeacherIds,
@@ -849,6 +1206,23 @@ const CreateGroupBatchBookingModal = ({
       return;
     }
 
+    if (availableWeeks.length === 0) {
+      setError("No upcoming available weeks were found for this batch.");
+      return;
+    }
+
+    if (selectedWeeksNumber <= 0 || selectedSessions.length === 0) {
+      setError("Please select a valid booking duration.");
+      return;
+    }
+
+    if (selectedSessionIds.length !== selectedSessions.length) {
+      setError(
+        "Duplicate session selection detected. Please refresh this batch and try again."
+      );
+      return;
+    }
+
     const payload = buildGroupBookingPayload();
 
     const confirmResult = await Swal.fire({
@@ -863,7 +1237,13 @@ const CreateGroupBatchBookingModal = ({
             <strong>Student:</strong> ${getStudentName(selectedStudent) || "-"}<br/>
             <strong>Timezone:</strong> ${studentTz}<br/>
             <strong>Payment Status:</strong> ${paymentStatus}<br/>
-            <strong>Classes:</strong> ${activeSessions.length}
+            <strong>Duration:</strong> ${selectedWeeksNumber} Week${
+        selectedWeeksNumber > 1 ? "s" : ""
+      }<br/>
+            <strong>Classes:</strong> ${totalSelectedClasses}<br/>
+            <strong>Total Amount:</strong> AED ${Number(totalAmount || 0).toFixed(
+              2
+            )}
           </div>
         </div>
       `,
@@ -1451,53 +1831,107 @@ const CreateGroupBatchBookingModal = ({
           </div>
 
           <div className="gb-card">
+            <div className="gb-label">Booking Duration</div>
+
+            {durationOptions.length === 0 ? (
+              <div className="alert alert-warning py-2 mb-0">
+                No upcoming available weeks were found for this batch.
+              </div>
+            ) : (
+              <>
+                <select
+                  className="form-select"
+                  value={String(selectedWeeksNumber || 1)}
+                  disabled={creating}
+                  onChange={(e) => setSelectedWeeks(e.target.value)}
+                >
+                  {durationOptions.map((option) => (
+                    <option key={option.weeks} value={option.weeks}>
+                      {option.weeks} Week{option.weeks > 1 ? "s" : ""} -{" "}
+                      {option.classesCount} Class
+                      {option.classesCount > 1 ? "es" : ""} - AED{" "}
+                      {Number(option.amount || 0).toFixed(2)}
+                    </option>
+                  ))}
+                </select>
+
+                <div className="gb-session-helper mt-2">
+                  Selected: {selectedWeeksNumber} Week
+                  {selectedWeeksNumber > 1 ? "s" : ""} •{" "}
+                  {totalSelectedClasses} Class
+                  {totalSelectedClasses > 1 ? "es" : ""} • AED{" "}
+                  {Number(totalAmount || 0).toFixed(2)}
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="gb-card">
             <div className="d-flex align-items-center justify-content-between gap-2 mb-3">
-              <div className="gb-label mb-0">Batch Classes</div>
+              <div className="gb-label mb-0">Selected Classes</div>
               <span className="badge bg-primary">
-                {activeSessions.length} Active Classes
+                {totalSelectedClasses} Selected Class
+                {totalSelectedClasses === 1 ? "" : "es"}
               </span>
             </div>
 
-            {activeSessions.length === 0 ? (
-              <div className="gb-muted">No active classes found.</div>
+            {availableWeeks.length === 0 ? (
+              <div className="gb-muted">No upcoming available classes found.</div>
+            ) : selectedWeeksData.length === 0 ? (
+              <div className="gb-muted">Please select a booking duration.</div>
             ) : (
-              activeSessions.map((session, index) => {
-                const converted = convertSessionToDisplayTimezone(
-                  session,
-                  studentTz
-                );
-
-                return (
-                  <div className="gb-session-row" key={session?.id || index}>
-                    <div>
-                      <div className="gb-session-label">Class</div>
-                      <div className="gb-session-value">
-                        {index + 1}. {session?.subjectname || "-"}
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="gb-session-label">Teacher</div>
-                      <div className="gb-session-value">
-                        {session?.teacher_name || "-"}
-                      </div>
-
-                      {getAssistantTeacherNames(session) ? (
-                        <div className="gb-session-helper">
-                          Assistants: {getAssistantTeacherNames(session)}
-                        </div>
-                      ) : null}
-                    </div>
-
-                    <div>
-                      <div className="gb-session-label">Date / Time</div>
-                      <div className="gb-session-value">
-                        {converted.date} {converted.slot}
-                      </div>
-                    </div>
+              selectedWeeksData.map((week) => (
+                <div key={week.actual_week_no} className="mb-3">
+                  <div className="gb-session-helper mb-2">
+                    Week {week.display_week_no}
+                    {week.actual_week_no
+                      ? ` • Actual Week ${week.actual_week_no}`
+                      : ""}
+                    {week.group_batch_week_id
+                      ? ` • Week ID ${week.group_batch_week_id}`
+                      : ""}
                   </div>
-                );
-              })
+
+                  {(week.sessions || []).map((session, index) => {
+                    const converted = convertSessionToDisplayTimezone(
+                      session,
+                      studentTz
+                    );
+
+                    return (
+                      <div className="gb-session-row" key={session?.id || index}>
+                        <div>
+                          <div className="gb-session-label">Class</div>
+                          <div className="gb-session-value">
+                            {getRecurrenceDayNo(session, index)}.{" "}
+                            {session?.subjectname || "-"}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="gb-session-label">Teacher</div>
+                          <div className="gb-session-value">
+                            {session?.teacher_name || "-"}
+                          </div>
+
+                          {getAssistantTeacherNames(session) ? (
+                            <div className="gb-session-helper">
+                              Assistants: {getAssistantTeacherNames(session)}
+                            </div>
+                          ) : null}
+                        </div>
+
+                        <div>
+                          <div className="gb-session-label">Date / Time</div>
+                          <div className="gb-session-value">
+                            {converted.date} {converted.slot}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))
             )}
           </div>
         </div>
@@ -1521,7 +1955,8 @@ const CreateGroupBatchBookingModal = ({
               loadingStudents ||
               loadingTimezones ||
               !studentId ||
-              activeSessions.length === 0 ||
+              selectedSessions.length === 0 ||
+              selectedWeeksNumber <= 0 ||
               String(programme?.status || "").toLowerCase() !== "active"
             }
           >

@@ -91,7 +91,11 @@ const normaliseTime = (value = "") => {
 
 const convertSessionToPortalTimezone = (session) => {
   const sourceTimezone =
-    session?.timezone_location || session?.timezone || "Asia/Dubai";
+    session?.timezone_location ||
+    session?.teacher_timezone_location ||
+    session?.source_timezone ||
+    session?.timezone ||
+    "Asia/Dubai";
 
   const sourceDate = session?.session_date || "";
   const sourceStart = normaliseTime(session?.slot_start || "");
@@ -104,13 +108,20 @@ const convertSessionToPortalTimezone = (session) => {
     };
   }
 
+  if (!moment.tz.zone(sourceTimezone) || !moment.tz.zone(PORTAL_TIMEZONE)) {
+    return {
+      date: formatDate(sourceDate),
+      slot: `${formatTime(sourceStart)} - ${formatTime(sourceEnd)}`,
+    };
+  }
+
   const start = moment.tz(
     `${sourceDate} ${sourceStart}`,
     "YYYY-MM-DD HH:mm:ss",
     sourceTimezone
   );
 
-  const end = moment.tz(
+  let end = moment.tz(
     `${sourceDate} ${sourceEnd}`,
     "YYYY-MM-DD HH:mm:ss",
     sourceTimezone
@@ -121,6 +132,10 @@ const convertSessionToPortalTimezone = (session) => {
       date: formatDate(sourceDate),
       slot: `${formatTime(sourceStart)} - ${formatTime(sourceEnd)}`,
     };
+  }
+
+  if (!end.isAfter(start)) {
+    end = end.add(1, "day");
   }
 
   const portalStart = start.clone().tz(PORTAL_TIMEZONE);
@@ -174,6 +189,176 @@ const getGroupBatchId = (item) => {
   return batchId > 0 ? batchId : 0;
 };
 
+const getSessionId = (session) => {
+  const id = Number(
+    session?.id || session?.group_live_session_id || session?.session_id || 0
+  );
+
+  return Number.isFinite(id) && id > 0 ? id : 0;
+};
+
+const getSessionWeekNo = (session) => {
+  const value = Number(
+    session?.week_no ||
+      session?.actual_week_no ||
+      session?.group_week_no ||
+      session?.group_batch_week_no ||
+      session?.recurrence_week_no ||
+      1
+  );
+
+  return Number.isFinite(value) && value > 0 ? value : 1;
+};
+
+const getSessionClassOrder = (session, fallbackIndex = 0) => {
+  const value = Number(
+    session?.class_order ||
+      session?.recurrence_day_no ||
+      session?.class_no ||
+      fallbackIndex + 1
+  );
+
+  return Number.isFinite(value) && value > 0 ? value : fallbackIndex + 1;
+};
+
+const getRecurrenceWeekNo = (session) => getSessionWeekNo(session);
+
+const getRecurrenceDayNo = (session, fallbackIndex = 0) =>
+  getSessionClassOrder(session, fallbackIndex);
+
+const getRecurrenceTotalWeeks = (session) => {
+  const explicitTotal = Number(session?.recurrence_total_weeks || 0);
+  const weekNo = getRecurrenceWeekNo(session);
+
+  if (Number.isFinite(explicitTotal) && explicitTotal > 0) {
+    return explicitTotal;
+  }
+
+  return weekNo;
+};
+
+const isCancelledStatus = (value) => {
+  const s = String(value || "").trim().toLowerCase();
+  return s === "cancelled" || s === "canceled";
+};
+
+const isSessionVisible = (session) => {
+  if (!session) return false;
+
+  if (isCancelledStatus(session?.status)) return false;
+  if (isCancelledStatus(session?.week_status)) return false;
+  if (isCancelledStatus(session?.batch_week_status)) return false;
+  if (isCancelledStatus(session?.group_batch_week_status)) return false;
+
+  return true;
+};
+
+const compareSessions = (a, b) => {
+  const weekA = getSessionWeekNo(a);
+  const weekB = getSessionWeekNo(b);
+
+  if (weekA !== weekB) return weekA - weekB;
+
+  const classA = getSessionClassOrder(a, 0);
+  const classB = getSessionClassOrder(b, 0);
+
+  if (classA !== classB) return classA - classB;
+
+  const dateA = `${a?.session_date || ""} ${normaliseTime(a?.slot_start || "")}`;
+  const dateB = `${b?.session_date || ""} ${normaliseTime(b?.slot_start || "")}`;
+
+  const timeA = moment(dateA, "YYYY-MM-DD HH:mm:ss", true).valueOf() || 0;
+  const timeB = moment(dateB, "YYYY-MM-DD HH:mm:ss", true).valueOf() || 0;
+
+  if (timeA !== timeB) return timeA - timeB;
+
+  return getSessionId(a) - getSessionId(b);
+};
+
+const getExactSessionDuplicateKey = (session, index = 0) => {
+  return [
+    getSessionWeekNo(session),
+    getSessionClassOrder(session, index),
+    session?.subjectid || "",
+    session?.teacherid || "",
+    session?.session_date || "",
+    normaliseTime(session?.slot_start || ""),
+    normaliseTime(session?.slot_end || ""),
+  ].join("_");
+};
+
+const dedupeExactSessionDuplicates = (sessions = []) => {
+  const map = new Map();
+
+  (Array.isArray(sessions) ? sessions : []).forEach((session, index) => {
+    if (!isSessionVisible(session)) return;
+
+    const key = getExactSessionDuplicateKey(session, index);
+    const existing = map.get(key);
+
+    if (!existing) {
+      map.set(key, session);
+      return;
+    }
+
+    if (getSessionId(session) >= getSessionId(existing)) {
+      map.set(key, session);
+    }
+  });
+
+  return Array.from(map.values()).sort(compareSessions);
+};
+
+const getBaseSessionsFromList = (sessions = []) => {
+  const cleanSessions = dedupeExactSessionDuplicates(sessions);
+
+  if (!cleanSessions.length) return [];
+
+  const weekNos = cleanSessions
+    .map(getSessionWeekNo)
+    .filter((weekNo) => Number.isFinite(weekNo) && weekNo > 0);
+
+  const baseWeekNo = weekNos.length ? Math.min(...weekNos) : 1;
+
+  return cleanSessions
+    .filter((session) => getSessionWeekNo(session) === baseWeekNo)
+    .sort(compareSessions);
+};
+
+const getProgrammeBaseSessions = (programme) => {
+  const sessions = Array.isArray(programme?.sessions) ? programme.sessions : [];
+  return getBaseSessionsFromList(sessions);
+};
+
+const getProgrammeBaseClassCount = (programme) => {
+  return getProgrammeBaseSessions(programme).length;
+};
+
+const getProgrammeTotalSessionCount = (programme) => {
+  const sessions = Array.isArray(programme?.sessions) ? programme.sessions : [];
+  return dedupeExactSessionDuplicates(sessions).length;
+};
+
+const getProgrammeRecurringWeeksCount = (programme) => {
+  const sessions = Array.isArray(programme?.sessions) ? programme.sessions : [];
+  const cleanSessions = dedupeExactSessionDuplicates(sessions);
+
+  if (!cleanSessions.length) return 1;
+
+  const distinctWeeks = Array.from(
+    new Set(cleanSessions.map((session) => getSessionWeekNo(session)))
+  ).filter(Boolean);
+
+  const explicitMaxWeeks = Math.max(
+    1,
+    ...cleanSessions.map((session) =>
+      Math.max(getRecurrenceTotalWeeks(session), getSessionWeekNo(session))
+    )
+  );
+
+  return Math.max(1, distinctWeeks.length, explicitMaxWeeks);
+};
+
 const getProgrammeBookedCount = (programme) => {
   const programmeBooked = Number(programme?.booked_count || 0);
 
@@ -210,7 +395,17 @@ const getAssistantTeachersLabel = (session) => {
 const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
   if (!open || !programme) return null;
 
-  const sessions = Array.isArray(programme.sessions) ? programme.sessions : [];
+  const allSessions = Array.isArray(programme.sessions)
+    ? dedupeExactSessionDuplicates(programme.sessions)
+    : [];
+
+  const sessions = Array.isArray(programme.base_sessions)
+    ? programme.base_sessions
+    : getBaseSessionsFromList(allSessions);
+
+  const baseClassCount = sessions.length || getProgrammeBaseClassCount(programme);
+  const totalSessionCount = allSessions.length || getProgrammeTotalSessionCount(programme);
+  const recurringWeeksCount = getProgrammeRecurringWeeksCount(programme);
 
   return (
     <div
@@ -359,6 +554,7 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
           align-items: center;
           justify-content: space-between;
           gap: 12px;
+          flex-wrap: wrap;
         }
 
         .gl-table-scroll {
@@ -567,9 +763,20 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
 
             <div className="col-xl-3 col-md-6">
               <div className="gl-stat-card">
-                <div className="gl-stat-label">Classes</div>
+                <div className="gl-stat-label">Weekly Classes</div>
                 <div className="gl-stat-value">
-                  {sessions.length} {sessions.length === 1 ? "Class" : "Classes"}
+                  {baseClassCount} {baseClassCount === 1 ? "Class" : "Classes"}
+                  {recurringWeeksCount > 1 ? (
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: "#9fb0c8",
+                        marginTop: 6,
+                      }}
+                    >
+                      {recurringWeeksCount} weeks • {totalSessionCount} total sessions
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -601,9 +808,16 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
           <div className="gl-classes-card">
             <div className="gl-classes-title">
               <span>Curriculum Classes</span>
+
               <span className="badge bg-primary">
-                {sessions.length} {sessions.length === 1 ? "Class" : "Classes"}
+                {baseClassCount} {baseClassCount === 1 ? "Class" : "Classes"} / week
               </span>
+
+              {recurringWeeksCount > 1 ? (
+                <span className="badge bg-info">
+                  {recurringWeeksCount} weeks • {totalSessionCount} sessions
+                </span>
+              ) : null}
             </div>
 
             <div className="gl-table-scroll">
@@ -611,6 +825,7 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
                 <thead>
                   <tr>
                     <th>S.L</th>
+                    <th>Week</th>
                     <th>Subject</th>
                     <th>Title</th>
                     <th>Teacher</th>
@@ -626,7 +841,7 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
                 <tbody>
                   {sessions.length === 0 ? (
                     <tr>
-                      <td colSpan="10" className="text-center py-4">
+                      <td colSpan="11" className="text-center py-4">
                         No classes added for this curriculum.
                       </td>
                     </tr>
@@ -646,6 +861,15 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
                       return (
                         <tr key={session?.id || index}>
                           <td>{index + 1}</td>
+
+                          <td>
+                            <span className="badge bg-secondary">
+                              Week {getRecurrenceWeekNo(session)}
+                            </span>
+                            <div className="gl-time-sub mt-1">
+                              Class {getRecurrenceDayNo(session, index)}
+                            </div>
+                          </td>
 
                           <td>
                             <div className="gl-subject-text">
@@ -835,6 +1059,12 @@ const GroupLiveSessionsLayer = () => {
         item?.slot_end,
         item?.status,
         item?.group_batch_id,
+        item?.group_batch_week_id,
+        item?.week_no,
+        item?.class_order,
+        item?.recurrence_total_weeks,
+        item?.recurrence_week_no,
+        item?.recurrence_day_no,
       ]
         .join(" ")
         .toLowerCase();
@@ -852,6 +1082,8 @@ const GroupLiveSessionsLayer = () => {
     const map = {};
 
     (filteredRows || []).forEach((item) => {
+      if (!isSessionVisible(item)) return;
+
       const programmeId = String(item?.programme_id || "unknown");
       const status = String(item?.status || "active").toLowerCase();
       const groupBatchId = getGroupBatchId(item);
@@ -891,6 +1123,11 @@ const GroupLiveSessionsLayer = () => {
 
       map[groupKey].sessions.push({
         ...item,
+        week_no: getSessionWeekNo(item),
+        actual_week_no: getSessionWeekNo(item),
+        recurrence_week_no: getSessionWeekNo(item),
+        class_order: getSessionClassOrder(item),
+        recurrence_day_no: getSessionClassOrder(item),
         timezone_location:
           item?.timezone_location ||
           item?.teacher_timezone_location ||
@@ -908,15 +1145,8 @@ const GroupLiveSessionsLayer = () => {
 
     return Object.values(map)
       .map((programme) => {
-        const sessions = [...programme.sessions].sort((a, b) => {
-          const da = `${a?.session_date || ""} ${a?.slot_start || ""}`;
-          const db = `${b?.session_date || ""} ${b?.slot_start || ""}`;
-
-          return (
-            moment(da, "YYYY-MM-DD HH:mm:ss").valueOf() -
-            moment(db, "YYYY-MM-DD HH:mm:ss").valueOf()
-          );
-        });
+        const sessions = dedupeExactSessionDuplicates(programme.sessions);
+        const baseSessions = getBaseSessionsFromList(sessions);
 
         const capacities = sessions.map((s) => Number(s?.capacity || 0));
         const seats = sessions.map((s) =>
@@ -936,10 +1166,19 @@ const GroupLiveSessionsLayer = () => {
           ? Math.max(...bookedCounts)
           : Math.max(programmeCapacity - programmeSeatsLeft, 0);
 
+        const recurrenceTotalWeeks = getProgrammeRecurringWeeksCount({
+          ...programme,
+          sessions,
+        });
+
         return {
           ...programme,
           sessions,
-          total_classes: sessions.length,
+          base_sessions: baseSessions,
+          base_classes: baseSessions.length,
+          recurrence_total_weeks: recurrenceTotalWeeks,
+          total_sessions: sessions.length,
+          total_classes: baseSessions.length,
           capacity: programmeCapacity,
           seats_left: programmeSeatsLeft,
           booked_count: bookedSessions,
@@ -1121,7 +1360,7 @@ const GroupLiveSessionsLayer = () => {
           <div>Are you sure you want to update this curriculum batch status?</div>
           <div style="margin-top:10px;">
             <strong>Curriculum:</strong> ${programme?.programme_name || "-"}<br/>
-            <strong>Classes:</strong> ${sessionIds.length}<br/>
+            <strong>Total Sessions:</strong> ${sessionIds.length}<br/>
             <strong>Current:</strong> ${getStatusLabel(currentStatus)}<br/>
             <strong>New:</strong> ${getStatusLabel(nextStatus)}
           </div>
@@ -1558,6 +1797,10 @@ const GroupLiveSessionsLayer = () => {
                     const editAllowed = true;
                     const hasBookings = bookedCount > 0;
 
+                    const weeklyClasses = Number(
+                      programme.base_classes || programme.total_classes || 0
+                    );
+
                     return (
                       <tr key={groupKey}>
                         <td>{index + 1}</td>
@@ -1621,11 +1864,16 @@ const GroupLiveSessionsLayer = () => {
 
                         <td>
                           <span className="badge bg-success">
-                            {Number(programme.total_classes || 0)}{" "}
-                            {Number(programme.total_classes || 0) === 1
-                              ? "Class"
-                              : "Classes"}
+                            {weeklyClasses}{" "}
+                            {weeklyClasses === 1 ? "Class" : "Classes"} / week
                           </span>
+
+                          {Number(programme.recurrence_total_weeks || 1) > 1 ? (
+                            <div className="gl-batch-text mt-1">
+                              {Number(programme.recurrence_total_weeks || 1)} weeks •{" "}
+                              {Number(programme.total_sessions || 0)} total sessions
+                            </div>
+                          ) : null}
                         </td>
 
                         <td>{programme.capacity || "-"}</td>
