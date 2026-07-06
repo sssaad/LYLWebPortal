@@ -77,10 +77,10 @@ const normaliseTime = (value = "") => {
 const convertSessionToDisplayTimezone = (session, targetTimezone) => {
   const sourceTimezone = String(
     session?.timezone_location ||
-      session?.timezone ||
-      session?.teacher_timezone_location ||
-      session?.source_timezone ||
-      DEFAULT_PORTAL_DISPLAY_TIMEZONE
+    session?.timezone ||
+    session?.teacher_timezone_location ||
+    session?.source_timezone ||
+    DEFAULT_PORTAL_DISPLAY_TIMEZONE
   ).trim();
 
   const displayTimezone = String(
@@ -172,10 +172,10 @@ const getStatusBadgeClass = (status) => {
 const getAssistantTeacherNames = (session) => {
   const value = String(
     session?.assistant_teacher_names ||
-      session?.assistant_names ||
-      session?.assistant_teacher_name ||
-      session?.assistantTeachers ||
-      ""
+    session?.assistant_names ||
+    session?.assistant_teacher_name ||
+    session?.assistantTeachers ||
+    ""
   ).trim();
 
   if (
@@ -239,11 +239,11 @@ const getSafeSelectedWeeks = (value, maxWeeks = 4) => {
 const getRecurrenceWeekNo = (session) => {
   const weekNo = Number(
     session?.week_no ||
-      session?.actual_week_no ||
-      session?.group_week_no ||
-      session?.group_batch_week_no ||
-      session?.recurrence_week_no ||
-      1
+    session?.actual_week_no ||
+    session?.group_week_no ||
+    session?.group_batch_week_no ||
+    session?.recurrence_week_no ||
+    1
   );
 
   return Number.isFinite(weekNo) && weekNo > 0 ? weekNo : 1;
@@ -252,9 +252,9 @@ const getRecurrenceWeekNo = (session) => {
 const getRecurrenceDayNo = (session, fallbackIndex = 0) => {
   const dayNo = Number(
     session?.class_order ||
-      session?.recurrence_day_no ||
-      session?.class_no ||
-      fallbackIndex + 1
+    session?.recurrence_day_no ||
+    session?.class_no ||
+    fallbackIndex + 1
   );
 
   return Number.isFinite(dayNo) && dayNo > 0 ? dayNo : fallbackIndex + 1;
@@ -263,9 +263,9 @@ const getRecurrenceDayNo = (session, fallbackIndex = 0) => {
 const getGroupBatchWeekId = (session) => {
   const id = Number(
     session?.group_batch_week_id ||
-      session?.week_id ||
-      session?.groupBatchWeekId ||
-      0
+    session?.week_id ||
+    session?.groupBatchWeekId ||
+    0
   );
 
   return Number.isFinite(id) && id > 0 ? id : 0;
@@ -298,10 +298,10 @@ const isSessionBookable = (session) => {
 const getSessionStartMoment = (session) => {
   const sourceTimezone = String(
     session?.timezone_location ||
-      session?.timezone ||
-      session?.teacher_timezone_location ||
-      session?.source_timezone ||
-      DEFAULT_PORTAL_DISPLAY_TIMEZONE
+    session?.timezone ||
+    session?.teacher_timezone_location ||
+    session?.source_timezone ||
+    DEFAULT_PORTAL_DISPLAY_TIMEZONE
   ).trim();
 
   const sourceDate = session?.session_date || "";
@@ -325,6 +325,59 @@ const getSessionStartMoment = (session) => {
   );
 
   return fallbackStart.isValid() ? fallbackStart : null;
+};
+
+const getSessionEndMoment = (session) => {
+  const sourceTimezone = String(
+    session?.timezone_location ||
+    session?.timezone ||
+    session?.teacher_timezone_location ||
+    session?.source_timezone ||
+    DEFAULT_PORTAL_DISPLAY_TIMEZONE
+  ).trim();
+
+  const sourceDate = session?.session_date || "";
+  const sourceStart = normaliseTime(session?.slot_start || "");
+  const sourceEnd = normaliseTime(session?.slot_end || "");
+
+  if (!sourceDate || !sourceEnd) return null;
+
+  if (moment.tz.zone(sourceTimezone)) {
+    const start = moment.tz(
+      `${sourceDate} ${sourceStart || "00:00:00"}`,
+      "YYYY-MM-DD HH:mm:ss",
+      sourceTimezone
+    );
+
+    let end = moment.tz(
+      `${sourceDate} ${sourceEnd}`,
+      "YYYY-MM-DD HH:mm:ss",
+      sourceTimezone
+    );
+
+    if (!end.isValid()) return null;
+
+    if (start.isValid() && !end.isAfter(start)) {
+      end = end.add(1, "day");
+    }
+
+    return end;
+  }
+
+  const start = moment(
+    `${sourceDate} ${sourceStart || "00:00:00"}`,
+    "YYYY-MM-DD HH:mm:ss"
+  );
+
+  let end = moment(`${sourceDate} ${sourceEnd}`, "YYYY-MM-DD HH:mm:ss");
+
+  if (!end.isValid()) return null;
+
+  if (start.isValid() && !end.isAfter(start)) {
+    end = end.add(1, "day");
+  }
+
+  return end;
 };
 
 const isSessionFull = (session) => {
@@ -409,7 +462,26 @@ const dedupeExactSessions = (sessions = []) => {
 
 const buildAvailableRecurringWeeks = (sessions = []) => {
   const grouped = {};
-  const safeSessions = dedupeExactSessions(sessions);
+  const now = moment().subtract(1, "minute");
+
+  /*
+    Important:
+    Pehle code poori week hide kar raha tha agar us week ka koi bhi session past ho.
+    Ab sirf past, full ya cancelled individual session hide hoga.
+    Example:
+    06 July English past hai to sirf woh hide hogi.
+    07 July Maths aur 08 July Science show/book hon gi.
+  */
+  const safeSessions = dedupeExactSessions(sessions).filter((session) => {
+    if (!isSessionBookable(session)) return false;
+    if (isSessionFull(session)) return false;
+
+    const endMoment = getSessionEndMoment(session);
+
+    if (!endMoment) return false;
+
+    return endMoment.isSameOrAfter(now);
+  });
 
   safeSessions.forEach((session, index) => {
     const weekNo = getRecurrenceWeekNo(session);
@@ -424,28 +496,19 @@ const buildAvailableRecurringWeeks = (sessions = []) => {
     });
   });
 
-  const now = moment();
-
   return Object.keys(grouped)
     .sort((a, b) => Number(a) - Number(b))
     .map((weekNo) => {
       const weekSessions = [...grouped[weekNo]].sort(compareSessions);
 
-      const hasPastSession = weekSessions.some((session) => {
-        const start = getSessionStartMoment(session);
-
-        if (!start) return false;
-
-        return start.isBefore(now);
-      });
-
-      const hasFullSession = weekSessions.some(isSessionFull);
-
-      if (hasPastSession || hasFullSession) {
+      if (weekSessions.length === 0) {
         return null;
       }
 
-      const firstSession = weekSessions[0] || {};
+      const firstSession =
+        weekSessions.find((session) => getGroupBatchWeekId(session)) ||
+        weekSessions[0] ||
+        {};
 
       return {
         actual_week_no: Number(weekNo),
@@ -461,6 +524,9 @@ const buildAvailableRecurringWeeks = (sessions = []) => {
       display_week_no: index + 1,
     }));
 };
+
+
+
 
 const getStudentId = (student) =>
   student?.userid ||
@@ -1237,13 +1303,12 @@ const CreateGroupBatchBookingModal = ({
             <strong>Student:</strong> ${getStudentName(selectedStudent) || "-"}<br/>
             <strong>Timezone:</strong> ${studentTz}<br/>
             <strong>Payment Status:</strong> ${paymentStatus}<br/>
-            <strong>Duration:</strong> ${selectedWeeksNumber} Week${
-        selectedWeeksNumber > 1 ? "s" : ""
-      }<br/>
+            <strong>Duration:</strong> ${selectedWeeksNumber} Week${selectedWeeksNumber > 1 ? "s" : ""
+        }<br/>
             <strong>Classes:</strong> ${totalSelectedClasses}<br/>
             <strong>Total Amount:</strong> AED ${Number(totalAmount || 0).toFixed(
-              2
-            )}
+          2
+        )}
           </div>
         </div>
       `,

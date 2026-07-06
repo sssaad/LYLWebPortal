@@ -157,6 +157,66 @@ const getTeacherTimezoneLabel = (session) => {
   );
 };
 
+const getGroupViewSessionEndMoment = (session) => {
+  const sourceTimezone =
+    session?.timezone_location ||
+    session?.teacher_timezone_location ||
+    session?.source_timezone ||
+    session?.timezone ||
+    "Asia/Dubai";
+
+  const sourceDate = String(session?.session_date || "").trim();
+  const sourceStart = normaliseTime(session?.slot_start || "");
+  const sourceEnd = normaliseTime(session?.slot_end || "");
+
+  if (!sourceDate || !sourceEnd) return null;
+
+  if (moment.tz.zone(sourceTimezone)) {
+    const start = moment.tz(
+      `${sourceDate} ${sourceStart || "00:00:00"}`,
+      "YYYY-MM-DD HH:mm:ss",
+      sourceTimezone
+    );
+
+    let end = moment.tz(
+      `${sourceDate} ${sourceEnd}`,
+      "YYYY-MM-DD HH:mm:ss",
+      sourceTimezone
+    );
+
+    if (!end.isValid()) return null;
+
+    if (start.isValid() && !end.isAfter(start)) {
+      end = end.add(1, "day");
+    }
+
+    return end;
+  }
+
+  const start = moment(
+    `${sourceDate} ${sourceStart || "00:00:00"}`,
+    "YYYY-MM-DD HH:mm:ss"
+  );
+
+  let end = moment(`${sourceDate} ${sourceEnd}`, "YYYY-MM-DD HH:mm:ss");
+
+  if (!end.isValid()) return null;
+
+  if (start.isValid() && !end.isAfter(start)) {
+    end = end.add(1, "day");
+  }
+
+  return end;
+};
+
+const isGroupViewSessionPassed = (session) => {
+  const endMoment = getGroupViewSessionEndMoment(session);
+
+  if (!endMoment) return false;
+
+  return endMoment.isBefore(moment());
+};
+
 const getStatusBadgeClass = (status) => {
   const s = String(status || "").toLowerCase();
 
@@ -200,11 +260,11 @@ const getSessionId = (session) => {
 const getSessionWeekNo = (session) => {
   const value = Number(
     session?.week_no ||
-      session?.actual_week_no ||
-      session?.group_week_no ||
-      session?.group_batch_week_no ||
-      session?.recurrence_week_no ||
-      1
+    session?.actual_week_no ||
+    session?.group_week_no ||
+    session?.group_batch_week_no ||
+    session?.recurrence_week_no ||
+    1
   );
 
   return Number.isFinite(value) && value > 0 ? value : 1;
@@ -213,9 +273,9 @@ const getSessionWeekNo = (session) => {
 const getSessionClassOrder = (session, fallbackIndex = 0) => {
   const value = Number(
     session?.class_order ||
-      session?.recurrence_day_no ||
-      session?.class_no ||
-      fallbackIndex + 1
+    session?.recurrence_day_no ||
+    session?.class_no ||
+    fallbackIndex + 1
   );
 
   return Number.isFinite(value) && value > 0 ? value : fallbackIndex + 1;
@@ -364,11 +424,11 @@ const getProgrammeBookedCount = (programme) => {
 
   const sessionBooked = Array.isArray(programme?.sessions)
     ? Math.max(
-        ...programme.sessions.map((session) =>
-          Number(session?.booked_count || 0)
-        ),
-        0
-      )
+      ...programme.sessions.map((session) =>
+        Number(session?.booked_count || 0)
+      ),
+      0
+    )
     : 0;
 
   return Math.max(programmeBooked, sessionBooked);
@@ -399,12 +459,15 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
     ? dedupeExactSessionDuplicates(programme.sessions)
     : [];
 
-  const sessions = Array.isArray(programme.base_sessions)
-    ? programme.base_sessions
-    : getBaseSessionsFromList(allSessions);
+  /*
+   * Portal view must stay transparent.
+   * Show every active/non-cancelled week/session here, including past sessions.
+   * Booking modal separately filters past weeks for booking safety.
+   */
+  const sessions = allSessions;
 
-  const baseClassCount = sessions.length || getProgrammeBaseClassCount(programme);
-  const totalSessionCount = allSessions.length || getProgrammeTotalSessionCount(programme);
+  const baseClassCount = getProgrammeBaseClassCount(programme);
+  const totalSessionCount = sessions.length || getProgrammeTotalSessionCount(programme);
   const recurringWeeksCount = getProgrammeRecurringWeeksCount(programme);
 
   return (
@@ -813,9 +876,13 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
                 {baseClassCount} {baseClassCount === 1 ? "Class" : "Classes"} / week
               </span>
 
+              <span className="badge bg-info">
+                Showing {totalSessionCount} total session{totalSessionCount === 1 ? "" : "s"}
+              </span>
+
               {recurringWeeksCount > 1 ? (
-                <span className="badge bg-info">
-                  {recurringWeeksCount} weeks • {totalSessionCount} sessions
+                <span className="badge bg-secondary">
+                  {recurringWeeksCount} weeks
                 </span>
               ) : null}
             </div>
@@ -934,13 +1001,25 @@ const GroupProgrammeDetailsModal = ({ open, programme, onClose }) => {
                           <td>{session?.booked_count ?? 0}</td>
 
                           <td>
-                            <span
-                              className={`badge ${getStatusBadgeClass(
-                                session?.status
-                              )}`}
-                            >
-                              {getStatusLabel(session?.status)}
-                            </span>
+                            <div className="d-flex flex-column align-items-start gap-1">
+                              <span
+                                className={`badge ${getStatusBadgeClass(
+                                  session?.status
+                                )}`}
+                              >
+                                {getStatusLabel(session?.status)}
+                              </span>
+
+                              {isGroupViewSessionPassed(session) ? (
+                                <span className="badge bg-secondary">
+                                  Passed
+                                </span>
+                              ) : (
+                                <span className="badge bg-success">
+                                  Upcoming
+                                </span>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1231,9 +1310,9 @@ const GroupLiveSessionsLayer = () => {
       prev.map((row) =>
         idSet.has(String(row?.id))
           ? {
-              ...row,
-              status: nextStatus,
-            }
+            ...row,
+            status: nextStatus,
+          }
           : row
       )
     );
@@ -1266,7 +1345,7 @@ const GroupLiveSessionsLayer = () => {
     if (Number(response?.data?.statusCode) !== 200) {
       throw new Error(
         response?.data?.message ||
-          `Session ID ${sessionId} status update failed.`
+        `Session ID ${sessionId} status update failed.`
       );
     }
 
@@ -1828,11 +1907,10 @@ const GroupLiveSessionsLayer = () => {
                           ) : null}
 
                           <div
-                            className={`gl-visibility-badge ${
-                              Number(programme.show_on_web ?? 1) === 1
+                            className={`gl-visibility-badge ${Number(programme.show_on_web ?? 1) === 1
                                 ? "gl-visibility-public"
                                 : "gl-visibility-private"
-                            }`}
+                              }`}
                           >
                             <Icon
                               icon={
@@ -1970,11 +2048,10 @@ const GroupLiveSessionsLayer = () => {
                                 type="button"
                                 className="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1 gl-copy-link-btn"
                                 onClick={async () => {
-                                  const link = `https://gostudy.ae/group-tuition/${programme.programme_id}${
-                                    programme.group_batch_id
+                                  const link = `https://gostudy.ae/group-tuition/${programme.programme_id}${programme.group_batch_id
                                       ? `?group_batch_id=${programme.group_batch_id}`
                                       : ""
-                                  }`;
+                                    }`;
 
                                   try {
                                     await navigator.clipboard.writeText(link);

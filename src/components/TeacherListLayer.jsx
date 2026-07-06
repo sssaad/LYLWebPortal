@@ -22,6 +22,8 @@ const FALLBACK_AVATAR = "https://gostudy.ae/assets/invalid-square.png";
 const SET_PASSWORD_URL =
   "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=set_password";
 
+const TEACHER_PUBLIC_PROFILE_BASE_URL = "https://gostudy.ae/teachersdetails";
+
 const API_HEADERS = {
   "Content-Type": "application/json",
   Accept: "application/json",
@@ -227,9 +229,9 @@ const TeacherListLayer = () => {
   const getRowKey = (t) =>
     String(
       t?.uid ??
-        t?.id ??
-        t?.userid ??
-        `${t?.email ?? t?.user_email ?? ""}-${t?.phonenumber ?? t?.user_phonenumber ?? ""}-${getJoinDate(t) ?? ""}`
+      t?.id ??
+      t?.userid ??
+      `${t?.email ?? t?.user_email ?? ""}-${t?.phonenumber ?? t?.user_phonenumber ?? ""}-${getJoinDate(t) ?? ""}`
     );
 
   const getSeedUserId = (t) => {
@@ -237,6 +239,117 @@ const TeacherListLayer = () => {
     const n = Number(raw);
     return Number.isFinite(n) ? n : null;
   };
+
+  const copyTextFallback = (text) => {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    document.body.removeChild(textarea);
+  };
+
+  const handleCopyTeacherLink = async (teacher) => {
+  const teacherId = teacher?.userid;
+  const teacherName = displayName(teacher);
+
+  if (!teacherId) {
+    Swal.fire("Error", "Incomplete teacher. Userid missing hai.", "error");
+    return;
+  }
+
+  const publicLink = `${TEACHER_PUBLIC_PROFILE_BASE_URL}/${teacherId}`;
+  const theme = getSwalTheme();
+
+  const confirm = await Swal.fire({
+    title: "Copy Teacher Link?",
+    html: `
+      <div style="text-align:left;">
+        <div style="font-weight:700; margin-bottom:8px;">
+          ${escapeHtml(teacherName)}
+        </div>
+        <div style="
+          word-break: break-all;
+          padding: 12px;
+          border-radius: 10px;
+          background: ${theme.dark ? "#111827" : "#f8fafc"};
+          border: 1px solid ${theme.dark ? "rgba(148,163,184,0.35)" : "#e5e7eb"};
+          font-size: 13px;
+        ">
+          ${escapeHtml(publicLink)}
+        </div>
+      </div>
+    `,
+    icon: "question",
+    showCancelButton: true,
+    confirmButtonText: "Copy Link",
+    cancelButtonText: "Cancel",
+    buttonsStyling: false,
+    background: theme.background,
+    color: theme.color,
+    customClass: {
+      popup: theme.popupClass,
+      title: "reset-pass-title",
+      htmlContainer: "reset-pass-html",
+      confirmButton: "btn btn-primary px-20 py-10 radius-8",
+      cancelButton: "btn btn-outline-secondary px-20 py-10 radius-8 ms-2",
+    },
+  });
+
+  if (!confirm.isConfirmed) return;
+
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(publicLink);
+    } else {
+      copyTextFallback(publicLink);
+    }
+
+    const successTheme = getSwalTheme();
+
+    Swal.fire({
+      title: "Link Copied",
+      html: `
+        <div class="reset-success-text">
+          Teacher profile link copied successfully.
+          <br />
+          <span style="word-break:break-all;">${escapeHtml(publicLink)}</span>
+        </div>
+      `,
+      icon: "success",
+      confirmButtonText: "Done",
+      buttonsStyling: false,
+      background: successTheme.background,
+      color: successTheme.color,
+      customClass: {
+        popup: successTheme.popupClass,
+        title: "reset-pass-title",
+        htmlContainer: "reset-pass-html",
+        confirmButton: "btn btn-primary px-20 py-10 radius-8",
+      },
+    });
+  } catch (error) {
+    console.error("Copy link error:", error);
+
+    const errorTheme = getSwalTheme();
+
+    Swal.fire({
+      title: "Copy Failed",
+      text: "Link copy nahi ho saka. Please try again.",
+      icon: "error",
+      buttonsStyling: false,
+      background: errorTheme.background,
+      color: errorTheme.color,
+      customClass: {
+        popup: errorTheme.popupClass,
+        confirmButton: "btn btn-primary px-20 py-10 radius-8",
+      },
+    });
+  }
+};
 
   const openSubjectsModal = (teacher) => {
     const subjects = getTeacherSubjectsArray(teacher);
@@ -1408,13 +1521,27 @@ const TeacherListLayer = () => {
                     </td>
 
                     <td className="text-center">
-                      <div className="d-flex justify-content-center gap-2">
+                      <div className="d-flex justify-content-center gap-2 flex-wrap">
                         <button
                           className={`btn btn-sm ${incomplete ? "btn-outline-danger" : "btn-primary"}`}
                           onClick={() => openTeacher(teacher)}
                           title={incomplete ? "Add Details" : "View / Edit"}
                         >
                           <Icon icon="majesticons:eye-line" />
+                        </button>
+
+                        <button
+                          className="btn btn-outline-secondary btn-sm d-inline-flex align-items-center gap-1"
+                          onClick={() => handleCopyTeacherLink(teacher)}
+                          disabled={!teacher?.userid}
+                          title={
+                            !teacher?.userid
+                              ? "Incomplete teacher userid missing"
+                              : `Copy https://gostudy.ae/teachersdetails/${teacher.userid}`
+                          }
+                        >
+                          <Icon icon="mdi:link-variant" />
+                          Copy Link
                         </button>
 
                         <button

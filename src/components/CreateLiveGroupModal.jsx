@@ -145,21 +145,67 @@ const extractDynamicInsertedId = (payload) => {
 };
 
 const normalizeAssistantTeacherIds = (value) => {
+  const normalizeOne = (item) => {
+    if (item === null || item === undefined) return "";
+
+    if (typeof item === "object") {
+      return String(
+        item.teacherid ||
+          item.teacher_id ||
+          item.userid ||
+          item.userId ||
+          item.id ||
+          item.value ||
+          ""
+      ).trim();
+    }
+
+    return String(item || "").trim();
+  };
+
   if (Array.isArray(value)) {
-    return value.map((item) => String(item || "").trim()).filter(Boolean);
+    return value
+      .map(normalizeOne)
+      .filter(Boolean)
+      .filter((item) => item.toLowerCase() !== "null")
+      .filter((item) => item.toLowerCase() !== "undefined")
+      .filter((item) => item !== "[object Object]");
   }
 
   if (typeof value === "string") {
-    return value
+    const clean = value.trim();
+
+    if (!clean) return [];
+
+    try {
+      const decoded = JSON.parse(clean);
+      if (Array.isArray(decoded)) {
+        return normalizeAssistantTeacherIds(decoded);
+      }
+    } catch (_) {
+      // CSV fallback below
+    }
+
+    return clean
+      .replace(/\[/g, "")
+      .replace(/\]/g, "")
+      .replace(/"/g, "")
+      .replace(/'/g, "")
       .split(",")
       .map((item) => item.trim())
       .filter(Boolean)
       .filter((item) => item.toLowerCase() !== "null")
-      .filter((item) => item.toLowerCase() !== "undefined");
+      .filter((item) => item.toLowerCase() !== "undefined")
+      .filter((item) => item !== "[object Object]");
   }
 
   if (typeof value === "number" && value > 0) {
     return [String(value)];
+  }
+
+  if (value && typeof value === "object") {
+    const one = normalizeOne(value);
+    return one ? [one] : [];
   }
 
   return [];
@@ -752,6 +798,16 @@ const addRecurringWeeksToDate = (dateValue, weekNo) => {
     .format("YYYY-MM-DD");
 };
 
+const addWeeksDeltaToDate = (dateValue, weeksDelta = 0) => {
+  if (!dateValue) return "";
+
+  const parsed = moment(dateValue, "YYYY-MM-DD", true);
+
+  if (!parsed.isValid()) return dateValue;
+
+  return parsed.add(Number(weeksDelta || 0) * 7, "days").format("YYYY-MM-DD");
+};
+
 const getSessionWeekNo = (session) => {
   const weekNo = Number(
     session?.week_no ||
@@ -793,6 +849,34 @@ const isVisibleEditSession = (session) => {
   if (isCancelledStatus(session?.group_batch_week_status)) return false;
 
   return true;
+};
+
+const compareEditSessions = (a, b) => {
+  const weekA = getSessionWeekNo(a);
+  const weekB = getSessionWeekNo(b);
+
+  if (weekA !== weekB) return weekA - weekB;
+
+  const classA = getSessionClassOrder(a, 0);
+  const classB = getSessionClassOrder(b, 0);
+
+  if (classA !== classB) return classA - classB;
+
+  const dateA = `${a?.session_date || ""} ${normaliseTime(a?.slot_start || "")}`;
+  const dateB = `${b?.session_date || ""} ${normaliseTime(b?.slot_start || "")}`;
+
+  const timeA = moment(dateA, "YYYY-MM-DD HH:mm:ss", true).valueOf() || 0;
+  const timeB = moment(dateB, "YYYY-MM-DD HH:mm:ss", true).valueOf() || 0;
+
+  if (timeA !== timeB) return timeA - timeB;
+
+  return Number(a?.id || 0) - Number(b?.id || 0);
+};
+
+const getTransparentEditSessions = (sessions = []) => {
+  return (Array.isArray(sessions) ? sessions : [])
+    .filter(isVisibleEditSession)
+    .sort(compareEditSessions);
 };
 
 const getBaseWeekNoFromSessions = (sessions = []) => {
@@ -869,6 +953,7 @@ const CreateLiveGroupModal = ({
 
   const [classes, setClasses] = useState([makeEmptyClass(0)]);
   const [removedSessionIds, setRemovedSessionIds] = useState([]);
+  const [assistantDraftMap, setAssistantDraftMap] = useState({});
 
   const [loading, setLoading] = useState(false);
   const [lookupsLoading, setLookupsLoading] = useState(false);
@@ -969,12 +1054,12 @@ const CreateLiveGroupModal = ({
       : [];
 
     /*
-     * Normal edit mein sirf Week 1/base classes form mein show hongi.
-     * Teacher-only edit mein all sessions show hongi, taake har existing session ka teacher setup update ho sake.
+     * Portal edit must stay transparent.
+     * No-booking edit and teacher-only edit both show every active/non-cancelled
+     * session/week, including past sessions, so admin can update each class time.
+     * Booking modal has its own upcoming-only filter, so booking safety stays separate.
      */
-    const editSessions = isTeacherOnlyEdit
-      ? rawEditSessions.filter(isVisibleEditSession)
-      : getBaseRecurringSessions(rawEditSessions);
+    const editSessions = getTransparentEditSessions(rawEditSessions);
 
     const firstSession = editSessions[0] || rawEditSessions[0] || {};
 
@@ -1152,6 +1237,7 @@ const CreateLiveGroupModal = ({
     setError("");
     setSuccessMsg("");
     setRemovedSessionIds([]);
+    setAssistantDraftMap({});
 
     setForm({
       programme_id: "",
@@ -1539,16 +1625,34 @@ const CreateLiveGroupModal = ({
   };
 
   const handleAssistantTeachersChange = (index, selectedIds) => {
+    const rawSelected = normalizeAssistantTeacherIds(selectedIds);
+
     setClasses((prev) =>
       prev.map((item, i) => {
         if (i !== index) return item;
 
+        const cleanedIds = cleanAssistantTeacherIds(rawSelected, item.teacherid);
+        const mapKeys = [
+          item.uid,
+          String(item.class_no || index + 1),
+          `index_${index}`,
+        ].filter(Boolean);
+
+        setAssistantDraftMap((old) => {
+          const next = { ...old };
+          mapKeys.forEach((key) => {
+            next[key] = cleanedIds;
+          });
+          return next;
+        });
+
         return {
           ...item,
-          assistant_teacher_ids: cleanAssistantTeacherIds(
-            selectedIds,
-            item.teacherid
-          ),
+          assistant_teacher_ids: cleanedIds,
+          assistant_teacherids: cleanedIds.join(","),
+          assistant_teachers: cleanedIds.join(","),
+          assistant_teacher_ids_array: cleanedIds,
+          _resolved_assistant_teacher_ids: cleanedIds,
         };
       })
     );
@@ -1780,6 +1884,7 @@ const CreateLiveGroupModal = ({
     numberOfWeeks,
     weekNo = 1,
     parentSessionId = null,
+    dateOffsetWeeks = null,
   }) => {
     if (!Number(groupBatchWeekId)) {
       throw new Error(
@@ -1789,7 +1894,10 @@ const CreateLiveGroupModal = ({
       );
     }
 
-    const recurringDate = addRecurringWeeksToDate(item.session_date, weekNo);
+    const recurringDate =
+      dateOffsetWeeks === null || dateOffsetWeeks === undefined
+        ? addRecurringWeeksToDate(item.session_date, weekNo)
+        : addWeeksDeltaToDate(item.session_date, dateOffsetWeeks);
 
     const classItemForSave = {
       ...item,
@@ -1931,6 +2039,53 @@ const CreateLiveGroupModal = ({
     return response?.data;
   };
 
+  const buildExistingSessionUpdateData = (item, index) => {
+    const convertedTime = convertPortalClassToTeacherTimezone(item);
+    const assistantTeacherIds = cleanAssistantTeacherIds(
+      item.assistant_teacher_ids,
+      item.teacherid
+    );
+
+    if (!convertedTime.isValid) {
+      throw new Error(
+        `Week ${getSessionWeekNo(item)} - Class ${getSessionClassOrder(
+          item,
+          index
+        )}: Date/time conversion failed. Please check timezone, date and time.`
+      );
+    }
+
+    return {
+      programme_id: Number(form.programme_id),
+      group_batch_id: Number(item.group_batch_id || editProgramme?.group_batch_id || 0),
+      group_batch_week_id: Number(item.group_batch_week_id || 0),
+      class_order: Number(getSessionClassOrder(item, index)),
+
+      recurrence_total_weeks: Number(getSafeNumberOfWeeks(form.number_of_weeks)),
+      recurrence_week_no: Number(getSessionWeekNo(item)),
+      recurrence_day_no: Number(getSessionClassOrder(item, index)),
+      recurrence_parent_session_id: item.recurrence_parent_session_id || null,
+
+      title: item.title || buildSessionTitle(item, index),
+      subjectid: Number(item.subjectid),
+      teacherid: Number(item.teacherid),
+      assistant_teacher_ids: assistantTeacherIds.join(","),
+
+      timezoneid: Number(item.teacher_timezoneid),
+      timezone_location: item.teacher_timezone_location,
+
+      session_date: convertedTime.session_date,
+      slot_start: convertedTime.slot_start,
+      slot_end: convertedTime.slot_end,
+      capacity: Number(form.capacity || 10),
+
+      status: item.status || form.status || "active",
+      show_on_web: Number(form.show_on_web ?? 1),
+      web_sort_order: Number(form.web_sort_order || 0),
+      modifieddate: moment().format("YYYY-MM-DD HH:mm:ss"),
+    };
+  };
+
   const updateDynamicTable = async (tablename, rowId, updatedata, token) => {
     const conditionId = /^\d+$/.test(String(rowId)) ? Number(rowId) : rowId;
 
@@ -1992,8 +2147,32 @@ const CreateLiveGroupModal = ({
   };
 
   const buildWeekDateRange = (weekNo) => {
-    const weekDates = (classes || [])
-      .map((item) => addRecurringWeeksToDate(item.session_date, weekNo))
+    const safeClasses = Array.isArray(classes) ? classes : [];
+    const targetWeekNo = Number(weekNo || 1);
+
+    const existingWeekClasses = isEditMode
+      ? safeClasses.filter(
+          (item) => item?.id && getSessionWeekNo(item) === targetWeekNo
+        )
+      : [];
+
+    const sourceClasses = existingWeekClasses.length
+      ? existingWeekClasses
+      : safeClasses.filter((item) => {
+          if (!item?.id) return true;
+          return getSessionWeekNo(item) === getBaseWeekNoFromSessions(safeClasses);
+        });
+
+    const weekDates = sourceClasses
+      .map((item) => {
+        const itemWeekNo = getSessionWeekNo(item);
+
+        if (existingWeekClasses.length) {
+          return item.session_date;
+        }
+
+        return addWeeksDeltaToDate(item.session_date, targetWeekNo - itemWeekNo);
+      })
       .filter(Boolean)
       .sort();
 
@@ -2032,27 +2211,37 @@ const CreateLiveGroupModal = ({
       return Number(existingWeek.id);
     }
 
-    const weekPayload = {
-      tablename: "group_batch_weeks",
-      programme_id: Number(form.programme_id),
-      group_batch_id: Number(groupBatchId),
-      week_no: Number(weekNo),
-      week_start_date: range.week_start_date,
-      week_end_date: range.week_end_date,
-      status: "active",
-      is_locked: 0,
-      locked_reason: null,
-      createddate: batchCreatedDate,
-    };
+    /*
+     * IMPORTANT:
+     * Do not use generic add_dynamic_data for group_batch_weeks here.
+     * On this backend that endpoint can route through the user/MeritHub email validation
+     * and returns: "This email is already linked to an existing account" even though
+     * this payload has no email field. We create/update the week through a small SP
+     * called by runStoredProcedure instead.
+     */
+    const rows = await runStoredProcedure("sp_portal_upsert_group_batch_week", [
+      Number(form.programme_id),
+      Number(groupBatchId),
+      Number(weekNo),
+      range.week_start_date || null,
+      range.week_end_date || null,
+      batchCreatedDate,
+    ]);
 
-    const res = await addDynamicData(weekPayload, headers);
-    const insertedWeekId = extractDynamicInsertedId(res);
+    const firstRow = Array.isArray(rows) && rows.length ? rows[0] : null;
+
+    const insertedWeekId = Number(
+      firstRow?.group_batch_week_id ||
+        firstRow?.id ||
+        firstRow?.week_id ||
+        0
+    );
 
     if (!insertedWeekId) {
-      console.error("GROUP WEEK INSERT RESPONSE ID MISSING =>", res);
+      console.error("GROUP WEEK UPSERT SP RESPONSE ID MISSING =>", rows);
 
       throw new Error(
-        `Week ${weekNo}: group_batch_week_id was not returned from API.`
+        `Week ${weekNo}: group_batch_week_id was not returned from sp_portal_upsert_group_batch_week.`
       );
     }
 
@@ -2148,81 +2337,88 @@ const CreateLiveGroupModal = ({
   };
 
 
-  const insertTeacherSetupRow = async ({
-    sessionId,
-    teacherId,
-    teacherRole,
-    groupBatchId,
-    batchCreatedDate,
-    headers,
-  }) => {
-    if (!sessionId || !teacherId) return null;
+  const resolveAssistantTeacherIdsForLocalSync = (
+    classItem,
+    overrideValue = null,
+    fallbackIndex = null
+  ) => {
+    const rawValues = [];
 
-    const payload = {
-      tablename: "group_live_session_teachers",
-      group_live_session_id: Number(sessionId),
-      programme_id: Number(form.programme_id),
-      group_batch_id: Number(groupBatchId),
-      teacherid: Number(teacherId),
-      teacher_role: teacherRole,
-      merithub_user_id: null,
-      merithub_user_link: null,
-      sync_status: "pending",
-      sync_message: "Merithub class not created yet",
-      status: "active",
-      createdby: null,
-      modifiedby: null,
-      createddate: batchCreatedDate,
-    };
+    if (overrideValue !== null && overrideValue !== undefined) {
+      rawValues.push(overrideValue);
+    }
 
-    return addDynamicData(payload, headers);
+    const mapKeys = [
+      classItem?.uid,
+      String(classItem?.class_no || ""),
+      fallbackIndex !== null && fallbackIndex !== undefined
+        ? `index_${fallbackIndex}`
+        : "",
+    ].filter(Boolean);
+
+    mapKeys.forEach((key) => {
+      if (assistantDraftMap?.[key]) {
+        rawValues.push(assistantDraftMap[key]);
+      }
+    });
+
+    rawValues.push(
+      classItem?.assistant_teacher_ids,
+      classItem?.assistant_teacherids,
+      classItem?.assistant_teachers,
+      classItem?.assistant_teacher_ids_array,
+      classItem?._resolved_assistant_teacher_ids
+    );
+
+    const allIds = rawValues.flatMap((value) => normalizeAssistantTeacherIds(value));
+
+    return cleanAssistantTeacherIds(allIds, classItem?.teacherid)
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id) && id > 0);
   };
 
-  const insertPendingTeacherSetupRows = async ({
+  const syncPendingTeacherSetupRows = async ({
     sessionId,
     classItem,
     groupBatchId,
     batchCreatedDate,
-    headers,
+    assistantTeacherIdsOverride = null,
   }) => {
-    const responses = [];
+    if (!sessionId || !classItem?.teacherid) return [];
 
-    const mainTeacherId = Number(classItem?.teacherid || 0);
+    const assistantTeacherIds = resolveAssistantTeacherIdsForLocalSync(
+      classItem,
+      assistantTeacherIdsOverride,
+      classItem?._originalIndex ?? null
+    );
 
-    if (mainTeacherId > 0) {
-      const mainRes = await insertTeacherSetupRow({
-        sessionId,
-        teacherId: mainTeacherId,
-        teacherRole: "main_teacher",
-        groupBatchId,
-        batchCreatedDate,
-        headers,
-      });
+    const spParams = [
+      Number(sessionId),
+      Number(form.programme_id),
+      Number(groupBatchId || 0),
+      Number(classItem.teacherid),
+      assistantTeacherIds.join(","),
+      batchCreatedDate || moment().format("YYYY-MM-DD HH:mm:ss"),
+    ];
 
-      if (mainRes) responses.push(mainRes);
-    }
+    console.log("PORTAL LOCAL TEACHER SETUP SYNC PARAMS =>", {
+      sessionId,
+      programme_id: form.programme_id,
+      groupBatchId,
+      mainTeacherId: classItem.teacherid,
+      assistantTeacherIds,
+      assistantTeacherIdsOverride,
+      classItemAssistantTeacherIds: classItem?.assistant_teacher_ids,
+      spParams,
+    });
 
-    const assistantTeacherIds = cleanAssistantTeacherIds(
-      classItem?.assistant_teacher_ids,
-      classItem?.teacherid
-    )
-      .map((id) => Number(id))
-      .filter((id) => Number.isFinite(id) && id > 0);
-
-    for (const assistantTeacherId of assistantTeacherIds) {
-      const assistantRes = await insertTeacherSetupRow({
-        sessionId,
-        teacherId: assistantTeacherId,
-        teacherRole: "assistant_teacher",
-        groupBatchId,
-        batchCreatedDate,
-        headers,
-      });
-
-      if (assistantRes) responses.push(assistantRes);
-    }
-
-    return responses;
+    /*
+     * IMPORTANT:
+     * Do not use update_group_session_teacher_setup here because it can sync MeritHub.
+     * Do not use add_dynamic_data either because duplicate rows can fail on repeated edits.
+     * This small SP only upserts local group_live_session_teachers rows as pending.
+     */
+    return await runStoredProcedure("sp_portal_sync_group_session_teachers", spParams);
   };
 
   const handleCreateSubmit = async (headers, token) => {
@@ -2309,12 +2505,12 @@ const CreateLiveGroupModal = ({
            * backend can sync these pending teachers safely.
            */
           try {
-            const pendingTeacherRows = await insertPendingTeacherSetupRows({
+            const pendingTeacherRows = await syncPendingTeacherSetupRows({
               sessionId: insertedSessionId,
               classItem,
               groupBatchId,
               batchCreatedDate,
-              headers,
+              assistantTeacherIdsOverride: row?.assistant_teacher_ids || classItem?.assistant_teacher_ids,
             });
 
             teacherSetupResponses.push(...pendingTeacherRows);
@@ -2372,31 +2568,292 @@ const CreateLiveGroupModal = ({
     }
 
     /*
-     * No booking case:
-     * New week rows/sessions create honge.
-     * Old sessions cancel honge. Portal SP cancelled sessions hide karegi.
+     * No-booking edit professional flow:
+     * 1. Existing sessions are updated directly, so Week 1 / Week 2 stay transparent in portal.
+     * 2. If admin increases Number of Weeks, missing week rows and session rows are created.
+     * 3. If admin decreases Number of Weeks, extra old sessions/weeks are cancelled, not hard deleted.
      */
-    const recreateResult = await handleCreateSubmit(headers, token);
+    const { batchCreatedDate, groupBatchId, numberOfWeeks } =
+      getBatchMetaForSave();
 
-    const oldSessionIds = getAllExistingEditSessionIds();
-    const cancelledOldSessions = [];
+    const existingWeekMap = getExistingWeekMapByNo();
+    const updatedSessions = [];
+    const createdWeeks = [];
+    const createdSessions = [];
+    const insertedResponses = [];
+    const teacherSetupResponses = [];
+    const teacherSetupWarnings = [];
+    const cancelledRemovedSessions = [];
 
-    for (const sessionId of oldSessionIds) {
+    const existingClasses = (classes || []).filter((item) => item?.id);
+    const activeClassRows = (classes || []).filter(
+      (item) => getSessionWeekNo(item) <= Number(numberOfWeeks || 1)
+    );
+
+    const existingKeySet = new Set(
+      existingClasses.map((item, index) =>
+        `${getSessionWeekNo(item)}_${getSessionClassOrder(item, index)}`
+      )
+    );
+
+    const baseParentSessionByClassOrder = new Map();
+
+    existingClasses.forEach((item, index) => {
+      const weekNo = getSessionWeekNo(item);
+      const classOrder = getSessionClassOrder(item, index);
+
+      if (weekNo === getBaseWeekNoFromSessions(existingClasses) && item?.id) {
+        baseParentSessionByClassOrder.set(classOrder, Number(item.id));
+      }
+    });
+
+    const baseWeekNo = getBaseWeekNoFromSessions(activeClassRows);
+    const baseTemplates = activeClassRows
+      .filter((item, index) => {
+        if (!item?.id) return true;
+        return getSessionWeekNo(item) === baseWeekNo;
+      })
+      .sort(compareEditSessions);
+
+    if (!baseTemplates.length) {
+      throw new Error("No base classes found for this curriculum edit.");
+    }
+
+    /*
+     * Assistant inheritance for recurring edit:
+     * Portal is transparent, so all weeks can appear. But teacher setup is controlled
+     * from the base week class. If Week 1 has assistant teachers and Week 2/3/4
+     * sessions were created later, those weeks must inherit the same assistants.
+     * If admin clears assistants on the base class, inherited list becomes empty
+     * and old assistant rows on other weeks will be inactivated by sync SP.
+     */
+    const baseAssistantIdsByClassOrder = new Map();
+
+    baseTemplates.forEach((template, index) => {
+      const classOrder = getSessionClassOrder(template, index);
+      const assistantIds = cleanAssistantTeacherIds(
+        template?.assistant_teacher_ids,
+        template?.teacherid
+      );
+
+      baseAssistantIdsByClassOrder.set(Number(classOrder), assistantIds);
+    });
+
+    const withInheritedAssistants = (item, index) => {
+      const classOrder = getSessionClassOrder(item, index);
+      const ownAssistantIds = cleanAssistantTeacherIds(
+        item?.assistant_teacher_ids,
+        item?.teacherid
+      );
+
+      const inheritedAssistantIds =
+        baseAssistantIdsByClassOrder.get(Number(classOrder)) || [];
+
+      return {
+        ...item,
+        assistant_teacher_ids: ownAssistantIds.length
+          ? ownAssistantIds
+          : inheritedAssistantIds,
+      };
+    };
+
+    /* Update existing sessions that are still inside selected number of weeks. */
+    for (let i = 0; i < existingClasses.length; i += 1) {
+      const item = existingClasses[i];
+      const weekNo = getSessionWeekNo(item);
+
+      if (weekNo > Number(numberOfWeeks || 1)) {
+        continue;
+      }
+
+      const classOrder = getSessionClassOrder(item, i);
+      const itemForSave = withInheritedAssistants(item, classOrder - 1);
+      const updatePayload = buildExistingSessionUpdateData(itemForSave, i);
+      const res = await updateDynamicData(item.id, updatePayload, token);
+
+      updatedSessions.push({
+        id: item.id,
+        week_no: weekNo,
+        class_order: getSessionClassOrder(itemForSave, i),
+        response: res,
+      });
+
+      try {
+        const teacherRows = await syncPendingTeacherSetupRows({
+          sessionId: item.id,
+          classItem: itemForSave,
+          groupBatchId,
+          batchCreatedDate,
+          assistantTeacherIdsOverride: updatePayload?.assistant_teacher_ids || itemForSave?.assistant_teacher_ids,
+        });
+
+        teacherSetupResponses.push(...teacherRows);
+      } catch (teacherSetupErr) {
+        teacherSetupWarnings.push({
+          id: item.id,
+          message:
+            teacherSetupErr?.message ||
+            "Teacher setup rows could not be synced for this existing session.",
+        });
+      }
+    }
+
+    /* Create missing sessions when admin expands 1 week to 2/3/4 weeks or adds a new class. */
+    for (let weekNo = 1; weekNo <= Number(numberOfWeeks || 1); weekNo += 1) {
+      const groupBatchWeekId = await ensureGroupBatchWeekRow({
+        weekNo,
+        groupBatchId,
+        batchCreatedDate,
+        token,
+        headers,
+        existingWeekMap,
+      });
+
+      createdWeeks.push({
+        week_no: weekNo,
+        group_batch_week_id: Number(groupBatchWeekId),
+      });
+
+      for (let templateIndex = 0; templateIndex < baseTemplates.length; templateIndex += 1) {
+        const template = baseTemplates[templateIndex];
+        const classOrder = getSessionClassOrder(template, templateIndex);
+        const templateForSave = withInheritedAssistants(template, classOrder - 1);
+        const sessionKey = `${weekNo}_${classOrder}`;
+
+        if (existingKeySet.has(sessionKey)) {
+          continue;
+        }
+
+        const templateWeekNo = getSessionWeekNo(templateForSave);
+        const parentSessionId =
+          weekNo === templateWeekNo
+            ? null
+            : baseParentSessionByClassOrder.get(classOrder) ||
+              (Number(templateForSave?.id || 0) > 0 ? Number(templateForSave.id) : null);
+
+        const row = buildSingleInsertRow({
+          item: {
+            ...templateForSave,
+            id: "",
+            group_batch_id: groupBatchId,
+            group_batch_week_id: groupBatchWeekId,
+            week_no: weekNo,
+            recurrence_week_no: weekNo,
+            class_order: classOrder,
+            recurrence_day_no: classOrder,
+            status: form.status || "active",
+          },
+          index: classOrder - 1,
+          groupBatchId,
+          groupBatchWeekId,
+          batchCreatedDate,
+          numberOfWeeks,
+          weekNo,
+          parentSessionId,
+          dateOffsetWeeks: weekNo - templateWeekNo,
+        });
+
+        try {
+          const res = await addDynamicData(row, headers);
+          insertedResponses.push(res);
+
+          const insertedSessionId = extractDynamicInsertedId(res);
+
+          if (!insertedSessionId) {
+            console.error("GROUP SESSION INSERT RESPONSE ID MISSING =>", res);
+
+            throw new Error(
+              `Week ${weekNo} - Class ${classOrder}: Session created but inserted ID was not returned.`
+            );
+          }
+
+          existingKeySet.add(sessionKey);
+
+          if (weekNo === templateWeekNo) {
+            baseParentSessionByClassOrder.set(classOrder, Number(insertedSessionId));
+          }
+
+          createdSessions.push({
+            week_no: weekNo,
+            class_order: classOrder,
+            group_live_session_id: Number(insertedSessionId),
+            group_batch_week_id: Number(groupBatchWeekId),
+          });
+
+          try {
+            const teacherRows = await syncPendingTeacherSetupRows({
+              sessionId: insertedSessionId,
+              classItem: templateForSave,
+              groupBatchId,
+              batchCreatedDate,
+              assistantTeacherIdsOverride: row?.assistant_teacher_ids || templateForSave?.assistant_teacher_ids,
+            });
+
+            teacherSetupResponses.push(...teacherRows);
+          } catch (teacherSetupErr) {
+            teacherSetupWarnings.push({
+              week_no: weekNo,
+              class_order: classOrder,
+              group_live_session_id: Number(insertedSessionId),
+              message:
+                teacherSetupErr?.message ||
+                "Pending teacher setup rows could not be synced for this expanded week session.",
+            });
+          }
+        } catch (insertErr) {
+          throw new Error(
+            `Week ${weekNo} - Class ${classOrder} insert failed: ${
+              insertErr?.message || "Unknown error"
+            }`
+          );
+        }
+      }
+    }
+
+    /* Cancel manually removed sessions and sessions beyond the selected week count. */
+    const overflowSessionIds = (Array.isArray(editProgramme?.sessions)
+      ? editProgramme.sessions
+      : []
+    )
+      .filter(isVisibleEditSession)
+      .filter((session) => getSessionWeekNo(session) > Number(numberOfWeeks || 1))
+      .map((session) => session?.id)
+      .filter(Boolean)
+      .map((id) => String(id));
+
+    const cancelIdSet = new Set([
+      ...removedSessionIds.map((id) => String(id)),
+      ...overflowSessionIds,
+    ]);
+
+    for (const sessionId of cancelIdSet) {
       const res = await updateDynamicData(
         sessionId,
         {
           status: "cancelled",
+          modifieddate: moment().format("YYYY-MM-DD HH:mm:ss"),
         },
         token
       );
 
-      cancelledOldSessions.push(res);
+      cancelledRemovedSessions.push(res);
     }
 
+    await cancelUnusedOldWeeks(existingWeekMap, numberOfWeeks, token);
+
     return {
-      recreateResult,
-      old_sessions_cancelled: oldSessionIds.length,
-      cancelledOldSessions,
+      group_batch_id: groupBatchId,
+      number_of_weeks: numberOfWeeks,
+      sessions_updated: updatedSessions.length,
+      sessions_created: createdSessions.length,
+      updatedSessions,
+      createdWeeks,
+      createdSessions,
+      insertedResponses,
+      removed_sessions_cancelled: cancelIdSet.size,
+      cancelledRemovedSessions,
+      teacherSetupResponses,
+      teacherSetupWarnings,
     };
   };
 
@@ -2437,7 +2894,7 @@ const CreateLiveGroupModal = ({
       const successText = isTeacherOnlyEdit
         ? "Teachers and assistant teachers updated successfully."
         : isEditMode
-        ? "Live group sessions regenerated successfully."
+        ? "Live group sessions updated successfully."
         : `${totalGeneratedSessions} live group session${
             totalGeneratedSessions > 1 ? "s" : ""
           } created successfully.`;
@@ -3480,7 +3937,13 @@ const CreateLiveGroupModal = ({
                 <div className="gl-class-card" key={item.uid || item.class_no}>
                   <div className="gl-class-header">
                     <div>
-                      <h6 className="gl-class-title">Class {index + 1}</h6>
+                      <h6 className="gl-class-title">
+                        {isEditMode
+                          ? `Week ${item.week_no || getSessionWeekNo(item)} • Class ${
+                              item.class_order || getSessionClassOrder(item, index)
+                            }`
+                          : `Class ${index + 1}`}
+                      </h6>
 
                       <div className="gl-class-subtitle">
                         {getTeacherName(teacher) ||
@@ -3509,7 +3972,11 @@ const CreateLiveGroupModal = ({
 
                     <div className="d-flex align-items-center gap-2">
                       <span className="badge bg-primary">
-                        {isTeacherOnlyEdit ? "Teachers Only" : "Required"}
+                        {isTeacherOnlyEdit
+                          ? "Teachers Only"
+                          : isEditMode
+                          ? "Editable Session"
+                          : "Required"}
                       </span>
 
                       {!isCurriculumLocked && classes.length > 1 ? (
@@ -3702,7 +4169,7 @@ const CreateLiveGroupModal = ({
               );
             })}
 
-            {!isCurriculumLocked ? (
+            {!isCurriculumLocked && !isEditMode ? (
               <div className="gl-add-class-wrap">
                 <button
                   type="button"
