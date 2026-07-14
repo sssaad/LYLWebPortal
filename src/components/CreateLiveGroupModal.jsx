@@ -2585,39 +2585,128 @@ const CreateLiveGroupModal = ({
     const teacherSetupWarnings = [];
     const cancelledRemovedSessions = [];
 
-    const existingClasses = (classes || []).filter((item) => item?.id);
-    const activeClassRows = (classes || []).filter(
-      (item) => getSessionWeekNo(item) <= Number(numberOfWeeks || 1)
-    );
+        const safeNumberOfWeeks = Number(numberOfWeeks || 1);
 
-    const existingKeySet = new Set(
-      existingClasses.map((item, index) =>
-        `${getSessionWeekNo(item)}_${getSessionClassOrder(item, index)}`
-      )
-    );
+    const allEditableClasses = (classes || [])
+      .filter(Boolean)
+      .map((item, index) => ({
+        ...item,
+        _originalIndex: index,
+      }));
 
-    const baseParentSessionByClassOrder = new Map();
+    const baseWeekNo = getBaseWeekNoFromSessions(allEditableClasses);
 
-    existingClasses.forEach((item, index) => {
-      const weekNo = getSessionWeekNo(item);
-      const classOrder = getSessionClassOrder(item, index);
-
-      if (weekNo === getBaseWeekNoFromSessions(existingClasses) && item?.id) {
-        baseParentSessionByClassOrder.set(classOrder, Number(item.id));
-      }
-    });
-
-    const baseWeekNo = getBaseWeekNoFromSessions(activeClassRows);
-    const baseTemplates = activeClassRows
-      .filter((item, index) => {
+    const rawBaseTemplates = allEditableClasses
+      .filter((item) => {
         if (!item?.id) return true;
         return getSessionWeekNo(item) === baseWeekNo;
       })
       .sort(compareEditSessions);
 
-    if (!baseTemplates.length) {
+    if (!rawBaseTemplates.length) {
       throw new Error("No base classes found for this curriculum edit.");
     }
+
+    /*
+     * Important old-data fix:
+     * Some old batches have English/Maths/Science all saved as class_order = 1.
+     * In that case, edit expansion thinks all classes are the same class and only
+     * replicates the first one. So for the base week, if class_order is duplicated,
+     * resolve class order from the sorted base week row order.
+     */
+    const rawBaseOrders = rawBaseTemplates.map((item, index) =>
+      Number(getSessionClassOrder(item, index))
+    );
+
+    const hasDuplicateBaseClassOrders =
+      new Set(rawBaseOrders.filter((item) => Number.isFinite(item) && item > 0))
+        .size !== rawBaseOrders.length;
+
+    const baseTemplates = rawBaseTemplates.map((item, index) => {
+      const resolvedClassOrder = hasDuplicateBaseClassOrders
+        ? index + 1
+        : getSessionClassOrder(item, index);
+
+      return {
+        ...item,
+        class_no: resolvedClassOrder,
+        class_order: resolvedClassOrder,
+        recurrence_day_no: resolvedClassOrder,
+        _resolved_class_order: resolvedClassOrder,
+      };
+    });
+
+    const getTemplateSignature = (item) =>
+      [
+        String(item?.subjectid || ""),
+        String(item?.teacherid || ""),
+        normaliseTime(item?.slot_start || ""),
+        normaliseTime(item?.slot_end || ""),
+      ].join("_");
+
+    const baseClassOrderBySignature = new Map();
+
+    baseTemplates.forEach((template, index) => {
+      const classOrder = Number(
+        template?._resolved_class_order || getSessionClassOrder(template, index)
+      );
+
+      baseClassOrderBySignature.set(getTemplateSignature(template), classOrder);
+    });
+
+    const getResolvedClassOrderForEditItem = (item, index = 0) => {
+      const signatureClassOrder = baseClassOrderBySignature.get(
+        getTemplateSignature(item)
+      );
+
+      if (Number(signatureClassOrder) > 0) {
+        return Number(signatureClassOrder);
+      }
+
+      const fallbackClassOrder = Number(
+        item?._resolved_class_order || getSessionClassOrder(item, index)
+      );
+
+      return Number.isFinite(fallbackClassOrder) && fallbackClassOrder > 0
+        ? fallbackClassOrder
+        : index + 1;
+    };
+
+    const existingClasses = allEditableClasses
+      .filter((item) => item?.id)
+      .map((item, index) => {
+        const resolvedClassOrder = getResolvedClassOrderForEditItem(item, index);
+
+        return {
+          ...item,
+          class_no: resolvedClassOrder,
+          class_order: resolvedClassOrder,
+          recurrence_day_no: resolvedClassOrder,
+          _resolved_class_order: resolvedClassOrder,
+        };
+      });
+
+    const existingKeySet = new Set(
+      existingClasses
+        .filter((item) => getSessionWeekNo(item) <= safeNumberOfWeeks)
+        .map(
+          (item, index) =>
+            `${getSessionWeekNo(item)}_${getResolvedClassOrderForEditItem(
+              item,
+              index
+            )}`
+        )
+    );
+
+    const baseParentSessionByClassOrder = new Map();
+
+    baseTemplates.forEach((item, index) => {
+      const classOrder = getResolvedClassOrderForEditItem(item, index);
+
+      if (item?.id) {
+        baseParentSessionByClassOrder.set(classOrder, Number(item.id));
+      }
+    });
 
     /*
      * Assistant inheritance for recurring edit:
@@ -2629,8 +2718,9 @@ const CreateLiveGroupModal = ({
      */
     const baseAssistantIdsByClassOrder = new Map();
 
-    baseTemplates.forEach((template, index) => {
-      const classOrder = getSessionClassOrder(template, index);
+        baseTemplates.forEach((template, index) => {
+      const classOrder = getResolvedClassOrderForEditItem(template, index);
+
       const assistantIds = cleanAssistantTeacherIds(
         template?.assistant_teacher_ids,
         template?.teacherid
@@ -2640,7 +2730,8 @@ const CreateLiveGroupModal = ({
     });
 
     const withInheritedAssistants = (item, index) => {
-      const classOrder = getSessionClassOrder(item, index);
+      const classOrder = getResolvedClassOrderForEditItem(item, index);
+
       const ownAssistantIds = cleanAssistantTeacherIds(
         item?.assistant_teacher_ids,
         item?.teacherid
@@ -2651,6 +2742,10 @@ const CreateLiveGroupModal = ({
 
       return {
         ...item,
+        class_no: classOrder,
+        class_order: classOrder,
+        recurrence_day_no: classOrder,
+        _resolved_class_order: classOrder,
         assistant_teacher_ids: ownAssistantIds.length
           ? ownAssistantIds
           : inheritedAssistantIds,
@@ -2666,15 +2761,18 @@ const CreateLiveGroupModal = ({
         continue;
       }
 
-      const classOrder = getSessionClassOrder(item, i);
+            const classOrder = getResolvedClassOrderForEditItem(item, i);
       const itemForSave = withInheritedAssistants(item, classOrder - 1);
-      const updatePayload = buildExistingSessionUpdateData(itemForSave, i);
+      const updatePayload = buildExistingSessionUpdateData(
+        itemForSave,
+        classOrder - 1
+      );
       const res = await updateDynamicData(item.id, updatePayload, token);
 
       updatedSessions.push({
         id: item.id,
         week_no: weekNo,
-        class_order: getSessionClassOrder(itemForSave, i),
+                class_order: classOrder,
         response: res,
       });
 
@@ -2715,9 +2813,17 @@ const CreateLiveGroupModal = ({
       });
 
       for (let templateIndex = 0; templateIndex < baseTemplates.length; templateIndex += 1) {
-        const template = baseTemplates[templateIndex];
-        const classOrder = getSessionClassOrder(template, templateIndex);
-        const templateForSave = withInheritedAssistants(template, classOrder - 1);
+                const template = baseTemplates[templateIndex];
+
+        const classOrder = getResolvedClassOrderForEditItem(
+          template,
+          templateIndex
+        );
+
+        const templateForSave = withInheritedAssistants(
+          template,
+          classOrder - 1
+        );
         const sessionKey = `${weekNo}_${classOrder}`;
 
         if (existingKeySet.has(sessionKey)) {

@@ -827,8 +827,8 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
         value,
         label,
       }));
-      setSubjects(opts);
-      if (opts.length) setSubjectId(String(opts[0].value));
+            setSubjects(opts);
+      setSubjectId("");
     } catch (e) {
       console.error("fetchTeacherProfile error:", e);
       setTeacherProfileError("Network/API error while loading teacher profile");
@@ -1792,11 +1792,11 @@ if (studentTimezoneName) {
         : "2"
     );
 
-    // --------------------------------------------------
-    // YAHAN PAYMENT TYPE KA FINAL SCENE
+        // --------------------------------------------------
+    // Final payment method mapping
     // direct       => paymentmethod: "card"
     // block        => paymentmethod: "credits"
-    // subscription => paymentmethod: "credits"
+    // subscription => paymentmethod: "subscription"
     // --------------------------------------------------
     const finalPaymentType = String(
       effectiveLock || paymentType || "direct"
