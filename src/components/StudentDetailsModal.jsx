@@ -1,5 +1,5 @@
 // src/components/StudentDetailsModal.jsx
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import moment from "moment";
 import axios from "axios";
 import Swal from "sweetalert2";
@@ -75,6 +75,8 @@ const StudentDetailsModal = ({ show, onClose, userid, seed, onSave }) => {
   const [classOptions, setClassOptions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Prevent multiple API calls from rapid/double clicks
+  const saveRequestLock = useRef(false);
   const [selectedImage, setSelectedImage] = useState(null);
   const [timezones, setTimezones] = useState([]);
   const [studentTzName, setStudentTzName] = useState(""); // dropdown value (string like Europe/London)
@@ -110,15 +112,15 @@ const StudentDetailsModal = ({ show, onClose, userid, seed, onSave }) => {
 
 
   useEffect(() => {
-  (async () => {
-    try {
-      const res = await getTimezonesLookup();
-      if (res?.statusCode === 200) setTimezones(res?.data || []);
-    } catch (e) {
-      console.error("getTimezonesLookup error:", e);
-    }
-  })();
-}, []);
+    (async () => {
+      try {
+        const res = await getTimezonesLookup();
+        if (res?.statusCode === 200) setTimezones(res?.data || []);
+      } catch (e) {
+        console.error("getTimezonesLookup error:", e);
+      }
+    })();
+  }, []);
 
   // Fetch / Prefill
   useEffect(() => {
@@ -186,10 +188,10 @@ const StudentDetailsModal = ({ show, onClose, userid, seed, onSave }) => {
           setSelectedImage(profile.imagepath || null);
 
           const tzId = profile.timezoneid ?? "";
-const tzName =
-  (timezones || []).find((t) => String(t.id) === String(tzId))?.timezone || "";
+          const tzName =
+            (timezones || []).find((t) => String(t.id) === String(tzId))?.timezone || "";
 
-setStudentTzName(tzName);
+          setStudentTzName(tzName);
 
           const first = Array.isArray(education) && education.length > 0 ? education[0] : {};
           const deg = Number(first.degree);
@@ -299,10 +301,20 @@ setStudentTzName(tzName);
 
     if (isAddMode) {
       const v = validateAdd();
-      if (v) return Swal.fire("Validation", v, "warning");
+
+      if (v) {
+        return Swal.fire("Validation", v, "warning");
+      }
+
+      // API request already processing ho to dobara request na bhejo
+      if (saveRequestLock.current) {
+        return;
+      }
+
+      saveRequestLock.current = true;
+      setSaving(true);
 
       try {
-        setSaving(true);
         const token = await getToken();
         if (!token) throw new Error("Token not found");
 
@@ -344,18 +356,18 @@ setStudentTzName(tzName);
         const res = await axios.post(ADD_PROFILE_URL, body, { headers });
         const ok = res?.data?.statusCode === 200 || res?.data?.success;
         if (ok) {
-          Swal.fire({
+          await Swal.fire({
             icon: "success",
             title: "Student details added!",
-            timer: 1600,
+            text: "Student profile has been added successfully.",
+            timer: 1500,
             showConfirmButton: false,
+            allowOutsideClick: false,
+            allowEscapeKey: false,
           });
-          onSave?.({
-            ...formData,
-            nationalityid: Number(formData.nationalityid),
-            educationData: [{ ...eduRow, degree: degreeNumber, specialization: specToSend }],
-          });
-          onClose();
+
+          // Reload the page so the updated student status/list is fetched again
+          window.location.reload();
         } else {
           Swal.fire({
             icon: "error",
@@ -367,14 +379,23 @@ setStudentTzName(tzName);
         console.error("add_user_profile error", e);
         Swal.fire("Error", "❌ Error adding student details", "error");
       } finally {
+        saveRequestLock.current = false;
         setSaving(false);
       }
       return;
     }
 
     // EDIT MODE
+
+    // API request already processing ho to dobara request na bhejo
+    if (saveRequestLock.current) {
+      return;
+    }
+
+    saveRequestLock.current = true;
+    setSaving(true);
+
     try {
-      setSaving(true);
       const token = await getToken();
       if (!token) throw new Error("Token not found");
 
@@ -436,6 +457,7 @@ setStudentTzName(tzName);
       console.error("update_user_profile error", e);
       Swal.fire("Error", "❌ Error updating student profile", "error");
     } finally {
+      saveRequestLock.current = false;
       setSaving(false);
     }
   };
@@ -586,34 +608,34 @@ setStudentTzName(tzName);
                   </div>
 
                   {/* Timezone (between Address and Education) */}
-<div className="col-12 mt-3">
-  <div className="alert alert-info text-center">
-    <strong>{isAddMode ? "Time zone of Student" : "Current Time zone of Student"}</strong>
-    <div className="mt-2">
-      <b>{isAddMode ? (studentTzName || "Please select time zone") : (studentTzName || "—")}</b>
-    </div>
-  </div>
+                  <div className="col-12 mt-3">
+                    <div className="alert alert-info text-center">
+                      <strong>{isAddMode ? "Time zone of Student" : "Current Time zone of Student"}</strong>
+                      <div className="mt-2">
+                        <b>{isAddMode ? (studentTzName || "Please select time zone") : (studentTzName || "—")}</b>
+                      </div>
+                    </div>
 
-  <label className="form-label">Timezone</label>
-  <select
-    className="form-control"
-    value={studentTzName}
-    onChange={(e) => {
-      const name = e.target.value;
-      setStudentTzName(name);
+                    <label className="form-label">Timezone</label>
+                    <select
+                      className="form-control"
+                      value={studentTzName}
+                      onChange={(e) => {
+                        const name = e.target.value;
+                        setStudentTzName(name);
 
-      const tzId = (timezones || []).find((t) => t.timezone === name)?.id ?? "";
-      setFormData((p) => ({ ...p, timezoneid: tzId }));
-    }}
-  >
-    <option value="">{isAddMode ? "Please select time zone" : "Select Timezone"}</option>
-    {timezones.map((t) => (
-      <option key={t.id} value={t.timezone}>
-        {t.timezone}
-      </option>
-    ))}
-  </select>
-</div>
+                        const tzId = (timezones || []).find((t) => t.timezone === name)?.id ?? "";
+                        setFormData((p) => ({ ...p, timezoneid: tzId }));
+                      }}
+                    >
+                      <option value="">{isAddMode ? "Please select time zone" : "Select Timezone"}</option>
+                      {timezones.map((t) => (
+                        <option key={t.id} value={t.timezone}>
+                          {t.timezone}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
 
                   {/* Address */}
@@ -713,11 +735,33 @@ setStudentTzName(tzName);
           </div>
 
           <div className="modal-footer">
-            <button className="btn btn-secondary" onClick={onClose} disabled={saving}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={onClose}
+              disabled={saving || loading}
+            >
               Close
             </button>
-            <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-              {isAddMode ? (saving ? "Saving..." : "Add Details") : (saving ? "Saving..." : "Save Changes")}
+
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleSave}
+              disabled={saving || loading}
+            >
+              {saving ? (
+                <>
+                  <span
+                    className="spinner-border spinner-border-sm me-2"
+                    role="status"
+                    aria-hidden="true"
+                  ></span>
+                  {isAddMode ? "Adding Details..." : "Saving Changes..."}
+                </>
+              ) : (
+                isAddMode ? "Add Details" : "Save Changes"
+              )}
             </button>
           </div>
         </div>
