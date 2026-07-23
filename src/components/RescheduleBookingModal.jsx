@@ -1,8 +1,19 @@
-import React, { useEffect, useMemo, useState } from "react";
-import moment from "moment-timezone";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
+import moment from "moment-timezone";
 import { getTimezonesLookup } from "../api/getTimezonesLookup";
 import { getToken } from "../api/getToken";
+
+const ADMIN_TIMEZONE = "Asia/Dubai";
+
+const TEACHER_PROFILE_URL =
+  "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=teacher_profile";
+
+const RUN_STORED_PROCEDURE_URL =
+  "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=runStoredProcedure";
+
+const RESCHEDULE_BOOKING_URL =
+  "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=reshedule_booking";
 
 const themeNativeStyles = `
   .reschedule-modal-theme .theme-native-control,
@@ -79,25 +90,6 @@ const themeNativeStyles = `
   }
 `;
 
-const TEACHER_PROFILE_URL =
-  "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=teacher_profile";
-
-const RUN_STORED_PROCEDURE_URL =
-  "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=runStoredProcedure";
-
-const RESCHEDULE_BOOKING_URL =
-  "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=reshedule_booking";
-
-const DATE_FORMATS = [
-  "YYYY-MM-DD",
-  "YYYY/MM/DD",
-  "DD-MM-YYYY",
-  "DD/MM/YYYY",
-  "YYYY-MM-DD HH:mm:ss",
-  "YYYY-MM-DD HH:mm",
-  moment.ISO_8601,
-];
-
 const DATETIME_FORMATS = [
   "YYYY-MM-DD HH:mm:ss.SSSSSS",
   "YYYY-MM-DD HH:mm:ss",
@@ -118,47 +110,58 @@ const DAY_TO_ISO = {
   Sunday: 7,
 };
 
-const firstFilled = (...values) => {
-  for (const value of values) {
-    if (value !== undefined && value !== null && String(value).trim() !== "") {
-      return value;
-    }
-  }
-  return "";
-};
+const firstFilled = (...values) =>
+  values.find(
+    (value) =>
+      value !== undefined &&
+      value !== null &&
+      String(value).trim() !== ""
+  ) ?? "";
 
-const safeJsonParse = (value, fallback = []) => {
-  if (!value || typeof value !== "string") return fallback;
+const safeJsonArray = (value) => {
+  if (!value || typeof value !== "string") {
+    return [];
+  }
+
   try {
     const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed : fallback;
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
-    return fallback;
+    return [];
   }
 };
 
-const uniqBy = (list, getKey) => {
+const uniqueBy = (items, getKey) => {
   const seen = new Set();
-  const result = [];
 
-  for (const item of list || []) {
+  return (items || []).filter((item) => {
     const key = getKey(item);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    result.push(item);
-  }
 
-  return result;
+    if (!key || seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
 };
 
 const extractIanaTimezone = (...candidates) => {
-  for (const raw of candidates) {
-    const value = String(raw ?? "").trim();
-    if (!value) continue;
+  for (const rawValue of candidates) {
+    const value = String(rawValue ?? "").trim();
 
-    if (moment.tz.zone(value)) return value;
+    if (!value) {
+      continue;
+    }
 
-    const match = value.match(/[A-Za-z_]+\/[A-Za-z_]+(?:\/[A-Za-z_]+)?/);
+    if (moment.tz.zone(value)) {
+      return value;
+    }
+
+    const match = value.match(
+      /[A-Za-z_]+\/[A-Za-z_]+(?:\/[A-Za-z_]+)?/
+    );
+
     if (match?.[0] && moment.tz.zone(match[0])) {
       return match[0];
     }
@@ -167,63 +170,21 @@ const extractIanaTimezone = (...candidates) => {
   return "";
 };
 
-const getSafeTimezone = (tz) => {
-  const resolved = extractIanaTimezone(tz);
-  return resolved || "Asia/Dubai";
-};
-
-const formatClock = (value) => {
-  if (!value) return "--:--";
-  const normalized = String(value).split(".")[0];
-  const parsed = moment(normalized, ["HH:mm:ss", "HH:mm"], true);
-  return parsed.isValid() ? parsed.format("HH:mm") : "--:--";
-};
-
-const parseBookingDate = (value, timezone) => {
-  if (!value) return null;
-  const tz = getSafeTimezone(timezone);
-
-  let parsed = moment.tz(value, DATE_FORMATS, true, tz);
-  if (!parsed.isValid()) parsed = moment.tz(value, DATE_FORMATS, tz);
-  if (!parsed.isValid()) parsed = moment.tz(value, tz);
-
-  return parsed.isValid() ? parsed : null;
-};
-
-const parseSelectedDate = (value, timezone) => {
-  if (!value) return null;
-  const tz = getSafeTimezone(timezone);
-  const parsed = moment.tz(value, "YYYY-MM-DD", true, tz);
-  return parsed.isValid() ? parsed : null;
-};
-
-const getWeekStart = (dateMoment, timezone) => {
-  const tz = getSafeTimezone(timezone);
-  const base = dateMoment?.clone?.() || moment.tz(tz);
-  return base.startOf("isoWeek");
-};
-
-const getTodayInTimezone = (timezone) =>
-  moment.tz(getSafeTimezone(timezone)).startOf("day");
-
-const getDefaultVisibleDateForWeek = (weekStartMoment, timezone) => {
-  const tz = getSafeTimezone(timezone);
-  const weekStart = (weekStartMoment?.clone?.() || getWeekStart(null, tz)).startOf("day");
-  const today = getTodayInTimezone(tz);
-  const currentWeekStart = getWeekStart(today.clone(), tz).startOf("day");
-
-  if (weekStart.isSame(currentWeekStart, "day")) {
-    return today.format("YYYY-MM-DD");
-  }
-
-  return weekStart.format("YYYY-MM-DD");
-};
+const getSafeTimezone = (value, fallback = ADMIN_TIMEZONE) =>
+  extractIanaTimezone(value) || fallback;
 
 const parseClockParts = (value) => {
-  if (!value) return null;
-  const normalized = String(value).split(".")[0];
-  const parsed = moment(normalized, ["HH:mm:ss", "HH:mm"], true);
-  if (!parsed.isValid()) return null;
+  const normalized = String(value || "").split(".")[0];
+
+  const parsed = moment(
+    normalized,
+    ["HH:mm:ss", "HH:mm"],
+    true
+  );
+
+  if (!parsed.isValid()) {
+    return null;
+  }
 
   return {
     hour: parsed.hour(),
@@ -232,35 +193,131 @@ const parseClockParts = (value) => {
   };
 };
 
-const parseDateTimeInTimezone = (dateValue, timeValue, timezone) => {
-  if (!dateValue || !timeValue) return null;
+const formatClock = (value) => {
+  const parts = parseClockParts(value);
 
-  const tz = getSafeTimezone(timezone);
-  const normalizedTime = String(timeValue).split(".")[0];
-  const fullValue = `${dateValue} ${normalizedTime}`;
+  if (!parts) {
+    return "--:--";
+  }
 
-  let parsed = moment.tz(fullValue, DATETIME_FORMATS, true, tz);
-  if (!parsed.isValid()) parsed = moment.tz(fullValue, DATETIME_FORMATS, tz);
+  return moment()
+    .hour(parts.hour)
+    .minute(parts.minute)
+    .second(parts.second)
+    .format("HH:mm");
+};
+
+const parseSelectedDate = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = moment.tz(
+    value,
+    "YYYY-MM-DD",
+    true,
+    ADMIN_TIMEZONE
+  );
 
   return parsed.isValid() ? parsed : null;
 };
 
-const resolveToken = (tokenRes) => {
-  if (typeof tokenRes === "string") return tokenRes;
+const parseDateTimeInTimezone = (
+  dateValue,
+  timeValue,
+  timezone
+) => {
+  if (!dateValue || !timeValue || !timezone) {
+    return null;
+  }
+
+  const normalizedTime = String(timeValue).split(".")[0];
+  const fullValue = `${dateValue} ${normalizedTime}`;
+
+  let parsed = moment.tz(
+    fullValue,
+    DATETIME_FORMATS,
+    true,
+    timezone
+  );
+
+  if (!parsed.isValid()) {
+    parsed = moment.tz(
+      fullValue,
+      DATETIME_FORMATS,
+      timezone
+    );
+  }
+
+  return parsed.isValid() ? parsed : null;
+};
+
+const getTodayInDubai = () =>
+  moment.tz(ADMIN_TIMEZONE).startOf("day");
+
+const getWeekStart = (dateMoment) =>
+  (
+    dateMoment?.clone?.() ||
+    moment.tz(ADMIN_TIMEZONE)
+  ).startOf("isoWeek");
+
+const getDefaultDateForWeek = (weekStart) => {
+  const today = getTodayInDubai();
+  const currentWeekStart = getWeekStart(today);
+
+  return weekStart
+    .clone()
+    .startOf("day")
+    .isSame(currentWeekStart, "day")
+    ? today.format("YYYY-MM-DD")
+    : weekStart.format("YYYY-MM-DD");
+};
+
+const isOverlap = (
+  startA,
+  endA,
+  startB,
+  endB
+) => {
+  const aStart = moment.isMoment(startA)
+    ? startA.clone()
+    : moment.parseZone(startA);
+
+  const aEnd = moment.isMoment(endA)
+    ? endA.clone()
+    : moment.parseZone(endA);
+
+  const bStart = moment.isMoment(startB)
+    ? startB.clone()
+    : moment.parseZone(startB);
+
+  const bEnd = moment.isMoment(endB)
+    ? endB.clone()
+    : moment.parseZone(endB);
 
   return (
-    tokenRes?.token ||
-    tokenRes?.data?.token ||
-    tokenRes?.data?.data?.token ||
-    tokenRes?.access_token ||
-    tokenRes?.data?.access_token ||
+    aStart.isBefore(bEnd) &&
+    aEnd.isAfter(bStart)
+  );
+};
+
+const resolveToken = (response) => {
+  if (typeof response === "string") {
+    return response;
+  }
+
+  return (
+    response?.token ||
+    response?.data?.token ||
+    response?.data?.data?.token ||
+    response?.access_token ||
+    response?.data?.access_token ||
     ""
   );
 };
 
 const buildApiHeaders = async () => {
-  const tokenRes = await getToken();
-  const token = resolveToken(tokenRes);
+  const token = resolveToken(await getToken());
 
   return {
     projectid: "1",
@@ -271,36 +328,58 @@ const buildApiHeaders = async () => {
   };
 };
 
-const fetchTeacherProfileInsideModal = async (teacherid, headers) => {
+const fetchTeacherProfile = async (
+  teacherId,
+  headers
+) => {
   const response = await axios.post(
     TEACHER_PROFILE_URL,
-    { teacherid },
-    { headers }
+    {
+      teacherid: teacherId,
+    },
+    {
+      headers,
+    }
   );
 
   return response.data;
 };
 
-const fetchTeacherBookedSlotsInsideModal = async (teacherid, headers) => {
+const fetchTeacherBookedSlots = async (
+  teacherId,
+  headers
+) => {
   const response = await axios.post(
     RUN_STORED_PROCEDURE_URL,
     {
       procedureName: "get_teacher_bookings",
-      parameters: [teacherid],
+      parameters: [teacherId],
     },
-    { headers }
+    {
+      headers,
+    }
   );
 
   return response.data;
 };
 
-const submitRescheduleBookingInsideModal = async (payload, headers) => {
-  const response = await axios.post(RESCHEDULE_BOOKING_URL, payload, { headers });
+const submitReschedule = async (
+  payload,
+  headers
+) => {
+  const response = await axios.post(
+    RESCHEDULE_BOOKING_URL,
+    payload,
+    {
+      headers,
+    }
+  );
+
   return response.data;
 };
 
-const extractLookupArray = (response) => {
-  const candidates = [
+const extractArray = (response) =>
+  [
     response,
     response?.data,
     response?.data?.data,
@@ -308,26 +387,21 @@ const extractLookupArray = (response) => {
     response?.data?.timezones,
     response?.lookup,
     response?.data?.lookup,
-  ];
+  ].find(Array.isArray) || [];
 
-  for (const item of candidates) {
-    if (Array.isArray(item)) return item;
-  }
-
-  return [];
-};
-
-const normalizeTimezoneOptions = (lookupResponse, fallbackZones = []) => {
-  const raw = extractLookupArray(lookupResponse);
-
-  const mapped = raw
+const normalizeTimezones = (
+  response,
+  fallbackZones = []
+) => {
+  const lookupItems = extractArray(response)
     .map((item) => {
       if (typeof item === "string") {
-        const zone = getSafeTimezone(item);
-        return zone
+        const value = extractIanaTimezone(item);
+
+        return value
           ? {
               id: "",
-              value: zone,
+              value,
               label: item,
             }
           : null;
@@ -344,48 +418,62 @@ const normalizeTimezoneOptions = (lookupResponse, fallbackZones = []) => {
         item?.label
       );
 
-      const label = firstFilled(
-        item?.timezonename,
-        item?.timezone_name,
-        item?.label,
-        item?.name,
-        value
-      );
+      if (!value) {
+        return null;
+      }
 
-      const id = String(firstFilled(item?.timezoneid, item?.id, ""));
-
-      if (!value) return null;
-
-      return { id, value, label };
-    })
-    .filter(Boolean);
-
-  const fallbacks = (fallbackZones || [])
-    .map((zone) => {
-      const value = getSafeTimezone(zone);
-      if (!value) return null;
       return {
-        id: "",
+        id: String(
+          firstFilled(
+            item?.timezoneid,
+            item?.id,
+            ""
+          )
+        ),
         value,
-        label: value,
+        label: String(
+          firstFilled(
+            item?.timezonename,
+            item?.timezone_name,
+            item?.label,
+            item?.name,
+            value
+          )
+        ),
       };
     })
     .filter(Boolean);
 
-  return uniqBy([...mapped, ...fallbacks], (item) => item.value);
+  const fallbackItems = fallbackZones
+    .map((zone) => extractIanaTimezone(zone))
+    .filter(Boolean)
+    .map((value) => ({
+      id: "",
+      value,
+      label: value,
+    }));
+
+  return uniqueBy(
+    [...lookupItems, ...fallbackItems],
+    (item) => item.value
+  );
 };
 
-const getSubjectOptionValue = (item) =>
-  String(firstFilled(item?.subjectid, item?.subjectname));
-
-const normalizeSubjects = (profileData, booking) => {
-  const fromTable = Array.isArray(profileData?.teachingprofile_subjects)
+const normalizeSubjects = (
+  profileData,
+  booking
+) => {
+  const tableSubjects = Array.isArray(
+    profileData?.teachingprofile_subjects
+  )
     ? profileData.teachingprofile_subjects
     : [];
 
-  const fromProfile = safeJsonParse(profileData?.profile?.[0]?.teacherSubjects, []);
+  const profileSubjects = safeJsonArray(
+    profileData?.profile?.[0]?.teacherSubjects
+  );
 
-  const currentBookingSubject = booking?.subjectname
+  const bookingSubject = booking?.subjectname
     ? [
         {
           subjectid: booking?.subjectid,
@@ -394,90 +482,119 @@ const normalizeSubjects = (profileData, booking) => {
       ]
     : [];
 
-  const all = [
-    ...currentBookingSubject,
-    ...fromTable.map((item) => ({
-      subjectid: item?.subjectid,
-      subjectname: item?.subjectname,
-    })),
-    ...fromProfile.map((item) => ({
-      subjectid: item?.subjectid,
-      subjectname: item?.subjectname,
-    })),
-  ].filter((item) => item?.subjectname);
+  return uniqueBy(
+    [
+      ...bookingSubject,
 
-  return uniqBy(
-    all,
-    (item) => String(firstFilled(item?.subjectid, item?.subjectname)).toLowerCase()
+      ...tableSubjects.map((item) => ({
+        subjectid: item?.subjectid,
+        subjectname: item?.subjectname,
+      })),
+
+      ...profileSubjects.map((item) => ({
+        subjectid: item?.subjectid,
+        subjectname: item?.subjectname,
+      })),
+    ].filter((item) => item?.subjectname),
+
+    (item) =>
+      String(
+        firstFilled(
+          item?.subjectid,
+          item?.subjectname
+        )
+      ).toLowerCase()
   );
 };
 
 const normalizeAvailability = (profileData) => {
-  const fromTable = Array.isArray(profileData?.teacheravailability)
+  const tableAvailability = Array.isArray(
+    profileData?.teacheravailability
+  )
     ? profileData.teacheravailability
     : [];
 
-  const fromProfile = safeJsonParse(profileData?.profile?.[0]?.availability, []);
+  const profileAvailability = safeJsonArray(
+    profileData?.profile?.[0]?.availability
+  );
 
-  const all = [
-    ...fromTable.map((item) => ({
-      day: item?.day,
-      timefrom: item?.timefrom,
-      timeto: item?.timeto,
-      timezoneid: item?.timezoneid,
-      deleted: item?.deleted,
-    })),
-    ...fromProfile.map((item) => ({
-      day: item?.day,
-      timefrom: item?.timefrom,
-      timeto: item?.timeto,
-      timezoneid: item?.timezoneid,
-      deleted: item?.deleted,
-    })),
-  ];
+  return uniqueBy(
+    [...tableAvailability, ...profileAvailability]
+      .map((item) => ({
+        day: item?.day,
+        timefrom: item?.timefrom,
+        timeto: item?.timeto,
+        timezoneid: item?.timezoneid,
+        deleted: item?.deleted,
+      }))
+      .filter(
+        (item) =>
+          item.day &&
+          item.timefrom &&
+          item.timeto &&
+          String(item.deleted ?? "0") !== "1"
+      ),
 
-  return uniqBy(
-    all.filter(
-      (item) =>
-        item?.day &&
-        item?.timefrom &&
-        item?.timeto &&
-        String(item?.deleted ?? "0") !== "1"
-    ),
     (item) =>
-      `${item?.day}|${item?.timefrom}|${item?.timeto}|${String(item?.timezoneid ?? "")}`
+      `${item.day}|${item.timefrom}|${item.timeto}|${
+        item.timezoneid ?? ""
+      }`
   );
 };
 
-const normalizeTeacherBookedSlots = (storedProcResponse, fallbackTimezone = "Asia/Dubai") => {
-  const raw = Array.isArray(storedProcResponse?.data)
-    ? storedProcResponse.data
-    : Array.isArray(storedProcResponse?.data?.data)
-    ? storedProcResponse.data.data
-    : [];
+const normalizeBookedSlots = (
+  response,
+  fallbackTimezone = ""
+) => {
+  const raw = Array.isArray(response?.data)
+    ? response.data
+    : Array.isArray(response?.data?.data)
+      ? response.data.data
+      : [];
 
-  return uniqBy(
+  const fallbackZone =
+    extractIanaTimezone(fallbackTimezone);
+
+  return uniqueBy(
     raw
       .map((item) => ({
-        teacherid: item?.teacherid,
-        bookdate: item?.bookdate || item?.booking_date,
+        bookingid: firstFilled(
+          item?.bookingid,
+          item?.bookingId,
+          item?.bookteacherid,
+          ""
+        ),
+
+        bookdate:
+          item?.bookdate ||
+          item?.booking_date,
+
         slot_start: item?.slot_start,
         slot_end: item?.slot_end,
-        timezone: getSafeTimezone(item?.timezone || fallbackTimezone),
+
+        timezoneid: firstFilled(
+          item?.timezoneid,
+          item?.timezone_id,
+          ""
+        ),
+
+        timezone:
+          extractIanaTimezone(
+            item?.timezone,
+            item?.timezonename,
+            item?.timezone_name
+          ) || fallbackZone,
       }))
-      .filter((item) => item?.bookdate && item?.slot_start && item?.slot_end),
+      .filter(
+        (item) =>
+          item.bookdate &&
+          item.slot_start &&
+          item.slot_end
+      ),
+
     (item) =>
-      `${item?.bookdate}|${item?.slot_start}|${item?.slot_end}|${item?.timezone}`
+      `${item.bookingid}|${item.bookdate}|${item.slot_start}|${item.slot_end}|${item.timezone}|${item.timezoneid}`
   );
-};
-
-const isOverlap = (startA, endA, startB, endB) => {
-  const aStart = moment.isMoment(startA) ? startA.clone() : moment.parseZone(startA);
-  const aEnd = moment.isMoment(endA) ? endA.clone() : moment.parseZone(endA);
-  const bStart = moment.isMoment(startB) ? startB.clone() : moment.parseZone(startB);
-  const bEnd = moment.isMoment(endB) ? endB.clone() : moment.parseZone(endB);
-
-  return aStart.isBefore(bEnd) && aEnd.isAfter(bStart);
 };
 
 const RescheduleBookingModal = ({
@@ -485,116 +602,233 @@ const RescheduleBookingModal = ({
   onClose,
   onSuccess,
   booking,
-  timezone = "Asia/Dubai",
+  timezone = ADMIN_TIMEZONE,
 }) => {
-  const [selectedSubjectId, setSelectedSubjectId] = useState("");
-  const [selectedDate, setSelectedDate] = useState("");
-  const [selectedSlot, setSelectedSlot] = useState(null);
-  const [useCustomSlot, setUseCustomSlot] = useState(false);
-  const [customStartTime, setCustomStartTime] = useState("");
-  const [customEndTime, setCustomEndTime] = useState("");
-  const [selectedTimezone, setSelectedTimezone] = useState(getSafeTimezone(timezone));
-  const [selectedWeekStart, setSelectedWeekStart] = useState(null);
+  const submitLockRef = useRef(false);
 
-  const [subjectOptions, setSubjectOptions] = useState([]);
-  const [teacherAvailability, setTeacherAvailability] = useState([]);
-  const [teacherBookedSlots, setTeacherBookedSlots] = useState([]);
-  const [timezoneOptions, setTimezoneOptions] = useState([]);
-  const [teacherProfileData, setTeacherProfileData] = useState(null);
+  const [
+    selectedSubjectId,
+    setSelectedSubjectId,
+  ] = useState("");
 
-  const [profileLoading, setProfileLoading] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [profileError, setProfileError] = useState("");
-  const [submitError, setSubmitError] = useState("");
-  const [bookedSlotsWarning, setBookedSlotsWarning] = useState("");
+  const [
+    selectedDate,
+    setSelectedDate,
+  ] = useState("");
+
+  const [
+    selectedSlot,
+    setSelectedSlot,
+  ] = useState(null);
+
+  const [
+    selectedWeekStart,
+    setSelectedWeekStart,
+  ] = useState(null);
+
+  const [
+    useCustomSlot,
+    setUseCustomSlot,
+  ] = useState(false);
+
+  const [
+    customStartTime,
+    setCustomStartTime,
+  ] = useState("");
+
+  const [
+    customEndTime,
+    setCustomEndTime,
+  ] = useState("");
+
+  const [
+    subjectOptions,
+    setSubjectOptions,
+  ] = useState([]);
+
+  const [
+    teacherAvailability,
+    setTeacherAvailability,
+  ] = useState([]);
+
+  const [
+    teacherBookedSlots,
+    setTeacherBookedSlots,
+  ] = useState([]);
+
+  const [
+    timezoneOptions,
+    setTimezoneOptions,
+  ] = useState([]);
+
+  const [
+    teacherProfileData,
+    setTeacherProfileData,
+  ] = useState(null);
+
+  const [
+    profileLoading,
+    setProfileLoading,
+  ] = useState(false);
+
+  const [
+    submitting,
+    setSubmitting,
+  ] = useState(false);
+
+  const [
+    profileError,
+    setProfileError,
+  ] = useState("");
+
+  const [
+    submitError,
+    setSubmitError,
+  ] = useState("");
+
+  const [
+    bookedSlotsWarning,
+    setBookedSlotsWarning,
+  ] = useState("");
+
+  const studentTimezone = useMemo(
+    () =>
+      extractIanaTimezone(
+        booking?.studentTime_zone,
+        booking?.student_timezone,
+        booking?.studentTimezone
+      ),
+    [booking]
+  );
 
   useEffect(() => {
-    if (!isOpen || !booking) return;
+    if (!isOpen || !booking) {
+      return undefined;
+    }
 
     let active = true;
 
-    const defaultTimezone = getSafeTimezone(
-      booking?.studentTime_zone || timezone || "Asia/Dubai"
+    const currentWeek = getWeekStart(
+      moment.tz(ADMIN_TIMEZONE)
     );
 
-    const currentWeek = getWeekStart(moment.tz(defaultTimezone), defaultTimezone);
+    setSelectedSubjectId(
+      String(
+        firstFilled(
+          booking?.subjectid,
+          booking?.subjectname
+        )
+      )
+    );
 
-    setSelectedTimezone(defaultTimezone);
+    setSelectedDate(
+      getDefaultDateForWeek(currentWeek)
+    );
+
     setSelectedWeekStart(currentWeek);
-    setSelectedDate(getDefaultVisibleDateForWeek(currentWeek, defaultTimezone));
     setSelectedSlot(null);
     setUseCustomSlot(false);
     setCustomStartTime("");
     setCustomEndTime("");
+    setSubjectOptions([]);
+    setTeacherAvailability([]);
+    setTeacherBookedSlots([]);
+    setTeacherProfileData(null);
     setProfileError("");
     setSubmitError("");
     setBookedSlotsWarning("");
-    setTeacherProfileData(null);
-    setTeacherAvailability([]);
-    setTeacherBookedSlots([]);
-    setSubjectOptions([]);
+
     setTimezoneOptions(
-      normalizeTimezoneOptions(null, [
-        booking?.studentTime_zone,
+      normalizeTimezones(null, [
+        studentTimezone,
         booking?.teacherTime_zone,
+        booking?.teacher_timezone,
         timezone,
-        "Asia/Dubai",
+        ADMIN_TIMEZONE,
       ])
     );
-    setSelectedSubjectId(String(firstFilled(booking?.subjectid, booking?.subjectname)));
 
     const loadModalData = async () => {
       if (!booking?.teacherid) {
-        setProfileError("Teacher id missing hai.");
+        setProfileError(
+          "Teacher ID is missing."
+        );
+
         return;
       }
 
       setProfileLoading(true);
 
       try {
-        const headers = await buildApiHeaders();
+        const headers =
+          await buildApiHeaders();
 
-        const [profileRes, timezonesRes, bookedRes] = await Promise.allSettled([
-          fetchTeacherProfileInsideModal(booking.teacherid, headers),
+        const [
+          profileResult,
+          timezoneResult,
+          bookedResult,
+        ] = await Promise.allSettled([
+          fetchTeacherProfile(
+            booking.teacherid,
+            headers
+          ),
+
           getTimezonesLookup(),
-          fetchTeacherBookedSlotsInsideModal(booking.teacherid, headers),
+
+          fetchTeacherBookedSlots(
+            booking.teacherid,
+            headers
+          ),
         ]);
 
-        if (!active) return;
-
-        const normalizedTimezones = normalizeTimezoneOptions(
-          timezonesRes.status === "fulfilled" ? timezonesRes.value : null,
-          [booking?.studentTime_zone, booking?.teacherTime_zone, timezone, "Asia/Dubai"]
-        );
-
-        setTimezoneOptions(normalizedTimezones);
-
-        const exactMatch = normalizedTimezones.find(
-          (item) => item.value === defaultTimezone
-        );
-        if (exactMatch?.value) {
-          setSelectedTimezone(exactMatch.value);
+        if (!active) {
+          return;
         }
+
+        setTimezoneOptions(
+          normalizeTimezones(
+            timezoneResult.status === "fulfilled"
+              ? timezoneResult.value
+              : null,
+            [
+              studentTimezone,
+              booking?.teacherTime_zone,
+              booking?.teacher_timezone,
+              timezone,
+              ADMIN_TIMEZONE,
+            ]
+          )
+        );
+
+        const profileResponse =
+          profileResult.status === "fulfilled"
+            ? profileResult.value
+            : null;
 
         if (
-          profileRes.status !== "fulfilled" ||
-          Number(profileRes.value?.statusCode) !== 200
+          Number(profileResponse?.statusCode) !== 200
         ) {
-          const msg =
-            profileRes.status === "fulfilled"
-              ? profileRes.value?.message || "Teacher profile load nahi hua."
-              : profileRes.reason?.message || "Teacher profile load nahi hua.";
-          throw new Error(msg);
+          throw new Error(
+            "The teacher profile could not be loaded."
+          );
         }
 
-        const profileData = profileRes.value?.data || {};
+        const profileData =
+          profileResponse?.data || {};
+
+        const subjects =
+          normalizeSubjects(
+            profileData,
+            booking
+          );
+
         setTeacherProfileData(profileData);
-
-        const subjects = normalizeSubjects(profileData, booking);
-        const availability = normalizeAvailability(profileData);
-
         setSubjectOptions(subjects);
-        setTeacherAvailability(availability);
+
+        setTeacherAvailability(
+          normalizeAvailability(profileData)
+        );
+
         setSelectedSubjectId(
           String(
             firstFilled(
@@ -606,26 +840,42 @@ const RescheduleBookingModal = ({
           )
         );
 
+        const bookedResponse =
+          bookedResult.status === "fulfilled"
+            ? bookedResult.value
+            : null;
+
         if (
-          bookedRes.status === "fulfilled" &&
-          Number(bookedRes.value?.statusCode) === 200
+          Number(bookedResponse?.statusCode) === 200
         ) {
           setTeacherBookedSlots(
-            normalizeTeacherBookedSlots(
-              bookedRes.value,
-              booking?.teacherTime_zone || defaultTimezone
+            normalizeBookedSlots(
+              bookedResponse,
+              booking?.teacherTime_zone ||
+                booking?.teacher_timezone ||
+                studentTimezone
             )
           );
         } else {
           setTeacherBookedSlots([]);
+
           setBookedSlotsWarning(
-            "Booked slots load nahi huay. Abhi sirf teacher availability dikh rahi hai."
+            "Booked slots could not be loaded. Rescheduling is disabled to prevent double booking."
           );
         }
       } catch (error) {
-        if (!active) return;
-        console.error("Reschedule modal load failed:", error);
-        setProfileError(error?.message || "Teacher profile / slots load nahi huay.");
+        if (!active) {
+          return;
+        }
+
+        console.error(
+          "Reschedule modal load failed:",
+          error
+        );
+
+        setProfileError(
+          "The teacher profile or booking data could not be loaded."
+        );
       } finally {
         if (active) {
           setProfileLoading(false);
@@ -638,433 +888,910 @@ const RescheduleBookingModal = ({
     return () => {
       active = false;
     };
-  }, [isOpen, booking, timezone]);
+  }, [
+    isOpen,
+    booking,
+    studentTimezone,
+    timezone,
+  ]);
 
   const timezoneById = useMemo(() => {
     const map = {};
-    (timezoneOptions || []).forEach((item) => {
+
+    timezoneOptions.forEach((item) => {
       if (item?.id) {
         map[String(item.id)] = item.value;
       }
     });
+
     return map;
   }, [timezoneOptions]);
 
-  const selectedTimezoneOption = useMemo(() => {
-    return (
-      (timezoneOptions || []).find((item) => item.value === selectedTimezone) || null
-    );
-  }, [timezoneOptions, selectedTimezone]);
+  const studentTimezoneId = useMemo(() => {
+    const lookupId = String(
+      timezoneOptions.find(
+        (item) =>
+          item.value === studentTimezone
+      )?.id || ""
+    ).trim();
 
-  const selectedTimezoneId = useMemo(() => {
-    const rawId = String(selectedTimezoneOption?.id ?? "").trim();
-    return /^\d+$/.test(rawId) ? rawId : "";
-  }, [selectedTimezoneOption]);
+    const bookingTimezoneId = String(
+      firstFilled(
+        booking?.studentTimezoneId,
+        booking?.studenttimezoneid,
+        booking?.student_timezone_id,
+        booking?.studentTimeZoneId,
+        booking?.student_timezoneid,
+        booking?.studentTime_zoneid,
+        booking?.student_time_zone_id,
+        ""
+      )
+    ).trim();
+
+    const resolvedId =
+      lookupId || bookingTimezoneId;
+
+    return /^\d+$/.test(resolvedId)
+      ? resolvedId
+      : "";
+  }, [
+    timezoneOptions,
+    studentTimezone,
+    booking,
+  ]);
 
   const teacherBaseTimezone = useMemo(() => {
-    const profile = teacherProfileData?.profile?.[0] || {};
-    const zone =
-      timezoneById[String(profile?.timezoneid)] ||
-      booking?.teacherTime_zone ||
-      timezone ||
-      "Asia/Dubai";
+    const profile =
+      teacherProfileData?.profile?.[0] ||
+      {};
 
-    return getSafeTimezone(zone);
-  }, [teacherProfileData, timezoneById, booking, timezone]);
-
-  const selectedSubject = useMemo(() => {
-    return (
-      (subjectOptions || []).find(
-        (item) => getSubjectOptionValue(item) === String(selectedSubjectId)
-      ) || null
+    return getSafeTimezone(
+      timezoneById[
+        String(profile?.timezoneid)
+      ] ||
+        booking?.teacherTime_zone ||
+        booking?.teacher_timezone ||
+        ADMIN_TIMEZONE
     );
-  }, [subjectOptions, selectedSubjectId]);
+  }, [
+    teacherProfileData,
+    timezoneById,
+    booking,
+  ]);
 
-  const currentTeacher =
-    booking?.teachername || booking?.teacher_name || booking?.teacher || "-";
-
-  const currentSubject = booking?.subjectname || "-";
-
-  const currentDateFormatted = useMemo(() => {
-    const bookingDate = booking?.bookdate || booking?.booking_date || "";
-    const parsed = parseBookingDate(
-      bookingDate,
-      booking?.studentTime_zone || timezone || "Asia/Dubai"
-    );
-    return parsed ? parsed.format("DD MMM YYYY") : "-";
-  }, [booking, timezone]);
-
-  const currentTimeSlot = useMemo(() => {
-    const start = formatClock(booking?.slot_start);
-    const end = formatClock(booking?.slot_end);
-    return `${start} - ${end}`;
-  }, [booking]);
-
-  const todayLocal = useMemo(
-    () => getTodayInTimezone(selectedTimezone),
-    [selectedTimezone]
+  const selectedSubject = useMemo(
+    () =>
+      subjectOptions.find(
+        (item) =>
+          String(
+            firstFilled(
+              item?.subjectid,
+              item?.subjectname
+            )
+          ) === String(selectedSubjectId)
+      ) || null,
+    [
+      subjectOptions,
+      selectedSubjectId,
+    ]
   );
 
-  const minSelectableDate = useMemo(
-    () => todayLocal.format("YYYY-MM-DD"),
-    [todayLocal]
+  const currentSessionInDubai = useMemo(() => {
+    if (!studentTimezone) {
+      return null;
+    }
+
+    const bookingDate =
+      booking?.bookdate ||
+      booking?.booking_date ||
+      "";
+
+    let start =
+      parseDateTimeInTimezone(
+        bookingDate,
+        booking?.slot_start,
+        studentTimezone
+      );
+
+    let end =
+      parseDateTimeInTimezone(
+        bookingDate,
+        booking?.slot_end,
+        studentTimezone
+      );
+
+    if (!start || !end) {
+      return null;
+    }
+
+    if (end.isSameOrBefore(start)) {
+      end.add(1, "day");
+    }
+
+    return {
+      start: start
+        .clone()
+        .tz(ADMIN_TIMEZONE),
+
+      end: end
+        .clone()
+        .tz(ADMIN_TIMEZONE),
+    };
+  }, [
+    booking,
+    studentTimezone,
+  ]);
+
+  const todayDubai = useMemo(
+    () => getTodayInDubai(),
+    [isOpen]
   );
 
   const currentWeekStart = useMemo(
-    () => getWeekStart(todayLocal.clone(), selectedTimezone),
-    [todayLocal, selectedTimezone]
+    () => getWeekStart(todayDubai),
+    [todayDubai]
   );
-
-  const canGoPrevWeek = useMemo(() => {
-    const activeWeekStart = selectedWeekStart
-      ? selectedWeekStart.clone().startOf("day")
-      : currentWeekStart.clone().startOf("day");
-
-    return activeWeekStart.isAfter(currentWeekStart, "day");
-  }, [selectedWeekStart, currentWeekStart]);
 
   const weekDays = useMemo(() => {
     const start = selectedWeekStart
       ? selectedWeekStart.clone()
-      : getWeekStart(null, selectedTimezone);
+      : currentWeekStart.clone();
 
-    return Array.from({ length: 7 }, (_, i) => start.clone().add(i, "day"));
-  }, [selectedWeekStart, selectedTimezone]);
+    return Array.from(
+      {
+        length: 7,
+      },
+      (_, index) =>
+        start
+          .clone()
+          .add(index, "day")
+    );
+  }, [
+    selectedWeekStart,
+    currentWeekStart,
+  ]);
+
+  const canGoPreviousWeek = useMemo(() => {
+    const activeWeek = selectedWeekStart
+      ? selectedWeekStart
+          .clone()
+          .startOf("day")
+      : currentWeekStart
+          .clone()
+          .startOf("day");
+
+    return activeWeek.isAfter(
+      currentWeekStart
+        .clone()
+        .startOf("day"),
+      "day"
+    );
+  }, [
+    selectedWeekStart,
+    currentWeekStart,
+  ]);
+
+  const bookedRanges = useMemo(
+    () =>
+      teacherBookedSlots
+        .map((item) => {
+          const sourceTimezone =
+            getSafeTimezone(
+              timezoneById[
+                String(item?.timezoneid)
+              ] ||
+                item?.timezone ||
+                teacherBaseTimezone
+            );
+
+          let start =
+            parseDateTimeInTimezone(
+              item?.bookdate,
+              item?.slot_start,
+              sourceTimezone
+            );
+
+          let end =
+            parseDateTimeInTimezone(
+              item?.bookdate,
+              item?.slot_end,
+              sourceTimezone
+            );
+
+          if (!start || !end) {
+            return null;
+          }
+
+          if (end.isSameOrBefore(start)) {
+            end.add(1, "day");
+          }
+
+          return {
+            bookingid: item?.bookingid,
+
+            start: start
+              .clone()
+              .tz(ADMIN_TIMEZONE),
+
+            end: end
+              .clone()
+              .tz(ADMIN_TIMEZONE),
+          };
+        })
+        .filter(Boolean),
+    [
+      teacherBookedSlots,
+      timezoneById,
+      teacherBaseTimezone,
+    ]
+  );
 
   const slotsMap = useMemo(() => {
-    const safeSelectedTz = getSafeTimezone(selectedTimezone);
-    const map = {};
+    const map = Object.fromEntries(
+      weekDays.map((day) => [
+        day.format("YYYY-MM-DD"),
+        [],
+      ])
+    );
 
-    weekDays.forEach((day) => {
-      map[day.format("YYYY-MM-DD")] = [];
-    });
+    const visibleStart =
+      weekDays[0]
+        .clone()
+        .startOf("day");
 
-    const visibleStart = weekDays[0].clone().startOf("day");
-    const visibleEnd = weekDays[6].clone().endOf("day");
-    const now = moment.tz(safeSelectedTz);
+    const visibleEnd =
+      weekDays[6]
+        .clone()
+        .endOf("day");
+
+    const now =
+      moment.tz(ADMIN_TIMEZONE);
 
     teacherAvailability.forEach((item) => {
-      const isoDay = DAY_TO_ISO[item?.day];
-      const startParts = parseClockParts(item?.timefrom);
-      const endParts = parseClockParts(item?.timeto);
+      const isoDay =
+        DAY_TO_ISO[item?.day];
 
-      if (!isoDay || !startParts || !endParts) return;
+      const startParts =
+        parseClockParts(item?.timefrom);
 
-      const sourceTimezone = getSafeTimezone(
-        timezoneById[String(item?.timezoneid)] || teacherBaseTimezone
-      );
+      const endParts =
+        parseClockParts(item?.timeto);
 
-      const sourceWeekStart = visibleStart
-        .clone()
-        .tz(sourceTimezone)
-        .startOf("isoWeek");
+      if (
+        !isoDay ||
+        !startParts ||
+        !endParts
+      ) {
+        return;
+      }
+
+      const sourceTimezone =
+        getSafeTimezone(
+          timezoneById[
+            String(item?.timezoneid)
+          ] ||
+            teacherBaseTimezone
+        );
+
+      const sourceWeekStart =
+        visibleStart
+          .clone()
+          .tz(sourceTimezone)
+          .startOf("isoWeek");
 
       [-7, 0, 7].forEach((offset) => {
-        const sourceDate = sourceWeekStart.clone().add(offset, "days").isoWeekday(isoDay);
+        const sourceDate =
+          sourceWeekStart
+            .clone()
+            .add(offset, "days")
+            .isoWeekday(isoDay);
 
-        let startDT = sourceDate
-          .clone()
-          .hour(startParts.hour)
-          .minute(startParts.minute)
-          .second(startParts.second)
-          .millisecond(0);
+        const sourceStart =
+          sourceDate
+            .clone()
+            .hour(startParts.hour)
+            .minute(startParts.minute)
+            .second(startParts.second)
+            .millisecond(0);
 
-        let endDT = sourceDate
-          .clone()
-          .hour(endParts.hour)
-          .minute(endParts.minute)
-          .second(endParts.second)
-          .millisecond(0);
+        const sourceEnd =
+          sourceDate
+            .clone()
+            .hour(endParts.hour)
+            .minute(endParts.minute)
+            .second(endParts.second)
+            .millisecond(0);
 
-        if (endDT.isSame(startDT)) return;
-        if (endDT.isBefore(startDT)) endDT.add(1, "day");
+        if (sourceEnd.isSame(sourceStart)) {
+          return;
+        }
 
-        const localStart = startDT.clone().tz(safeSelectedTz);
-        const localEnd = endDT.clone().tz(safeSelectedTz);
+        if (sourceEnd.isBefore(sourceStart)) {
+          sourceEnd.add(1, "day");
+        }
 
-        if (localStart.isSameOrBefore(now)) return;
-        if (localEnd.isBefore(visibleStart) || localStart.isAfter(visibleEnd)) return;
+        const adminStart =
+          sourceStart
+            .clone()
+            .tz(ADMIN_TIMEZONE);
 
-        const dayKey = localStart.format("YYYY-MM-DD");
-        if (!map[dayKey]) return;
+        const adminEnd =
+          sourceEnd
+            .clone()
+            .tz(ADMIN_TIMEZONE);
+
+        const dayKey =
+          adminStart.format("YYYY-MM-DD");
+
+        if (
+          adminStart.isSameOrBefore(now) ||
+          adminEnd.isBefore(visibleStart) ||
+          adminStart.isAfter(visibleEnd) ||
+          !map[dayKey]
+        ) {
+          return;
+        }
 
         map[dayKey].push({
-          label: `${localStart.format("HH:mm")} - ${localEnd.format("HH:mm")}`,
-          start: localStart.format(),
-          end: localEnd.format(),
-          isBooked: false,
+          label: `${adminStart.format(
+            "HH:mm"
+          )} - ${adminEnd.format("HH:mm")}`,
+
+          start: adminStart.format(),
+          end: adminEnd.format(),
+
+          isBooked: bookedRanges.some((range) =>
+            isOverlap(
+              adminStart,
+              adminEnd,
+              range.start,
+              range.end
+            )
+          ),
         });
       });
     });
 
-    teacherBookedSlots.forEach((item) => {
-      let bookedStart = parseDateTimeInTimezone(item?.bookdate, item?.slot_start, item?.timezone);
-      let bookedEnd = parseDateTimeInTimezone(item?.bookdate, item?.slot_end, item?.timezone);
+    bookedRanges.forEach((range) => {
+      const dayKey =
+        range.start.format("YYYY-MM-DD");
 
-      if (!bookedStart || !bookedEnd) return;
-      if (bookedEnd.isSameOrBefore(bookedStart)) bookedEnd = bookedEnd.add(1, "day");
+      if (
+        !map[dayKey] ||
+        range.end.isSameOrBefore(now)
+      ) {
+        return;
+      }
 
-      const localStart = bookedStart.clone().tz(safeSelectedTz);
-      const localEnd = bookedEnd.clone().tz(safeSelectedTz);
+      const alreadyDisplayed =
+        map[dayKey].some((slot) =>
+          isOverlap(
+            moment.parseZone(slot.start),
+            moment.parseZone(slot.end),
+            range.start,
+            range.end
+          )
+        );
 
-      if (localEnd.isSameOrBefore(now)) return;
-      if (localEnd.isBefore(visibleStart) || localStart.isAfter(visibleEnd)) return;
-
-      const dayKey = localStart.format("YYYY-MM-DD");
-      if (!map[dayKey]) return;
-
-      let matchedExisting = false;
-
-      map[dayKey] = map[dayKey].map((slot) => {
-        if (isOverlap(slot.start, slot.end, localStart, localEnd)) {
-          matchedExisting = true;
-          return {
-            ...slot,
-            isBooked: true,
-          };
-        }
-        return slot;
-      });
-
-      if (!matchedExisting) {
+      if (!alreadyDisplayed) {
         map[dayKey].push({
-          label: `${localStart.format("HH:mm")} - ${localEnd.format("HH:mm")}`,
-          start: localStart.format(),
-          end: localEnd.format(),
+          label: `${range.start.format(
+            "HH:mm"
+          )} - ${range.end.format("HH:mm")}`,
+
+          start: range.start.format(),
+          end: range.end.format(),
           isBooked: true,
         });
       }
     });
 
     Object.keys(map).forEach((dayKey) => {
-      map[dayKey] = uniqBy(
+      map[dayKey] = uniqueBy(
         map[dayKey].sort(
-          (a, b) => moment.parseZone(a.start).valueOf() - moment.parseZone(b.start).valueOf()
+          (firstSlot, secondSlot) =>
+            moment
+              .parseZone(firstSlot.start)
+              .valueOf() -
+            moment
+              .parseZone(secondSlot.start)
+              .valueOf()
         ),
-        (item) => `${item.start}|${item.end}`
+        (slot) =>
+          `${slot.start}|${slot.end}`
       );
     });
 
     return map;
   }, [
-    teacherAvailability,
-    teacherBookedSlots,
     weekDays,
-    selectedTimezone,
-    teacherBaseTimezone,
+    teacherAvailability,
     timezoneById,
+    teacherBaseTimezone,
+    bookedRanges,
   ]);
 
   useEffect(() => {
-    if (useCustomSlot || !selectedSlot || !selectedDate) return;
-
-    const stillExists = (slotsMap[selectedDate] || []).some(
-      (slot) =>
-        slot.start === selectedSlot.start &&
-        slot.end === selectedSlot.end &&
-        Boolean(slot.isBooked) === Boolean(selectedSlot.isBooked)
-    );
-
-    if (!stillExists || selectedSlot?.isBooked) {
-      setSelectedSlot(null);
-    }
-  }, [slotsMap, selectedDate, selectedSlot, useCustomSlot]);
-
-  const goPrevWeek = () => {
-    if (!canGoPrevWeek) return;
-
-    const prevWeek = (
-      selectedWeekStart ? selectedWeekStart.clone() : currentWeekStart.clone()
-    ).subtract(7, "days");
-
-    setSelectedWeekStart(prevWeek);
-    setSelectedDate(getDefaultVisibleDateForWeek(prevWeek, selectedTimezone));
-    setSelectedSlot(null);
-  };
-
-  const goNextWeek = () => {
-    const nextWeek = (
-      selectedWeekStart ? selectedWeekStart.clone() : currentWeekStart.clone()
-    ).add(7, "days");
-
-    setSelectedWeekStart(nextWeek);
-    setSelectedDate(getDefaultVisibleDateForWeek(nextWeek, selectedTimezone));
-    setSelectedSlot(null);
-  };
-
-  const handleDateInputChange = (e) => {
-    const value = e.target.value;
-    const parsed = parseSelectedDate(value, selectedTimezone);
-    const today = getTodayInTimezone(selectedTimezone);
-
-    if (parsed && parsed.isBefore(today, "day")) {
-      setSelectedDate(today.format("YYYY-MM-DD"));
-      setSelectedWeekStart(getWeekStart(today.clone(), selectedTimezone));
-      setSelectedSlot(null);
+    if (
+      useCustomSlot ||
+      !selectedSlot ||
+      !selectedDate
+    ) {
       return;
     }
 
-    setSelectedDate(value);
-    setSelectedSlot(null);
+    const stillAvailable =
+      (
+        slotsMap[selectedDate] || []
+      ).some(
+        (slot) =>
+          slot.start ===
+            selectedSlot.start &&
+          slot.end ===
+            selectedSlot.end &&
+          !slot.isBooked
+      );
 
-    if (parsed) {
-      setSelectedWeekStart(getWeekStart(parsed, selectedTimezone));
+    if (!stillAvailable) {
+      setSelectedSlot(null);
     }
+  }, [
+    slotsMap,
+    selectedDate,
+    selectedSlot,
+    useCustomSlot,
+  ]);
+
+  const changeWeek = (days) => {
+    const nextWeek = (
+      selectedWeekStart ||
+      currentWeekStart
+    )
+      .clone()
+      .add(days, "days");
+
+    setSelectedWeekStart(nextWeek);
+
+    setSelectedDate(
+      getDefaultDateForWeek(nextWeek)
+    );
+
+    setSelectedSlot(null);
+    setSubmitError("");
   };
 
-  const handleDayPick = (dayKey) => {
-    const parsed = parseSelectedDate(dayKey, selectedTimezone);
-    if (!parsed) return;
+  const handleDateInputChange = (event) => {
+    const value = event.target.value;
+    const parsed = parseSelectedDate(value);
 
-    const today = getTodayInTimezone(selectedTimezone);
-    if (parsed.isBefore(today, "day")) return;
+    if (
+      parsed?.isBefore(
+        todayDubai,
+        "day"
+      )
+    ) {
+      setSelectedDate(
+        todayDubai.format("YYYY-MM-DD")
+      );
 
-    setSelectedDate(dayKey);
+      setSelectedWeekStart(
+        currentWeekStart.clone()
+      );
+    } else {
+      setSelectedDate(value);
+
+      if (parsed) {
+        setSelectedWeekStart(
+          getWeekStart(parsed)
+        );
+      }
+    }
+
     setSelectedSlot(null);
+    setSubmitError("");
+  };
+
+  const handleDayPick = (day) => {
+    if (
+      day.isBefore(todayDubai, "day") ||
+      submitting
+    ) {
+      return;
+    }
+
+    setSelectedDate(
+      day.format("YYYY-MM-DD")
+    );
+
+    setSelectedSlot(null);
+    setSubmitError("");
   };
 
   const handleSlotPick = (day, slot) => {
-    if (slot?.isBooked) return;
+    if (slot?.isBooked || submitting) {
+      return;
+    }
 
-    setSelectedDate(day.format("YYYY-MM-DD"));
+    setSelectedDate(
+      day.format("YYYY-MM-DD")
+    );
+
+    setSelectedWeekStart(
+      getWeekStart(day)
+    );
+
     setSelectedSlot(slot);
     setUseCustomSlot(false);
     setCustomStartTime("");
     setCustomEndTime("");
-    setSelectedWeekStart(getWeekStart(day, selectedTimezone));
     setSubmitError("");
   };
 
-  const customSlotLabel = useMemo(() => {
-    if (!useCustomSlot) return selectedSlot?.label || "-";
-    if (customStartTime && customEndTime) return `${customStartTime} - ${customEndTime}`;
-    return "Custom slot";
-  }, [useCustomSlot, customStartTime, customEndTime, selectedSlot]);
+  const toggleCustomSlot = () => {
+    if (submitting) {
+      return;
+    }
+
+    setUseCustomSlot(
+      (previous) => !previous
+    );
+
+    setSelectedSlot(null);
+    setSubmitError("");
+  };
 
   const canSubmit = Boolean(
     selectedSubjectId &&
       selectedDate &&
-      selectedTimezoneId &&
+      studentTimezone &&
+      studentTimezoneId &&
       !profileLoading &&
+      !profileError &&
+      !bookedSlotsWarning &&
       !submitting &&
       (
-        (!useCustomSlot && selectedSlot && !selectedSlot?.isBooked) ||
-        (useCustomSlot && customStartTime && customEndTime)
+        (
+          !useCustomSlot &&
+          selectedSlot &&
+          !selectedSlot.isBooked
+        ) ||
+        (
+          useCustomSlot &&
+          customStartTime &&
+          customEndTime
+        )
       )
   );
 
   const handleSubmit = async () => {
+    if (submitLockRef.current) {
+      return;
+    }
+
     if (!booking?.bookingid) {
-      setSubmitError("Booking id missing hai.");
+      setSubmitError(
+        "Booking ID is missing."
+      );
+
       return;
     }
 
-    if (!useCustomSlot && !selectedSlot) {
-      setSubmitError("Please select a slot ya custom slot enter karein.");
+    if (!booking?.teacherid) {
+      setSubmitError(
+        "Teacher ID is missing."
+      );
+
       return;
     }
 
-    if (!useCustomSlot && selectedSlot?.isBooked) {
-      setSubmitError("Booked slot select nahi ho sakta.");
+    if (!studentTimezone) {
+      setSubmitError(
+        "The student's timezone is missing or invalid. Please update the student's profile before rescheduling."
+      );
+
       return;
     }
 
-    if (useCustomSlot && (!customStartTime || !customEndTime)) {
-      setSubmitError("Custom start aur end time required hai.");
+    if (!studentTimezoneId) {
+      setSubmitError(
+        "The student's timezone ID could not be loaded. Please try again."
+      );
+
       return;
     }
 
-    if (!selectedSubject?.subjectid && !booking?.subjectid) {
-      setSubmitError("Subject id missing hai.");
+    if (profileError) {
+      setSubmitError(
+        "Required scheduling data could not be loaded. Please close the modal, reopen it, and try again."
+      );
+
       return;
     }
 
-    if (!selectedTimezoneId) {
-      setSubmitError("Timezone id load nahi hui. Please try again.");
+    if (bookedSlotsWarning) {
+      setSubmitError(
+        "Booked slots could not be verified. Please reload the modal and try again."
+      );
+
       return;
     }
 
+    if (
+      !useCustomSlot &&
+      !selectedSlot
+    ) {
+      setSubmitError(
+        "Please select an available time slot."
+      );
+
+      return;
+    }
+
+    if (
+      !useCustomSlot &&
+      selectedSlot?.isBooked
+    ) {
+      setSubmitError(
+        "The selected time slot is already booked."
+      );
+
+      return;
+    }
+
+    if (
+      useCustomSlot &&
+      (
+        !customStartTime ||
+        !customEndTime
+      )
+    ) {
+      setSubmitError(
+        "Custom start and end times are required."
+      );
+
+      return;
+    }
+
+    if (
+      !selectedSubject?.subjectid &&
+      !booking?.subjectid
+    ) {
+      setSubmitError(
+        "Subject ID is missing."
+      );
+
+      return;
+    }
+
+    submitLockRef.current = true;
     setSubmitting(true);
     setSubmitError("");
 
     try {
-      const headers = await buildApiHeaders();
+      const headers =
+        await buildApiHeaders();
 
-      let startMoment;
-      let endMoment;
+      let adminStart;
+      let adminEnd;
 
       if (useCustomSlot) {
-        startMoment = moment.tz(
+        adminStart = moment.tz(
           `${selectedDate} ${customStartTime}`,
           "YYYY-MM-DD HH:mm",
           true,
-          selectedTimezone
+          ADMIN_TIMEZONE
         );
 
-        endMoment = moment.tz(
+        adminEnd = moment.tz(
           `${selectedDate} ${customEndTime}`,
           "YYYY-MM-DD HH:mm",
           true,
-          selectedTimezone
+          ADMIN_TIMEZONE
         );
-
-        if (!startMoment.isValid() || !endMoment.isValid()) {
-          setSubmitError("Custom slot time invalid hai.");
-          setSubmitting(false);
-          return;
-        }
-
-        if (!endMoment.isAfter(startMoment)) {
-          setSubmitError("End time start time se baad honi chahiye.");
-          setSubmitting(false);
-          return;
-        }
-
-        if (startMoment.isSameOrBefore(moment.tz(selectedTimezone))) {
-          setSubmitError("Past time select nahi ho sakta.");
-          setSubmitting(false);
-          return;
-        }
       } else {
-        startMoment = moment.parseZone(selectedSlot.start).tz(selectedTimezone);
-        endMoment = moment.parseZone(selectedSlot.end).tz(selectedTimezone);
+        adminStart = moment
+          .parseZone(selectedSlot.start)
+          .tz(ADMIN_TIMEZONE);
+
+        adminEnd = moment
+          .parseZone(selectedSlot.end)
+          .tz(ADMIN_TIMEZONE);
       }
 
-      const body = {
-        bookingId: booking?.bookingid,
-        newDate: selectedDate,
-        newStartTime: startMoment.format("HH:mm"),
-        newEndTime: endMoment.format("HH:mm"),
-        newTimezone: selectedTimezoneId,
-        newSubjectid: Number(selectedSubject?.subjectid ?? booking?.subjectid),
+      if (
+        !adminStart.isValid() ||
+        !adminEnd.isValid()
+      ) {
+        throw new Error(
+          "The selected time slot is invalid."
+        );
+      }
+
+      if (!adminEnd.isAfter(adminStart)) {
+        throw new Error(
+          "The end time must be later than the start time."
+        );
+      }
+
+      if (
+        adminStart.isSameOrBefore(
+          moment.tz(ADMIN_TIMEZONE)
+        )
+      ) {
+        throw new Error(
+          "A past time cannot be selected."
+        );
+      }
+
+      const latestBookedResponse =
+        await fetchTeacherBookedSlots(
+          booking.teacherid,
+          headers
+        );
+
+      if (
+        Number(
+          latestBookedResponse?.statusCode
+        ) !== 200
+      ) {
+        throw new Error(
+          "Booked slots could not be verified. Please try again."
+        );
+      }
+
+      const latestBookedSlots =
+        normalizeBookedSlots(
+          latestBookedResponse,
+          teacherBaseTimezone
+        );
+
+      const hasConflict =
+        latestBookedSlots.some((item) => {
+          if (
+            item?.bookingid &&
+            String(item.bookingid) ===
+              String(booking.bookingid)
+          ) {
+            return false;
+          }
+
+          const sourceTimezone =
+            getSafeTimezone(
+              timezoneById[
+                String(item?.timezoneid)
+              ] ||
+                item?.timezone ||
+                teacherBaseTimezone
+            );
+
+          let bookedStart =
+            parseDateTimeInTimezone(
+              item?.bookdate,
+              item?.slot_start,
+              sourceTimezone
+            );
+
+          let bookedEnd =
+            parseDateTimeInTimezone(
+              item?.bookdate,
+              item?.slot_end,
+              sourceTimezone
+            );
+
+          if (!bookedStart || !bookedEnd) {
+            return false;
+          }
+
+          if (
+            bookedEnd.isSameOrBefore(
+              bookedStart
+            )
+          ) {
+            bookedEnd.add(1, "day");
+          }
+
+          return isOverlap(
+            adminStart,
+            adminEnd,
+            bookedStart
+              .clone()
+              .tz(ADMIN_TIMEZONE),
+            bookedEnd
+              .clone()
+              .tz(ADMIN_TIMEZONE)
+          );
+        });
+
+      if (hasConflict) {
+        throw new Error(
+          "The selected time slot has just been booked. Please select another slot."
+        );
+      }
+
+      const studentStart =
+        adminStart
+          .clone()
+          .tz(studentTimezone);
+
+      const studentEnd =
+        adminEnd
+          .clone()
+          .tz(studentTimezone);
+
+      const payload = {
+        bookingId: booking.bookingid,
+
+        newDate:
+          studentStart.format("YYYY-MM-DD"),
+
+        newStartTime:
+          studentStart.format("HH:mm"),
+
+        newEndTime:
+          studentEnd.format("HH:mm"),
+
+        newTimezone: studentTimezoneId,
+
+        newSubjectid: Number(
+          selectedSubject?.subjectid ??
+            booking?.subjectid
+        ),
       };
 
-      const result = await submitRescheduleBookingInsideModal(body, headers);
+      const result =
+        await submitReschedule(
+          payload,
+          headers
+        );
 
       if (Number(result?.statusCode) !== 200) {
-        throw new Error(result?.message || "Reschedule failed.");
+        throw new Error(
+          "The session could not be rescheduled."
+        );
       }
 
       try {
-        if (typeof onSuccess === "function") {
+        if (
+          typeof onSuccess === "function"
+        ) {
           await Promise.resolve(onSuccess());
         }
       } catch (refreshError) {
-        console.error("Bookings refresh failed after reschedule:", refreshError);
+        console.error(
+          "Bookings refresh failed after rescheduling:",
+          refreshError
+        );
       }
 
       onClose?.();
     } catch (error) {
-      console.error("Reschedule submit failed:", error);
-      setSubmitError(error?.message || "Reschedule submit nahi hua.");
+      console.error(
+        "Reschedule submission failed:",
+        error
+      );
+
+      setSubmitError(
+        error?.message ||
+          "The session could not be rescheduled. Please try again."
+      );
     } finally {
+      submitLockRef.current = false;
       setSubmitting(false);
     }
   };
 
-  const stop = (e) => e.stopPropagation();
+  const closeSafely = () => {
+    if (
+      !submitting &&
+      !submitLockRef.current
+    ) {
+      onClose?.();
+    }
+  };
 
-  if (!isOpen) return null;
+  if (!isOpen) {
+    return null;
+  }
 
   const theme = {
     overlay: "rgba(15, 23, 42, 0.52)",
@@ -1076,25 +1803,107 @@ const RescheduleBookingModal = ({
     muted: "var(--bs-secondary-color)",
     heading: "var(--bs-emphasis-color)",
     primary: "var(--bs-primary)",
-    primarySubtle: "var(--bs-primary-bg-subtle)",
-    primaryText: "var(--bs-primary-text-emphasis)",
-    secondaryBtnBg: "var(--bs-secondary-bg)",
-    secondaryBtnText: "var(--bs-body-color)",
+    primarySubtle:
+      "var(--bs-primary-bg-subtle)",
+    primaryText:
+      "var(--bs-primary-text-emphasis)",
+    secondaryBtnBg:
+      "var(--bs-secondary-bg)",
+    secondaryBtnText:
+      "var(--bs-body-color)",
     warning: "var(--bs-warning)",
-    dangerBg: "var(--bs-danger-bg-subtle)",
-    dangerText: "var(--bs-danger-text-emphasis)",
-    dangerBorder: "var(--bs-danger-border-subtle)",
-    shadow: "0 18px 48px rgba(2, 6, 23, 0.18)",
+    dangerBg:
+      "var(--bs-danger-bg-subtle)",
+    dangerText:
+      "var(--bs-danger-text-emphasis)",
+    dangerBorder:
+      "var(--bs-danger-border-subtle)",
+    shadow:
+      "0 18px 48px rgba(2, 6, 23, 0.18)",
   };
 
-  const selectedDateLabel = (() => {
-    const parsed = parseSelectedDate(selectedDate, selectedTimezone);
-    return parsed ? parsed.format("DD MMM YYYY") : "-";
-  })();
+  const styles = {
+    modal: {
+      width: "min(1100px, 98vw)",
+      maxHeight: "94vh",
+      overflowY: "auto",
+      background: theme.modalBg,
+      borderRadius: "18px",
+      boxShadow: theme.shadow,
+      padding: "20px 22px 24px",
+      border: `1px solid ${theme.border}`,
+      color: theme.text,
+    },
 
-  const timezoneIdWarning =
-    !profileLoading && !selectedTimezoneId
-      ? "Selected timezone ka id lookup se nahi mila. Submit disable rahega."
+    section: {
+      border: `1px solid ${theme.border}`,
+      borderRadius: "10px",
+      background: theme.sectionBg,
+      padding: "14px",
+    },
+
+    sectionHeading: {
+      fontSize: "14px",
+      fontWeight: 700,
+      color: theme.heading,
+      marginBottom: "14px",
+    },
+
+    label: {
+      fontWeight: 500,
+      color: theme.muted,
+      fontSize: "12px",
+      marginBottom: "6px",
+    },
+  };
+
+  const currentTeacher =
+    booking?.teachername ||
+    booking?.teacher_name ||
+    booking?.teacher ||
+    "-";
+
+  const currentSubject =
+    booking?.subjectname || "-";
+
+  const currentDate =
+    currentSessionInDubai
+      ? currentSessionInDubai.start.format(
+          "DD MMM YYYY"
+        )
+      : "-";
+
+  const currentTime =
+    currentSessionInDubai
+      ? `${currentSessionInDubai.start.format(
+          "HH:mm"
+        )} - ${currentSessionInDubai.end.format(
+          "HH:mm"
+        )}`
+      : `${formatClock(
+          booking?.slot_start
+        )} - ${formatClock(
+          booking?.slot_end
+        )}`;
+
+  const selectedDateLabel =
+    parseSelectedDate(selectedDate)?.format(
+      "DD MMM YYYY"
+    ) || "-";
+
+  const selectedTimeLabel = useCustomSlot
+    ? customStartTime && customEndTime
+      ? `${customStartTime} - ${customEndTime}`
+      : "Custom slot"
+    : selectedSlot?.label || "-";
+
+  const timezoneWarning =
+    !profileLoading &&
+    (
+      !studentTimezone ||
+      !studentTimezoneId
+    )
+      ? "The student's timezone or timezone ID could not be loaded. Rescheduling is disabled."
       : "";
 
   return (
@@ -1105,27 +1914,22 @@ const RescheduleBookingModal = ({
         zIndex: 2000,
         padding: "16px",
       }}
-      onClick={onClose}
+      onClick={closeSafely}
     >
       <style>{themeNativeStyles}</style>
 
       <div
-        onClick={stop}
-        style={{
-          width: "min(1100px, 98vw)",
-          maxHeight: "94vh",
-          overflowY: "auto",
-          background: theme.modalBg,
-          borderRadius: "18px",
-          boxShadow: theme.shadow,
-          padding: "20px 22px 24px",
-          border: `1px solid ${theme.border}`,
-          color: theme.text,
-        }}
+        style={styles.modal}
+        onClick={(event) =>
+          event.stopPropagation()
+        }
       >
         <div
           className="d-flex justify-content-between align-items-center pb-3 mb-3"
-          style={{ borderBottom: `1px solid ${theme.border}` }}
+          style={{
+            borderBottom:
+              `1px solid ${theme.border}`,
+          }}
         >
           <h4
             className="mb-0"
@@ -1141,8 +1945,9 @@ const RescheduleBookingModal = ({
 
           <button
             type="button"
-            onClick={onClose}
             className="btn btn-sm"
+            onClick={closeSafely}
+            disabled={submitting}
             style={{
               border: "none",
               background: "transparent",
@@ -1152,41 +1957,34 @@ const RescheduleBookingModal = ({
               boxShadow: "none",
               padding: "2px 6px",
             }}
-            disabled={submitting}
           >
             ×
           </button>
         </div>
 
         {profileError ? (
-          <div className="alert alert-danger py-2">{profileError}</div>
+          <div className="alert alert-danger py-2">
+            {profileError}
+          </div>
         ) : null}
 
         {bookedSlotsWarning ? (
-          <div className="alert alert-warning py-2">{bookedSlotsWarning}</div>
+          <div className="alert alert-warning py-2">
+            {bookedSlotsWarning}
+          </div>
         ) : null}
 
         {submitError ? (
-          <div className="alert alert-danger py-2">{submitError}</div>
+          <div className="alert alert-danger py-2">
+            {submitError}
+          </div>
         ) : null}
 
         <div
           className="mb-3"
-          style={{
-            border: `1px solid ${theme.border}`,
-            borderRadius: "10px",
-            background: theme.sectionBg,
-            padding: "14px 14px",
-          }}
+          style={styles.section}
         >
-          <h6
-            style={{
-              fontSize: "14px",
-              fontWeight: 700,
-              color: theme.heading,
-              marginBottom: "14px",
-            }}
-          >
+          <h6 style={styles.sectionHeading}>
             Current Session Details
           </h6>
 
@@ -1196,8 +1994,10 @@ const RescheduleBookingModal = ({
                 style={{
                   padding: "12px 14px",
                   borderRadius: "10px",
-                  border: `1px solid ${theme.border}`,
-                  background: "var(--bs-body-bg)",
+                  border:
+                    `1px solid ${theme.border}`,
+                  background:
+                    "var(--bs-body-bg)",
                 }}
               >
                 <div
@@ -1210,28 +2010,62 @@ const RescheduleBookingModal = ({
                 >
                   {currentTeacher}
                 </div>
-                <div style={{ color: theme.muted, fontSize: "12px" }}>
+
+                <div
+                  style={{
+                    color: theme.muted,
+                    fontSize: "12px",
+                  }}
+                >
                   Teacher
                 </div>
               </div>
 
               <div
                 className="mt-3 d-flex align-items-center gap-2"
-                style={{ color: theme.muted, fontSize: "13px" }}
+                style={{
+                  color: theme.muted,
+                  fontSize: "13px",
+                }}
               >
-                <span style={{ fontSize: "15px" }}>📅</span>
+                <span style={{ fontSize: "15px" }}>
+                  📅
+                </span>
+
                 <span>Date:</span>
-                <strong style={{ color: theme.heading, fontSize: "13px" }}>
-                  {currentDateFormatted}
+
+                <strong
+                  style={{
+                    color: theme.heading,
+                    fontSize: "13px",
+                  }}
+                >
+                  {currentDate}
                 </strong>
               </div>
             </div>
 
             <div className="col-lg-6">
               <div className="mb-3 d-flex align-items-start gap-2">
-                <span style={{ fontSize: "14px", color: theme.primary }}>◌</span>
+                <span
+                  style={{
+                    fontSize: "14px",
+                    color: theme.primary,
+                  }}
+                >
+                  ◌
+                </span>
+
                 <div>
-                  <div style={{ color: theme.muted, fontSize: "12px" }}>Subject:</div>
+                  <div
+                    style={{
+                      color: theme.muted,
+                      fontSize: "12px",
+                    }}
+                  >
+                    Subject:
+                  </div>
+
                   <div
                     style={{
                       color: theme.heading,
@@ -1246,9 +2080,25 @@ const RescheduleBookingModal = ({
               </div>
 
               <div className="d-flex align-items-start gap-2">
-                <span style={{ fontSize: "14px", color: theme.warning }}>◔</span>
+                <span
+                  style={{
+                    fontSize: "14px",
+                    color: theme.warning,
+                  }}
+                >
+                  ◔
+                </span>
+
                 <div>
-                  <div style={{ color: theme.muted, fontSize: "12px" }}>Time Slot:</div>
+                  <div
+                    style={{
+                      color: theme.muted,
+                      fontSize: "12px",
+                    }}
+                  >
+                    Time Slot:
+                  </div>
+
                   <div
                     style={{
                       color: theme.heading,
@@ -1257,7 +2107,7 @@ const RescheduleBookingModal = ({
                       lineHeight: 1.3,
                     }}
                   >
-                    {currentTimeSlot}
+                    {currentTime}
                   </div>
                 </div>
               </div>
@@ -1267,21 +2117,9 @@ const RescheduleBookingModal = ({
 
         <div
           className="mb-3"
-          style={{
-            border: `1px solid ${theme.border}`,
-            borderRadius: "10px",
-            background: theme.sectionBg,
-            padding: "14px 14px",
-          }}
+          style={styles.section}
         >
-          <h6
-            style={{
-              fontSize: "14px",
-              fontWeight: 700,
-              color: theme.heading,
-              marginBottom: "14px",
-            }}
-          >
+          <h6 style={styles.sectionHeading}>
             New Session Details
           </h6>
 
@@ -1289,12 +2127,7 @@ const RescheduleBookingModal = ({
             <div className="col-lg-6">
               <label
                 className="form-label"
-                style={{
-                  fontWeight: 500,
-                  color: theme.muted,
-                  fontSize: "12px",
-                  marginBottom: "6px",
-                }}
+                style={styles.label}
               >
                 Subject:
               </label>
@@ -1302,8 +2135,17 @@ const RescheduleBookingModal = ({
               <select
                 className="form-select theme-native-control"
                 value={selectedSubjectId}
-                onChange={(e) => setSelectedSubjectId(e.target.value)}
-                disabled={profileLoading || submitting}
+                disabled={
+                  profileLoading ||
+                  submitting
+                }
+                onChange={(event) => {
+                  setSelectedSubjectId(
+                    event.target.value
+                  );
+
+                  setSubmitError("");
+                }}
                 style={{
                   height: "40px",
                   borderRadius: "8px",
@@ -1311,15 +2153,22 @@ const RescheduleBookingModal = ({
                   fontSize: "13px",
                 }}
               >
-                {subjectOptions.length === 0 ? (
+                {!subjectOptions.length ? (
                   <option value="">
-                    {profileLoading ? "Loading..." : "No subjects found"}
+                    {profileLoading
+                      ? "Loading..."
+                      : "No subjects found"}
                   </option>
                 ) : (
                   subjectOptions.map((item) => (
                     <option
-                      key={`${String(item?.subjectid ?? "")}-${item?.subjectname}`}
-                      value={getSubjectOptionValue(item)}
+                      key={`${item?.subjectid}-${item?.subjectname}`}
+                      value={String(
+                        firstFilled(
+                          item?.subjectid,
+                          item?.subjectname
+                        )
+                      )}
                     >
                       {item?.subjectname}
                     </option>
@@ -1331,11 +2180,29 @@ const RescheduleBookingModal = ({
             <div className="col-lg-3">
               <div
                 className="d-flex align-items-center gap-2"
-                style={{ minHeight: "40px" }}
+                style={{
+                  minHeight: "40px",
+                }}
               >
-                <span style={{ fontSize: "15px" }}>📅</span>
-                <span style={{ color: theme.muted, fontSize: "12px" }}>Date:</span>
-                <strong style={{ color: theme.heading, fontSize: "13px" }}>
+                <span style={{ fontSize: "15px" }}>
+                  📅
+                </span>
+
+                <span
+                  style={{
+                    color: theme.muted,
+                    fontSize: "12px",
+                  }}
+                >
+                  Date:
+                </span>
+
+                <strong
+                  style={{
+                    color: theme.heading,
+                    fontSize: "13px",
+                  }}
+                >
                   {selectedDateLabel}
                 </strong>
               </div>
@@ -1344,12 +2211,35 @@ const RescheduleBookingModal = ({
             <div className="col-lg-3">
               <div
                 className="d-flex align-items-center gap-2"
-                style={{ minHeight: "40px" }}
+                style={{
+                  minHeight: "40px",
+                }}
               >
-                <span style={{ fontSize: "15px", color: theme.warning }}>◔</span>
-                <span style={{ color: theme.muted, fontSize: "12px" }}>Time Slot:</span>
-                <strong style={{ color: theme.heading, fontSize: "13px" }}>
-                  {customSlotLabel}
+                <span
+                  style={{
+                    fontSize: "15px",
+                    color: theme.warning,
+                  }}
+                >
+                  ◔
+                </span>
+
+                <span
+                  style={{
+                    color: theme.muted,
+                    fontSize: "12px",
+                  }}
+                >
+                  Time Slot:
+                </span>
+
+                <strong
+                  style={{
+                    color: theme.heading,
+                    fontSize: "13px",
+                  }}
+                >
+                  {selectedTimeLabel}
                 </strong>
               </div>
             </div>
@@ -1363,33 +2253,49 @@ const RescheduleBookingModal = ({
                 <button
                   type="button"
                   className="btn btn-sm nav-circle-btn"
-                  onClick={goPrevWeek}
-                  disabled={!canGoPrevWeek || submitting}
+                  onClick={() =>
+                    changeWeek(-7)
+                  }
+                  disabled={
+                    !canGoPreviousWeek ||
+                    submitting
+                  }
                   style={{
                     width: "30px",
                     height: "30px",
                     borderRadius: "50%",
-                    border: `1px solid ${theme.border}`,
+                    border:
+                      `1px solid ${theme.border}`,
                     background: theme.softBg,
                     color: theme.text,
                     fontSize: "15px",
                     padding: 0,
-                    opacity: canGoPrevWeek ? 1 : 0.5,
-                    cursor: canGoPrevWeek ? "pointer" : "not-allowed",
+                    opacity:
+                      canGoPreviousWeek
+                        ? 1
+                        : 0.5,
+                    cursor:
+                      canGoPreviousWeek
+                        ? "pointer"
+                        : "not-allowed",
                   }}
                 >
                   ‹
                 </button>
+
                 <button
                   type="button"
                   className="btn btn-sm nav-circle-btn"
-                  onClick={goNextWeek}
+                  onClick={() =>
+                    changeWeek(7)
+                  }
                   disabled={submitting}
                   style={{
                     width: "30px",
                     height: "30px",
                     borderRadius: "50%",
-                    border: `1px solid ${theme.border}`,
+                    border:
+                      `1px solid ${theme.border}`,
                     background: theme.softBg,
                     color: theme.text,
                     fontSize: "15px",
@@ -1407,16 +2313,23 @@ const RescheduleBookingModal = ({
                   color: theme.heading,
                 }}
               >
-                {weekDays[0].format("MMM D")} - {weekDays[6].format("MMM D, YYYY")}
+                {weekDays[0].format("MMM D")} -{" "}
+                {weekDays[6].format(
+                  "MMM D, YYYY"
+                )}
               </div>
 
               <input
                 type="date"
-                min={minSelectableDate}
                 className="form-control theme-native-control"
+                min={todayDubai.format(
+                  "YYYY-MM-DD"
+                )}
                 value={selectedDate}
-                onChange={handleDateInputChange}
                 disabled={submitting}
+                onChange={
+                  handleDateInputChange
+                }
                 style={{
                   width: "240px",
                   height: "38px",
@@ -1437,65 +2350,85 @@ const RescheduleBookingModal = ({
                 marginBottom: "6px",
               }}
             >
-              Set Your Time Zone
+              Admin Time Zone
             </label>
 
-            <select
-              className="form-select theme-native-control"
-              value={selectedTimezone}
-              onChange={(e) => {
-                const nextTz = getSafeTimezone(e.target.value);
-                const parsedSelectedDate = parseSelectedDate(selectedDate, nextTz);
-                const today = getTodayInTimezone(nextTz);
-
-                setSelectedTimezone(nextTz);
-                setSelectedSlot(null);
-                setSubmitError("");
-
-                if (parsedSelectedDate && !parsedSelectedDate.isBefore(today, "day")) {
-                  setSelectedDate(parsedSelectedDate.format("YYYY-MM-DD"));
-                  setSelectedWeekStart(getWeekStart(parsedSelectedDate, nextTz));
-                } else {
-                  const nextWeek = getWeekStart(today.clone(), nextTz);
-                  setSelectedWeekStart(nextWeek);
-                  setSelectedDate(getDefaultVisibleDateForWeek(nextWeek, nextTz));
-                }
-              }}
-              disabled={submitting}
+            <div
               style={{
-                height: "38px",
+                minHeight: "38px",
                 borderRadius: "8px",
-                fontWeight: 500,
+                border:
+                  `1px solid ${theme.border}`,
+                background:
+                  "var(--bs-body-bg)",
+                padding: "9px 12px",
+                textAlign: "center",
+                fontWeight: 700,
                 fontSize: "13px",
+                color: theme.heading,
               }}
             >
-              {(timezoneOptions || []).map((tz) => (
-                <option key={`${tz.value}-${tz.id || "na"}`} value={tz.value}>
-                  {tz.label}
-                </option>
-              ))}
-            </select>
+              Asia/Dubai (UAE Time)
+            </div>
 
-            {timezoneIdWarning ? (
-              <div className="mt-2" style={{ fontSize: "11px", color: "var(--bs-danger)" }}>
-                {timezoneIdWarning}
+            <div
+              className="mt-2 text-center"
+              style={{
+                fontSize: "11px",
+                color: theme.muted,
+                lineHeight: 1.35,
+              }}
+            >
+              Student timezone:{" "}
+              <strong>
+                {studentTimezone ||
+                  "Not available"}
+              </strong>
+              .
+            </div>
+
+            {timezoneWarning ? (
+              <div
+                className="mt-2 text-center"
+                style={{
+                  fontSize: "11px",
+                  color:
+                    "var(--bs-danger)",
+                }}
+              >
+                {timezoneWarning}
               </div>
             ) : null}
           </div>
         </div>
 
         {profileLoading ? (
-          <div className="text-center py-5">Loading teacher availability...</div>
+          <div className="text-center py-5">
+            Loading teacher availability...
+          </div>
         ) : (
           <div className="row g-2 mb-4 flex-nowrap overflow-auto">
             {weekDays.map((day) => {
-              const dayKey = day.format("YYYY-MM-DD");
-              const slots = slotsMap[dayKey] || [];
-              const isSelected = selectedDate === dayKey;
-              const isPastDay = day.isBefore(todayLocal, "day");
+              const dayKey =
+                day.format("YYYY-MM-DD");
+
+              const slots =
+                slotsMap[dayKey] || [];
+
+              const isSelected =
+                selectedDate === dayKey;
+
+              const isPastDay =
+                day.isBefore(
+                  todayDubai,
+                  "day"
+                );
 
               return (
-                <div key={dayKey} className="col week-day-col">
+                <div
+                  key={dayKey}
+                  className="col week-day-col"
+                >
                   <div
                     style={{
                       minWidth: "110px",
@@ -1506,9 +2439,11 @@ const RescheduleBookingModal = ({
                       style={{
                         width: "26px",
                         height: "3px",
-                        background: theme.primary,
+                        background:
+                          theme.primary,
                         borderRadius: "999px",
-                        margin: "0 auto 10px",
+                        margin:
+                          "0 auto 10px",
                       }}
                     />
 
@@ -1526,8 +2461,13 @@ const RescheduleBookingModal = ({
                     <button
                       type="button"
                       className="day-btn"
-                      disabled={isPastDay || submitting}
-                      onClick={() => handleDayPick(dayKey)}
+                      disabled={
+                        isPastDay ||
+                        submitting
+                      }
+                      onClick={() =>
+                        handleDayPick(day)
+                      }
                       style={{
                         width: "34px",
                         height: "30px",
@@ -1535,23 +2475,31 @@ const RescheduleBookingModal = ({
                         border: isSelected
                           ? `1px solid ${theme.primary}`
                           : `1px solid ${theme.border}`,
-                        background: isSelected ? theme.primarySubtle : "var(--bs-body-bg)",
+                        background: isSelected
+                          ? theme.primarySubtle
+                          : "var(--bs-body-bg)",
                         color: theme.heading,
                         fontWeight: 700,
                         marginBottom: "12px",
                         fontSize: "12px",
-                        opacity: isPastDay ? 0.55 : 1,
-                        cursor: isPastDay ? "not-allowed" : "pointer",
+                        opacity: isPastDay
+                          ? 0.55
+                          : 1,
+                        cursor: isPastDay
+                          ? "not-allowed"
+                          : "pointer",
                       }}
                     >
                       {day.format("D")}
                     </button>
 
-                    {slots.length === 0 ? (
+                    {!slots.length ? (
                       <div
                         style={{
-                          background: "var(--bs-secondary-bg)",
-                          border: `1px solid ${theme.border}`,
+                          background:
+                            "var(--bs-secondary-bg)",
+                          border:
+                            `1px solid ${theme.border}`,
                           borderRadius: "8px",
                           color: theme.muted,
                           fontSize: "11px",
@@ -1560,59 +2508,96 @@ const RescheduleBookingModal = ({
                           minHeight: "40px",
                           display: "flex",
                           alignItems: "center",
-                          justifyContent: "center",
+                          justifyContent:
+                            "center",
                           lineHeight: 1.25,
                         }}
                       >
-                        {isPastDay ? "No Slots Available" : "No Slots Available"}
+                        No Slots Available
                       </div>
                     ) : (
                       <div className="d-flex flex-column gap-2">
                         {slots.map((slot) => {
-                          const active =
-                            selectedDate === dayKey &&
-                            selectedSlot?.start === slot.start &&
-                            selectedSlot?.end === slot.end &&
-                            !slot.isBooked;
+                          const isBooked =
+                            Boolean(
+                              slot.isBooked
+                            );
 
-                          const isBooked = Boolean(slot?.isBooked);
+                          const isActive =
+                            selectedDate ===
+                              dayKey &&
+                            selectedSlot?.start ===
+                              slot.start &&
+                            selectedSlot?.end ===
+                              slot.end &&
+                            !isBooked;
 
                           return (
                             <button
                               key={`${slot.start}-${slot.end}`}
                               type="button"
                               className="slot-btn"
-                              disabled={isBooked || submitting}
-                              onClick={() => handleSlotPick(day, slot)}
+                              disabled={
+                                isBooked ||
+                                submitting
+                              }
+                              onClick={() =>
+                                handleSlotPick(
+                                  day,
+                                  slot
+                                )
+                              }
+                              title={
+                                isBooked
+                                  ? "Booked Slot"
+                                  : "Select slot"
+                              }
                               style={{
                                 border: isBooked
                                   ? `1px dashed ${theme.dangerBorder}`
-                                  : active
-                                  ? `1px solid ${theme.primary}`
-                                  : `1px solid ${theme.border}`,
-                                background: isBooked
-                                  ? theme.dangerBg
-                                  : active
-                                  ? theme.primarySubtle
-                                  : "var(--bs-secondary-bg)",
+                                  : isActive
+                                    ? `1px solid ${theme.primary}`
+                                    : `1px solid ${theme.border}`,
+
+                                background:
+                                  isBooked
+                                    ? theme.dangerBg
+                                    : isActive
+                                      ? theme.primarySubtle
+                                      : "var(--bs-secondary-bg)",
+
                                 color: isBooked
                                   ? theme.dangerText
-                                  : active
-                                  ? theme.primaryText
-                                  : theme.muted,
+                                  : isActive
+                                    ? theme.primaryText
+                                    : theme.muted,
+
                                 borderRadius: "8px",
                                 fontSize: "11px",
                                 fontWeight: 700,
                                 padding: "8px 6px",
                                 lineHeight: 1.2,
-                                cursor: isBooked ? "not-allowed" : "pointer",
-                                opacity: isBooked ? 0.9 : 1,
+
+                                cursor: isBooked
+                                  ? "not-allowed"
+                                  : "pointer",
+
+                                opacity: isBooked
+                                  ? 0.9
+                                  : 1,
                               }}
-                              title={isBooked ? "Booked Slot" : "Select slot"}
                             >
-                              <div>{slot.label}</div>
+                              <div>
+                                {slot.label}
+                              </div>
+
                               {isBooked ? (
-                                <div style={{ fontSize: "10px", marginTop: "4px" }}>
+                                <div
+                                  style={{
+                                    fontSize: "10px",
+                                    marginTop: "4px",
+                                  }}
+                                >
                                   Booked Slot
                                 </div>
                               ) : null}
@@ -1631,10 +2616,8 @@ const RescheduleBookingModal = ({
         <div
           className="mb-4"
           style={{
-            border: `1px solid ${theme.border}`,
+            ...styles.section,
             borderRadius: "12px",
-            background: theme.sectionBg,
-            padding: "14px",
           }}
         >
           <div className="d-flex align-items-center justify-content-between gap-3 flex-wrap">
@@ -1648,8 +2631,15 @@ const RescheduleBookingModal = ({
               >
                 Custom Slot
               </div>
-              <div style={{ color: theme.muted, fontSize: "12px" }}>
-                If you do not want to select a listed slot, set the start and end time manually here.
+
+              <div
+                style={{
+                  color: theme.muted,
+                  fontSize: "12px",
+                }}
+              >
+                If you do not want to select a listed slot,
+                set the start and end time manually here.
               </div>
             </div>
 
@@ -1658,50 +2648,62 @@ const RescheduleBookingModal = ({
                 type="button"
                 aria-label="Enable custom slot"
                 aria-pressed={useCustomSlot}
-                onClick={() => {
-                  if (submitting) return;
-                  setUseCustomSlot((prev) => !prev);
-                  setSelectedSlot(null);
-                  setSubmitError("");
-                }}
+                onClick={toggleCustomSlot}
                 disabled={submitting}
                 style={{
                   width: "52px",
                   height: "30px",
                   border: "none",
                   borderRadius: "999px",
-                  background: useCustomSlot ? theme.primary : "#94a3b8",
+
+                  background: useCustomSlot
+                    ? theme.primary
+                    : "#94a3b8",
+
                   position: "relative",
                   padding: 0,
-                  cursor: submitting ? "not-allowed" : "pointer",
-                  opacity: submitting ? 0.7 : 1,
-                  transition: "all 0.2s ease",
-                  boxShadow: "inset 0 0 0 1px rgba(15, 23, 42, 0.08)",
+
+                  cursor: submitting
+                    ? "not-allowed"
+                    : "pointer",
+
+                  opacity: submitting
+                    ? 0.7
+                    : 1,
+
+                  transition:
+                    "all 0.2s ease",
+
+                  boxShadow:
+                    "inset 0 0 0 1px rgba(15, 23, 42, 0.08)",
                 }}
               >
                 <span
                   style={{
                     position: "absolute",
                     top: "3px",
-                    left: useCustomSlot ? "25px" : "3px",
+
+                    left: useCustomSlot
+                      ? "25px"
+                      : "3px",
+
                     width: "24px",
                     height: "24px",
                     borderRadius: "50%",
                     background: "#fff",
-                    boxShadow: "0 2px 6px rgba(15, 23, 42, 0.22)",
-                    transition: "all 0.2s ease",
+
+                    boxShadow:
+                      "0 2px 6px rgba(15, 23, 42, 0.22)",
+
+                    transition:
+                      "all 0.2s ease",
                   }}
                 />
               </button>
 
               <button
                 type="button"
-                onClick={() => {
-                  if (submitting) return;
-                  setUseCustomSlot((prev) => !prev);
-                  setSelectedSlot(null);
-                  setSubmitError("");
-                }}
+                onClick={toggleCustomSlot}
                 disabled={submitting}
                 style={{
                   border: "none",
@@ -1710,7 +2712,10 @@ const RescheduleBookingModal = ({
                   fontSize: "13px",
                   fontWeight: 700,
                   padding: 0,
-                  cursor: submitting ? "not-allowed" : "pointer",
+
+                  cursor: submitting
+                    ? "not-allowed"
+                    : "pointer",
                 }}
               >
                 Enable custom slot
@@ -1723,58 +2728,95 @@ const RescheduleBookingModal = ({
               <div className="col-md-4">
                 <label
                   className="form-label"
-                  style={{ color: theme.muted, fontSize: "12px", fontWeight: 700 }}
+                  style={{
+                    color: theme.muted,
+                    fontSize: "12px",
+                    fontWeight: 700,
+                  }}
                 >
                   Date
                 </label>
+
                 <input
                   type="date"
                   className="form-control theme-native-control"
                   value={selectedDate}
-                  min={minSelectableDate}
-                  onChange={handleDateInputChange}
+                  min={todayDubai.format(
+                    "YYYY-MM-DD"
+                  )}
+                  onChange={
+                    handleDateInputChange
+                  }
                   disabled={submitting}
-                  style={{ height: "38px", borderRadius: "8px", fontSize: "13px" }}
+                  style={{
+                    height: "38px",
+                    borderRadius: "8px",
+                    fontSize: "13px",
+                  }}
                 />
               </div>
 
               <div className="col-md-4">
                 <label
                   className="form-label"
-                  style={{ color: theme.muted, fontSize: "12px", fontWeight: 700 }}
+                  style={{
+                    color: theme.muted,
+                    fontSize: "12px",
+                    fontWeight: 700,
+                  }}
                 >
                   Start Time
                 </label>
+
                 <input
                   type="time"
                   className="form-control theme-native-control"
                   value={customStartTime}
-                  onChange={(e) => {
-                    setCustomStartTime(e.target.value);
+                  disabled={submitting}
+                  onChange={(event) => {
+                    setCustomStartTime(
+                      event.target.value
+                    );
+
                     setSubmitError("");
                   }}
-                  disabled={submitting}
-                  style={{ height: "38px", borderRadius: "8px", fontSize: "13px" }}
+                  style={{
+                    height: "38px",
+                    borderRadius: "8px",
+                    fontSize: "13px",
+                  }}
                 />
               </div>
 
               <div className="col-md-4">
                 <label
                   className="form-label"
-                  style={{ color: theme.muted, fontSize: "12px", fontWeight: 700 }}
+                  style={{
+                    color: theme.muted,
+                    fontSize: "12px",
+                    fontWeight: 700,
+                  }}
                 >
                   End Time
                 </label>
+
                 <input
                   type="time"
                   className="form-control theme-native-control"
                   value={customEndTime}
-                  onChange={(e) => {
-                    setCustomEndTime(e.target.value);
+                  disabled={submitting}
+                  onChange={(event) => {
+                    setCustomEndTime(
+                      event.target.value
+                    );
+
                     setSubmitError("");
                   }}
-                  disabled={submitting}
-                  style={{ height: "38px", borderRadius: "8px", fontSize: "13px" }}
+                  style={{
+                    height: "38px",
+                    borderRadius: "8px",
+                    fontSize: "13px",
+                  }}
                 />
               </div>
             </div>
@@ -1784,18 +2826,21 @@ const RescheduleBookingModal = ({
         <div className="d-flex justify-content-between gap-3 flex-wrap">
           <button
             type="button"
-            onClick={onClose}
             className="btn modal-action-btn"
+            onClick={closeSafely}
             disabled={submitting}
             style={{
               flex: 1,
               minWidth: "180px",
               height: "40px",
               borderRadius: "999px",
-              background: theme.secondaryBtnBg,
-              color: theme.secondaryBtnText,
+              background:
+                theme.secondaryBtnBg,
+              color:
+                theme.secondaryBtnText,
               fontWeight: 700,
-              border: `1px solid ${theme.border}`,
+              border:
+                `1px solid ${theme.border}`,
               fontSize: "13px",
             }}
           >
@@ -1804,24 +2849,39 @@ const RescheduleBookingModal = ({
 
           <button
             type="button"
+            className="btn modal-action-btn"
             onClick={handleSubmit}
             disabled={!canSubmit}
-            className="btn modal-action-btn"
             style={{
               flex: 1,
               minWidth: "180px",
               height: "40px",
               borderRadius: "999px",
-              background: canSubmit ? theme.primary : "var(--bs-secondary-bg)",
-              color: canSubmit ? "#fff" : theme.muted,
+
+              background: canSubmit
+                ? theme.primary
+                : "var(--bs-secondary-bg)",
+
+              color: canSubmit
+                ? "#fff"
+                : theme.muted,
+
               fontWeight: 700,
               border: "none",
               fontSize: "13px",
-              opacity: canSubmit ? 1 : 0.7,
-              cursor: canSubmit ? "pointer" : "not-allowed",
+
+              opacity: canSubmit
+                ? 1
+                : 0.7,
+
+              cursor: canSubmit
+                ? "pointer"
+                : "not-allowed",
             }}
           >
-            {submitting ? "Rescheduling..." : "Reschedule"}
+            {submitting
+              ? "Rescheduling..."
+              : "Reschedule"}
           </button>
         </div>
       </div>

@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import moment from "moment";
+import moment from "moment-timezone";
 import Swal from "sweetalert2";
 import { getTimezonesLookup } from "../api/getTimezonesLookup";
 import { getToken } from "../api/getToken";
+
+const ADMIN_TIMEZONE = "Asia/Dubai";
 
 // ---------------- helpers ----------------
 const norm = (v) => String(v ?? "").toLowerCase().trim();
@@ -58,6 +60,7 @@ const getOffsetMinutes = (timeZone, dateUtc) => {
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
+      hourCycle: "h23",
     });
     const parts = fmt.formatToParts(dateUtc);
     const tzPart = parts.find((p) => p.type === "timeZoneName")?.value || "";
@@ -72,41 +75,140 @@ const getOffsetMinutes = (timeZone, dateUtc) => {
   }
 };
 
+const extractIanaTimezone = (rawValue) => {
+  const value = String(rawValue || "").trim();
+
+  if (!value) {
+    return "";
+  }
+
+  if (moment.tz.zone(value)) {
+    return value;
+  }
+
+  const match = value.match(
+    /[A-Za-z_]+\/[A-Za-z_]+(?:\/[A-Za-z_]+)?/
+  );
+
+  return match?.[0] &&
+    moment.tz.zone(match[0])
+    ? match[0]
+    : "";
+};
+
 const shiftUtcByOffset = (utcDate, offsetMin) =>
   new Date(utcDate.getTime() + offsetMin * 60 * 1000);
 
 const formatInTZ = (utcDate, tz) => {
-  const fixed = parseFixedOffsetMinutes(tz);
-  if (fixed !== null) {
-    const d = shiftUtcByOffset(utcDate, fixed);
-    return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
-  }
+  const fixed =
+    parseFixedOffsetMinutes(tz);
 
-  const fmt = new Intl.DateTimeFormat("en-GB", {
-    timeZone: tz,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-  return fmt.format(utcDate);
-};
-
-const formatDateInTZ = (utcDate, tz) => {
-  const fixed = parseFixedOffsetMinutes(tz);
   if (fixed !== null) {
-    const d = shiftUtcByOffset(utcDate, fixed);
-    return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(
-      d.getUTCDate()
+    const date = shiftUtcByOffset(
+      utcDate,
+      fixed
+    );
+
+    return `${pad2(
+      date.getUTCHours()
+    )}:${pad2(
+      date.getUTCMinutes()
     )}`;
   }
 
-  const fmt = new Intl.DateTimeFormat("en-CA", {
-    timeZone: tz,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-  return fmt.format(utcDate);
+  const formatter =
+    new Intl.DateTimeFormat(
+      "en-GB",
+      {
+        timeZone: tz,
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+        hourCycle: "h23",
+      }
+    );
+
+  const parts =
+    formatter.formatToParts(utcDate);
+
+  let hour =
+    parts.find(
+      (part) =>
+        part.type === "hour"
+    )?.value || "";
+
+  const minute =
+    parts.find(
+      (part) =>
+        part.type === "minute"
+    )?.value || "";
+
+  if (hour === "24") {
+    hour = "00";
+  }
+
+  return hour && minute
+    ? `${hour}:${minute}`
+    : "";
+};
+
+const formatDateInTZ = (
+  utcDate,
+  tz
+) => {
+  const fixed =
+    parseFixedOffsetMinutes(tz);
+
+  if (fixed !== null) {
+    const date = shiftUtcByOffset(
+      utcDate,
+      fixed
+    );
+
+    return `${date.getUTCFullYear()}-${pad2(
+      date.getUTCMonth() + 1
+    )}-${pad2(
+      date.getUTCDate()
+    )}`;
+  }
+
+  const formatter =
+    new Intl.DateTimeFormat(
+      "en-CA",
+      {
+        timeZone: tz,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }
+    );
+
+  const parts =
+    formatter.formatToParts(
+      utcDate
+    );
+
+  const year =
+    parts.find(
+      (part) =>
+        part.type === "year"
+    )?.value || "";
+
+  const month =
+    parts.find(
+      (part) =>
+        part.type === "month"
+    )?.value || "";
+
+  const day =
+    parts.find(
+      (part) =>
+        part.type === "day"
+    )?.value || "";
+
+  return year && month && day
+    ? `${year}-${month}-${day}`
+    : "";
 };
 
 const addDaysDateStr = (dateStr, days) => {
@@ -433,7 +535,6 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
   const [customSlotDate, setCustomSlotDate] = useState("");
   const [customSlotStart, setCustomSlotStart] = useState("");
   const [customSlotEnd, setCustomSlotEnd] = useState("");
-  const [customSlotTz, setCustomSlotTz] = useState("UTC");
   const [customSlotError, setCustomSlotError] = useState("");
 
   const lastNonFreeAmountRef = useRef("");
@@ -441,23 +542,24 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
 
   const [bookedUtcIntervals, setBookedUtcIntervals] = useState([]);
   const [bookedLoading, setBookedLoading] = useState(false);
+  const [bookedLoadError, setBookedLoadError] = useState("");
 
   const [bookingSubmitting, setBookingSubmitting] = useState(false);
   const [bookingError, setBookingError] = useState("");
   const [bookingSuccess, setBookingSuccess] = useState("");
 
   const [timezones, setTimezones] = useState([]);
-  const [studentTz, setStudentTz] = useState("UTC");
-  const userDetectedTzRef = useRef("UTC");
+  const [studentTz, setStudentTz] = useState("");
 
   const [weekAnchorDateStr, setWeekAnchorDateStr] = useState(() =>
-    getTodayDateStr("UTC")
+    getTodayDateStr(ADMIN_TIMEZONE)
   );
 
   const [scrollA, setScrollA] = useState(0);
   const [scrollB, setScrollB] = useState(0);
   const schedRefA = useRef(null);
   const schedRefB = useRef(null);
+  const bookingSubmitLockRef = useRef(false);
 
   // ---------------- Entitlements (Block + Subscription) ----------------
   const [blockInfo, setBlockInfo] = useState({ hasActive: false });
@@ -483,56 +585,112 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
   const BOOKED_SLOTS_PROC = "get_teacher_bookings";
 
   const buildHeaders = async () => {
-    const token = await getToken();
+    const tokenResponse =
+      await getToken();
+
+    const token =
+      typeof tokenResponse === "string"
+        ? tokenResponse
+        : tokenResponse?.token ||
+        tokenResponse?.data?.token ||
+        tokenResponse?.data?.data?.token ||
+        tokenResponse?.access_token ||
+        tokenResponse?.data?.access_token ||
+        "";
+
     return {
       projectid: "1",
       userid: "test",
       password: "test",
       "x-api-key": "abc123456789",
       "Content-Type": "application/json",
-      token: token || "",
+      ...(token ? { token } : {}),
     };
   };
 
-  // ---------------- timezones lookup + auto detect user TZ ----------------
+  // ---------------- timezone lookup ----------------
   useEffect(() => {
-    (async () => {
-      let userTz = "UTC";
-      try {
-        userTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-      } catch { }
+    let active = true;
 
-      userDetectedTzRef.current = userTz;
-
+    const loadTimezones = async () => {
       try {
-        const res = await getTimezonesLookup();
-        if (res?.statusCode === 200) {
-          const tzs = res?.data || [];
-          setTimezones(Array.isArray(tzs) ? tzs : []);
-          setStudentTz(userTz);
-          setCustomSlotTz(userTz);
-          setWeekAnchorDateStr(getTodayDateStr(userTz));
+        const response = await getTimezonesLookup();
+
+        if (!active) {
           return;
         }
-      } catch (e) {
-        console.error("getTimezonesLookup error:", e);
-      }
 
-      setTimezones([]);
-      setStudentTz(userTz);
-      setCustomSlotTz(userTz);
-      setWeekAnchorDateStr(getTodayDateStr(userTz));
-    })();
+        if (Number(response?.statusCode) === 200) {
+          const rows = [
+            response?.data,
+            response?.data?.data,
+            response?.timezones,
+            response?.data?.timezones,
+          ].find(Array.isArray) || [];
+
+          setTimezones(rows);
+        } else {
+          setTimezones([]);
+        }
+      } catch (error) {
+        console.error("getTimezonesLookup error:", error);
+
+        if (active) {
+          setTimezones([]);
+        }
+      }
+    };
+
+    loadTimezones();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   const timezoneOptions = useMemo(() => {
     let list = [];
-    if (Array.isArray(timezones) && timezones.length) {
-      list = timezones.map((t) => ({
-        value: t.timezone,
-        label: t.timezone,
-        timezoneid: t.timezoneid ?? t.id ?? t.timezoneId ?? null,
-      }));
+    if (
+      Array.isArray(timezones) &&
+      timezones.length
+    ) {
+      list = timezones
+        .map((timezoneItem) => {
+          const rawValue = String(
+            timezoneItem?.timezone ||
+            timezoneItem?.zone ||
+            timezoneItem?.value ||
+            timezoneItem?.timezonename ||
+            timezoneItem?.timezone_name ||
+            timezoneItem?.name ||
+            ""
+          ).trim();
+
+          const value =
+            extractIanaTimezone(rawValue) ||
+            rawValue;
+
+          if (!value) {
+            return null;
+          }
+
+          return {
+            value,
+            label: String(
+              timezoneItem?.timezonename ||
+              timezoneItem?.timezone_name ||
+              timezoneItem?.label ||
+              rawValue ||
+              value
+            ),
+            timezoneid:
+              timezoneItem?.timezoneid ??
+              timezoneItem?.id ??
+              timezoneItem?.timezoneId ??
+              null,
+          };
+        })
+        .filter(Boolean);
     }
 
     const ensureOption = (tzValue) => {
@@ -548,15 +706,14 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
       }
     };
 
+    ensureOption(ADMIN_TIMEZONE);
     ensureOption(studentTz);
-    ensureOption(customSlotTz);
 
     if (!list.length) {
-      const fallbackTz = studentTz || customSlotTz || "UTC";
       list = [
         {
-          value: fallbackTz,
-          label: fallbackTz,
+          value: ADMIN_TIMEZONE,
+          label: ADMIN_TIMEZONE,
           timezoneid: null,
         },
       ];
@@ -569,7 +726,7 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
       seen.add(k);
       return true;
     });
-  }, [timezones, studentTz, customSlotTz]);
+  }, [timezones, studentTz]);
 
   const getTzStringById = (tzId) => {
     const id = String(tzId ?? "").trim();
@@ -580,23 +737,44 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
     return found?.value || "";
   };
 
-  const resolveTz = (tzIdOrName, fallback) => {
-    const raw = String(tzIdOrName ?? "").trim();
-    if (!raw) return fallback || "UTC";
+  const resolveTz = (
+    tzIdOrName,
+    fallback = ""
+  ) => {
+    const raw = String(
+      tzIdOrName ?? ""
+    ).trim();
+
+    if (!raw) {
+      return fallback;
+    }
+
+    const iana =
+      extractIanaTimezone(raw);
+
+    if (iana) {
+      return iana;
+    }
 
     if (
-      raw.includes("/") ||
-      raw === "UTC" ||
-      raw.startsWith("Etc/") ||
+      /^utc$/i.test(raw) ||
+      /^gmt$/i.test(raw) ||
       parseFixedOffsetMinutes(raw) !== null
     ) {
       return raw;
     }
 
-    const byId = getTzStringById(raw);
-    if (byId) return byId;
+    const byId =
+      getTzStringById(raw);
 
-    return fallback || "UTC";
+    if (byId) {
+      return (
+        extractIanaTimezone(byId) ||
+        byId
+      );
+    }
+
+    return fallback;
   };
 
   const getTimezoneIdByValue = (tzValue) => {
@@ -606,6 +784,85 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
     const id = opt?.timezoneid;
     return id === null || id === undefined || id === "" ? "" : String(id);
   };
+  const buildBookedIntervals = (rows = []) => {
+    const intervals = [];
+    let invalidRows = 0;
+
+    for (const row of rows) {
+      const dateStr = String(
+        row?.bookdate ||
+        row?.booking_date ||
+        ""
+      ).trim();
+
+      const start = toHHMM(row?.slot_start);
+      const end = toHHMM(row?.slot_end);
+
+      const timezoneValue = resolveTz(
+        row?.timezone ||
+        row?.timezonename ||
+        row?.timezone_name ||
+        row?.timezoneid ||
+        row?.timezone_id,
+        ""
+      );
+
+      if (
+        !dateStr ||
+        !start ||
+        !end ||
+        !timezoneValue
+      ) {
+        invalidRows += 1;
+        continue;
+      }
+
+      const utcStart = zonedLocalToUtcDate(
+        dateStr,
+        start,
+        timezoneValue
+      );
+
+      let endDateStr = dateStr;
+
+      if (
+        moment(end, "HH:mm").isSameOrBefore(
+          moment(start, "HH:mm")
+        )
+      ) {
+        endDateStr = addDaysDateStr(
+          dateStr,
+          1
+        );
+      }
+
+      const utcEnd = zonedLocalToUtcDate(
+        endDateStr,
+        end,
+        timezoneValue
+      );
+
+      if (
+        Number.isNaN(utcStart.getTime()) ||
+        Number.isNaN(utcEnd.getTime()) ||
+        utcEnd.getTime() <= utcStart.getTime()
+      ) {
+        invalidRows += 1;
+        continue;
+      }
+
+      intervals.push({
+        start: utcStart,
+        end: utcEnd,
+      });
+    }
+
+    return {
+      intervals,
+      invalidRows,
+    };
+  };
+
 
   // ---------------- fetch Students/Teachers ----------------
   const fetchStudents = async () => {
@@ -690,16 +947,20 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
     setScrollA(0);
     setScrollB(0);
 
-    const tz = userDetectedTzRef.current || studentTz || "UTC";
-    setStudentTz(tz);
-    setCustomSlotTz(tz);
-    setWeekAnchorDateStr(getTodayDateStr(tz));
-    setCustomSlotDate(getTodayDateStr(tz));
+    setStudentTz("");
+    setWeekAnchorDateStr(
+      getTodayDateStr(ADMIN_TIMEZONE)
+    );
+    setCustomSlotDate(
+      getTodayDateStr(ADMIN_TIMEZONE)
+    );
     setCustomSlotStart("");
     setCustomSlotEnd("");
 
     setBookedUtcIntervals([]);
     setBookedLoading(false);
+    setBookedLoadError("");
+    bookingSubmitLockRef.current = false;
 
     setBlockInfo({ hasActive: false });
     setSubInfo({ hasActive: false });
@@ -711,20 +972,19 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
   }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    const minDate = getTodayDateStr(customSlotTz || "UTC");
-    setCustomSlotDate((prev) => {
-      if (!prev) return minDate;
-      return prev < minDate ? minDate : prev;
-    });
-  }, [customSlotTz]);
+    const minDate =
+      getTodayDateStr(ADMIN_TIMEZONE);
 
-  useEffect(() => {
-    if (selectedSlot?.kind === "custom") {
-      setSelectedSlot(null);
-    }
-    setCustomSlotError("");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customSlotTz]);
+    setCustomSlotDate((previous) => {
+      if (!previous) {
+        return minDate;
+      }
+
+      return previous < minDate
+        ? minDate
+        : previous;
+    });
+  }, []);
 
   const students = useMemo(() => {
     return (studentsRaw || [])
@@ -739,13 +999,24 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
         const price = Number(String(s?.price ?? "").replace(/[^\d.]/g, "")) || 0;
 
         return {
-  value: uid,
-  label: fullName,
-  avatar: String(s?.imagepath || "").trim() || "",
-  price,
-  timezoneid: s?.timezoneid ?? "",
-  timezone_name: String(s?.timezone_name || "").trim(),
-};
+          value: uid,
+          label: fullName,
+          avatar:
+            String(
+              s?.imagepath || ""
+            ).trim() || "",
+          price,
+          timezoneid:
+            s?.timezoneid ??
+            s?.timezone_id ??
+            "",
+          timezone_name: String(
+            s?.timezone_name ||
+            s?.timezonename ||
+            s?.timezone ||
+            ""
+          ).trim(),
+        };
       })
       .filter(Boolean);
   }, [studentsRaw]);
@@ -768,12 +1039,76 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
       .filter(Boolean);
   }, [teachersRaw]);
 
-  const selectedStudentName = useMemo(() => {
-    return (
-      students.find((s) => String(s.value) === String(studentId))?.label ||
-      "Student"
+  const selectedStudent = useMemo(
+    () =>
+      students.find(
+        (student) =>
+          String(student.value) ===
+          String(studentId)
+      ) || null,
+    [
+      students,
+      studentId,
+    ]
+  );
+
+  const selectedStudentName =
+    selectedStudent?.label ||
+    "Student";
+
+  const studentTimezoneId = useMemo(() => {
+    const lookupId =
+      getTimezoneIdByValue(
+        studentTz
+      );
+
+    const studentRecordId = String(
+      selectedStudent?.timezoneid ??
+      ""
+    ).trim();
+
+    const resolvedId =
+      String(
+        lookupId ||
+        studentRecordId
+      ).trim();
+
+    return /^\d+$/.test(resolvedId)
+      ? resolvedId
+      : "";
+  }, [
+    studentTz,
+    selectedStudent,
+    timezoneOptions,
+  ]);
+  useEffect(() => {
+    if (!studentId) {
+      return;
+    }
+
+    if (!selectedStudent) {
+      return;
+    }
+
+    const resolvedTimezone = resolveTz(
+      selectedStudent?.timezone_name ||
+      selectedStudent?.timezoneid,
+      ""
     );
-  }, [students, studentId]);
+
+    if (
+      resolvedTimezone &&
+      resolvedTimezone !== studentTz
+    ) {
+      setStudentTz(resolvedTimezone);
+    }
+  }, [
+    studentId,
+    selectedStudent,
+    timezoneOptions,
+    studentTz,
+  ]);
+
 
   const selectedTeacherName = useMemo(() => {
     return (
@@ -827,7 +1162,7 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
         value,
         label,
       }));
-            setSubjects(opts);
+      setSubjects(opts);
       setSubjectId("");
     } catch (e) {
       console.error("fetchTeacherProfile error:", e);
@@ -1074,6 +1409,7 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
       }
       lastNonFreeAmountRef.current = "";
       setPaymentType("direct");
+      setStudentTz("");
       return;
     }
 
@@ -1081,14 +1417,19 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
     const price = Number(st?.price ?? 0) || 0;
     const nextAmount = price > 0 ? String(price) : "";
 
-    const studentTimezoneName = String(st?.timezone_name || "").trim();
+    const resolvedStudentTimezone = resolveTz(
+      st?.timezone_name ||
+      st?.timezoneid,
+      ""
+    );
 
-if (studentTimezoneName) {
-  setStudentTz(studentTimezoneName);
-  setCustomSlotTz(studentTimezoneName);
-  setWeekAnchorDateStr(getTodayDateStr(studentTimezoneName));
-  setCustomSlotDate(getTodayDateStr(studentTimezoneName));
-}
+    setStudentTz(resolvedStudentTimezone);
+    setWeekAnchorDateStr(
+      getTodayDateStr(ADMIN_TIMEZONE)
+    );
+    setCustomSlotDate(
+      getTodayDateStr(ADMIN_TIMEZONE)
+    );
 
     if (paymentStatus === "Free") {
       lastNonFreeAmountRef.current = nextAmount;
@@ -1163,7 +1504,10 @@ if (studentTimezoneName) {
     if (!slot?.dateStr || !slot?.start || !slot?.end) return null;
 
     const slotTz =
-      String(slot?.bookingTz || studentTz || "UTC").trim() || "UTC";
+      String(
+        slot?.bookingTz ||
+        ADMIN_TIMEZONE
+      ).trim() || ADMIN_TIMEZONE;
 
     const startUtc = zonedLocalToUtcDate(slot.dateStr, slot.start, slotTz);
     let endDateStr = slot.dateStr;
@@ -1197,21 +1541,21 @@ if (studentTimezoneName) {
     const dateStr = String(customSlotDate || "").trim();
     const start = toHHMM(customSlotStart);
     const end = toHHMM(customSlotEnd);
-    const bookingTz = String(customSlotTz || "").trim() || "UTC";
+    const bookingTz = ADMIN_TIMEZONE;
 
     if (!dateStr || !start || !end) {
       return { error: "Please select custom date, start time and end time." };
     }
 
-    if (!bookingTz) {
-      return { error: "Please select custom slot timezone." };
-    }
-
     if (start === end) {
-      return { error: "Start and end time cannot be same." };
+      return {
+        error:
+          "The start and end times cannot be the same.",
+      };
     }
 
-    const todayStr = getTodayDateStr(bookingTz);
+    const todayStr =
+      getTodayDateStr(ADMIN_TIMEZONE);
     if (dateStr < todayStr) {
       return { error: "Past date is not allowed for custom slot." };
     }
@@ -1230,9 +1574,24 @@ if (studentTimezoneName) {
       booked: false,
     };
 
-    const utcInterval = buildSelectedSlotUtcInterval(slot);
+    const utcInterval =
+      buildSelectedSlotUtcInterval(slot);
+
     if (!utcInterval) {
-      return { error: "Invalid custom slot time range." };
+      return {
+        error:
+          "The custom slot time range is invalid.",
+      };
+    }
+
+    if (
+      utcInterval.startUtc.getTime() <=
+      Date.now()
+    ) {
+      return {
+        error:
+          "A custom slot cannot be created for a past date or time.",
+      };
     }
 
     const durationMinutes = getSlotDurationMinutes(
@@ -1244,11 +1603,11 @@ if (studentTimezoneName) {
 
     if (
       normalizeSessionType(sessionType) === "Online" &&
-      durationMinutes > 60
+      durationMinutes !== 60
     ) {
       return {
         error:
-          "Custom slot duration cannot be more than 1 hour for online sessions.",
+          "Online custom slot duration must be exactly 1 hour.",
       };
     }
 
@@ -1285,16 +1644,37 @@ if (studentTimezoneName) {
     }
 
     if (bookedLoading) {
-      setCustomSlotError("Teacher bookings are still loading. Please try again.");
+      const message =
+        "The teacher's booked slots are still loading. Please try again in a moment.";
+
+      setCustomSlotError(message);
+
       await Swal.fire({
         icon: "info",
-        title: "Please wait",
-        text: "Teacher bookings are still loading. Please try again.",
+        title: "Please Wait",
+        text: message,
       });
+
       return;
     }
 
-    const { slot, error } = buildCustomSlotCandidate();
+    if (bookedLoadError) {
+      setCustomSlotError(
+        bookedLoadError
+      );
+
+      await Swal.fire({
+        icon: "error",
+        title:
+          "Booking Verification Failed",
+        text: bookedLoadError,
+      });
+
+      return;
+    }
+
+    const { slot, error } =
+      buildCustomSlotCandidate();
 
     if (error) {
       setCustomSlotError(error);
@@ -1311,114 +1691,230 @@ if (studentTimezoneName) {
   };
 
   // ---------------- week helpers ----------------
-  const weekStartDateStr = useMemo(
-    () => isoWeekStartDateStr(weekAnchorDateStr, studentTz),
-    [weekAnchorDateStr, studentTz]
+  const adminTodayDateStr = useMemo(
+    () => getTodayDateStr(ADMIN_TIMEZONE),
+    [isOpen]
   );
+
+  const currentWeekStartDateStr = useMemo(
+    () =>
+      isoWeekStartDateStr(
+        adminTodayDateStr,
+        ADMIN_TIMEZONE
+      ),
+    [adminTodayDateStr]
+  );
+
+  const weekStartDateStr = useMemo(
+    () =>
+      isoWeekStartDateStr(
+        weekAnchorDateStr,
+        ADMIN_TIMEZONE
+      ),
+    [weekAnchorDateStr]
+  );
+
   const weekEndDateStr = useMemo(
-    () => addDaysDateStr(weekStartDateStr, 6),
+    () =>
+      addDaysDateStr(
+        weekStartDateStr,
+        6
+      ),
     [weekStartDateStr]
   );
 
+  const canGoPreviousWeek =
+    weekStartDateStr >
+    currentWeekStartDateStr;
+
   const weekLabel = useMemo(() => {
-    const a = moment(weekStartDateStr, "YYYY-MM-DD").format("MMM D");
-    const b = moment(weekEndDateStr, "YYYY-MM-DD").format("MMM D, YYYY");
-    return `${a} - ${b}`;
-  }, [weekStartDateStr, weekEndDateStr]);
+    const startLabel = moment(
+      weekStartDateStr,
+      "YYYY-MM-DD"
+    ).format("MMM D");
+
+    const endLabel = moment(
+      weekEndDateStr,
+      "YYYY-MM-DD"
+    ).format("MMM D, YYYY");
+
+    return `${startLabel} - ${endLabel}`;
+  }, [
+    weekStartDateStr,
+    weekEndDateStr,
+  ]);
 
   const dayKeys = useMemo(
-    () => ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+    () => [
+      "Mon",
+      "Tue",
+      "Wed",
+      "Thu",
+      "Fri",
+      "Sat",
+      "Sun",
+    ],
     []
   );
 
-  const handlePrevWeek = () =>
-    setWeekAnchorDateStr((d) => addDaysDateStr(d, -7));
-  const handleNextWeek = () =>
-    setWeekAnchorDateStr((d) => addDaysDateStr(d, 7));
-  const handleDatePick = (e) => {
-    const v = e.target.value;
-    if (!v) return;
-    setWeekAnchorDateStr(v);
-  };
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    if (!teacherId) {
-      setBookedUtcIntervals([]);
+  const handlePrevWeek = () => {
+    if (!canGoPreviousWeek) {
       return;
     }
 
-    (async () => {
+    setWeekAnchorDateStr((date) =>
+      addDaysDateStr(date, -7)
+    );
+  };
+
+  const handleNextWeek = () => {
+    setWeekAnchorDateStr((date) =>
+      addDaysDateStr(date, 7)
+    );
+  };
+
+  const handleDatePick = (event) => {
+    const value = event.target.value;
+
+    if (!value) {
+      return;
+    }
+
+    setWeekAnchorDateStr(
+      value < adminTodayDateStr
+        ? adminTodayDateStr
+        : value
+    );
+  };
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    if (!teacherId) {
+      setBookedUtcIntervals([]);
+      setBookedLoadError("");
+      return;
+    }
+
+    let active = true;
+
+    const loadBookedSlots = async () => {
       setBookedLoading(true);
+      setBookedLoadError("");
+
       try {
         const headers = await buildHeaders();
-        const resp = await fetch(STORED_PROC_URL, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
-            procedureName: BOOKED_SLOTS_PROC,
-            parameters: [String(teacherId)],
-          }),
-        });
 
-        const json = await resp.json();
-        if (json?.statusCode !== 200) {
-          setBookedUtcIntervals([]);
+        const response = await fetch(
+          STORED_PROC_URL,
+          {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              procedureName:
+                BOOKED_SLOTS_PROC,
+              parameters: [
+                String(teacherId),
+              ],
+            }),
+          }
+        );
+
+        const json = await response.json();
+
+        if (!active) {
           return;
         }
 
-        const rows = Array.isArray(json?.data) ? json.data : [];
-        const intervals = [];
-
-        for (const r of rows) {
-          const dateStr = String(r?.bookdate || "").trim();
-          const start = toHHMM(r?.slot_start);
-          const end = toHHMM(r?.slot_end);
-          const tz = String(r?.timezone || "UTC").trim() || "UTC";
-          if (!dateStr || !start || !end) continue;
-
-          const utcStart = zonedLocalToUtcDate(dateStr, start, tz);
-
-          let endDateStr = dateStr;
-          if (moment(end, "HH:mm").isSameOrBefore(moment(start, "HH:mm"))) {
-            endDateStr = addDaysDateStr(dateStr, 1);
-          }
-          const utcEnd = zonedLocalToUtcDate(endDateStr, end, tz);
-
-          if (utcEnd.getTime() > utcStart.getTime()) {
-            intervals.push({ start: utcStart, end: utcEnd });
-          }
+        if (
+          Number(json?.statusCode) !== 200
+        ) {
+          setBookedUtcIntervals([]);
+          setBookedLoadError(
+            json?.message ||
+            "Teacher bookings could not be loaded."
+          );
+          return;
         }
 
+        const rows = Array.isArray(
+          json?.data
+        )
+          ? json.data
+          : [];
+
+        const {
+          intervals,
+          invalidRows,
+        } = buildBookedIntervals(rows);
+
         setBookedUtcIntervals(intervals);
-      } catch (e) {
-        console.error("get_teacher_bookings error:", e);
-        setBookedUtcIntervals([]);
+
+        if (invalidRows > 0) {
+          setBookedLoadError(
+            "Some booked slots could not be verified because their timezone data is missing."
+          );
+        }
+      } catch (error) {
+        console.error(
+          "get_teacher_bookings error:",
+          error
+        );
+
+        if (active) {
+          setBookedUtcIntervals([]);
+          setBookedLoadError(
+            "Teacher bookings could not be loaded. Please try again."
+          );
+        }
       } finally {
-        setBookedLoading(false);
+        if (active) {
+          setBookedLoading(false);
+        }
       }
-    })();
-  }, [isOpen, teacherId]); // eslint-disable-line react-hooks/exhaustive-deps
+    };
+
+    loadBookedSlots();
+
+    return () => {
+      active = false;
+    };
+  }, [
+    isOpen,
+    teacherId,
+    timezoneOptions,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const bookedForWeek = useMemo(() => {
     if (!bookedUtcIntervals?.length) return [];
-    const rangeStartUtc = zonedLocalToUtcDate(
-      weekStartDateStr,
-      "00:00",
-      studentTz
-    );
-    const rangeEndUtc = zonedLocalToUtcDate(
-      addDaysDateStr(weekEndDateStr, 1),
-      "00:00",
-      studentTz
-    );
+    const rangeStartUtc =
+      zonedLocalToUtcDate(
+        weekStartDateStr,
+        "00:00",
+        ADMIN_TIMEZONE
+      );
+
+    const rangeEndUtc =
+      zonedLocalToUtcDate(
+        addDaysDateStr(
+          weekEndDateStr,
+          1
+        ),
+        "00:00",
+        ADMIN_TIMEZONE
+      );
     return bookedUtcIntervals.filter(
       (b) =>
         b.end.getTime() > rangeStartUtc.getTime() &&
         b.start.getTime() < rangeEndUtc.getTime()
     );
-  }, [bookedUtcIntervals, weekStartDateStr, weekEndDateStr, studentTz]);
+  }, [
+    bookedUtcIntervals,
+    weekStartDateStr,
+    weekEndDateStr,
+  ]);
 
   useEffect(() => {
     setSelectedSlot(null);
@@ -1454,16 +1950,7 @@ if (studentTimezoneName) {
 
   // ---------------- build slots ----------------
   const { oneToOneByDay, groupByDay } = useMemo(() => {
-    const base1 = {
-      Mon: [],
-      Tue: [],
-      Wed: [],
-      Thu: [],
-      Fri: [],
-      Sat: [],
-      Sun: [],
-    };
-    const baseG = {
+    const oneToOne = {
       Mon: [],
       Tue: [],
       Wed: [],
@@ -1473,108 +1960,280 @@ if (studentTimezoneName) {
       Sun: [],
     };
 
-    const nowUtc = new Date();
-    const todayStr = formatDateInTZ(nowUtc, studentTz);
+    const group = {
+      Mon: [],
+      Tue: [],
+      Wed: [],
+      Thu: [],
+      Fri: [],
+      Sat: [],
+      Sun: [],
+    };
 
-    const arr = Array.isArray(teacherProfileData?.teacheravailability)
+    const availabilityRows = Array.isArray(
+      teacherProfileData?.teacheravailability
+    )
       ? teacherProfileData.teacheravailability
       : [];
 
-    const profileTzId = String(
+    const profileTimezoneId = String(
       teacherProfileData?.profile?.[0]?.timezoneid ?? ""
     ).trim();
-    const fallbackTeacherTz = resolveTz(profileTzId, studentTz);
 
-    const defaultStepMin =
+    const fallbackTeacherTimezone = resolveTz(
+      profileTimezoneId,
+      ADMIN_TIMEZONE
+    );
+
+    const defaultDuration =
       Number(
         teacherProfileData?.profile?.[0]?.slotduration ||
         teacherProfileData?.profile?.[0]?.sessionduration ||
         60
       ) || 60;
 
+    const visibleStartUtc =
+      zonedLocalToUtcDate(
+        weekStartDateStr,
+        "00:00",
+        ADMIN_TIMEZONE
+      );
+
+    const visibleEndUtc =
+      zonedLocalToUtcDate(
+        addDaysDateStr(
+          weekEndDateStr,
+          1
+        ),
+        "00:00",
+        ADMIN_TIMEZONE
+      );
+
+    const nowUtc = new Date();
     const seen = new Set();
 
-    for (const a of arr) {
-      const dayKey = dayKeyFromName(a?.day);
-      if (!dayKey) continue;
+    for (const availability of availabilityRows) {
+      const teacherDayKey =
+        dayKeyFromName(availability?.day);
 
-      const dayIdx = dayKeys.indexOf(dayKey);
-      if (dayIdx < 0) continue;
+      if (!teacherDayKey) {
+        continue;
+      }
 
-      const baseDateStr = addDaysDateStr(weekStartDateStr, dayIdx);
+      const teacherDayIndex =
+        dayKeys.indexOf(teacherDayKey);
 
-      if (baseDateStr < todayStr) continue;
+      if (teacherDayIndex < 0) {
+        continue;
+      }
 
-      const startRaw = toHHMM(a?.timefrom);
-      const endRaw = toHHMM(a?.timeto);
-      if (!startRaw || !endRaw) continue;
+      const startRaw =
+        toHHMM(availability?.timefrom);
 
-      const isGroup = String(a?.isGroup ?? "0") === "1";
-      const noofParticipants = String(a?.noofParticipants ?? "");
+      const endRaw =
+        toHHMM(availability?.timeto);
 
-      const tzId = String(a?.timezoneid ?? "").trim();
-      const teacherTz = resolveTz(tzId, fallbackTeacherTz);
+      if (!startRaw || !endRaw) {
+        continue;
+      }
 
-      const stepMin =
-        Number(a?.slotduration || a?.duration || defaultStepMin) || 60;
-      const pieces = buildSteppedSlots(startRaw, endRaw, stepMin);
+      const isGroup =
+        String(availability?.isGroup ?? "0") === "1";
 
-      for (const hp of pieces) {
-        const startDateStr = addDaysDateStr(baseDateStr, hp.startDayOffset);
-        const endDateStr = addDaysDateStr(baseDateStr, hp.endDayOffset);
-
-        const utcStart = zonedLocalToUtcDate(startDateStr, hp.start, teacherTz);
-        const utcEnd = zonedLocalToUtcDate(endDateStr, hp.end, teacherTz);
-
-        const showStart = formatInTZ(utcStart, studentTz);
-        const showEnd = formatInTZ(utcEnd, studentTz);
-
-        const isBooked = (bookedForWeek || []).some((b) =>
-          overlaps(
-            utcStart.getTime(),
-            utcEnd.getTime(),
-            b.start.getTime(),
-            b.end.getTime()
-          )
+      const noofParticipants =
+        String(
+          availability?.noofParticipants ?? ""
         );
 
-        const dedupeKey = `${a?.id || "av"}|${dayKey}|${baseDateStr}|${showStart}|${showEnd}|${isGroup ? "G" : "O"
-          }|${isBooked ? "B" : "A"}`;
-        if (seen.has(dedupeKey)) continue;
-        seen.add(dedupeKey);
+      const teacherTimezone = resolveTz(
+        availability?.timezoneid,
+        fallbackTeacherTimezone
+      );
 
-        const slot = {
-          id: `${a?.id || "av"}-${dayKey}-${baseDateStr}-${hp.start}-${hp.end}-${showStart}`,
-          availId: String(a?.id ?? ""),
-          dayKey,
-          dateStr: baseDateStr,
-          start: showStart,
-          end: showEnd,
-          isGroup,
-          noofParticipants,
-          teacherTz,
-          booked: isBooked,
-        };
+      if (!teacherTimezone) {
+        continue;
+      }
 
-        if (isGroup) baseG[dayKey].push(slot);
-        else base1[dayKey].push(slot);
+      const stepMinutes =
+        Number(
+          availability?.slotduration ||
+          availability?.duration ||
+          defaultDuration
+        ) || 60;
+
+      const slotPieces =
+        buildSteppedSlots(
+          startRaw,
+          endRaw,
+          stepMinutes
+        );
+
+      const sourceAnchorDate =
+        formatDateInTZ(
+          visibleStartUtc,
+          teacherTimezone
+        );
+
+      const sourceWeekStart =
+        isoWeekStartDateStr(
+          sourceAnchorDate,
+          teacherTimezone
+        );
+
+      for (const weekOffset of [-7, 0, 7]) {
+        const teacherBaseDate =
+          addDaysDateStr(
+            sourceWeekStart,
+            weekOffset + teacherDayIndex
+          );
+
+        for (const piece of slotPieces) {
+          const teacherStartDate =
+            addDaysDateStr(
+              teacherBaseDate,
+              piece.startDayOffset
+            );
+
+          const teacherEndDate =
+            addDaysDateStr(
+              teacherBaseDate,
+              piece.endDayOffset
+            );
+
+          const utcStart =
+            zonedLocalToUtcDate(
+              teacherStartDate,
+              piece.start,
+              teacherTimezone
+            );
+
+          const utcEnd =
+            zonedLocalToUtcDate(
+              teacherEndDate,
+              piece.end,
+              teacherTimezone
+            );
+
+          if (
+            utcEnd.getTime() <=
+            nowUtc.getTime() ||
+            utcEnd.getTime() <=
+            visibleStartUtc.getTime() ||
+            utcStart.getTime() >=
+            visibleEndUtc.getTime()
+          ) {
+            continue;
+          }
+
+          const displayDate =
+            formatDateInTZ(
+              utcStart,
+              ADMIN_TIMEZONE
+            );
+
+          const displayDayKey =
+            getDayKeyInTZ(
+              utcStart,
+              ADMIN_TIMEZONE
+            );
+
+          if (
+            !displayDayKey ||
+            !oneToOne[displayDayKey]
+          ) {
+            continue;
+          }
+
+          const displayStart =
+            formatInTZ(
+              utcStart,
+              ADMIN_TIMEZONE
+            );
+
+          const displayEnd =
+            formatInTZ(
+              utcEnd,
+              ADMIN_TIMEZONE
+            );
+
+          const isBooked =
+            bookedForWeek.some((booked) =>
+              overlaps(
+                utcStart.getTime(),
+                utcEnd.getTime(),
+                booked.start.getTime(),
+                booked.end.getTime()
+              )
+            );
+
+          const dedupeKey = [
+            availability?.id || "availability",
+            utcStart.getTime(),
+            utcEnd.getTime(),
+            isGroup ? "group" : "one-to-one",
+          ].join("|");
+
+          if (seen.has(dedupeKey)) {
+            continue;
+          }
+
+          seen.add(dedupeKey);
+
+          const slot = {
+            id: dedupeKey,
+            availId: String(
+              availability?.id ?? ""
+            ),
+            dayKey: displayDayKey,
+            dateStr: displayDate,
+            start: displayStart,
+            end: displayEnd,
+            isGroup,
+            noofParticipants,
+            teacherTz: teacherTimezone,
+            bookingTz: ADMIN_TIMEZONE,
+            booked: isBooked,
+          };
+
+          if (isGroup) {
+            group[displayDayKey].push(slot);
+          } else {
+            oneToOne[displayDayKey].push(slot);
+          }
+        }
       }
     }
 
-    const sortFn = (x, y) => {
-      if (x.start !== y.start) return x.start > y.start ? 1 : -1;
-      return x.end > y.end ? 1 : x.end < y.end ? -1 : 0;
+    const sortSlots = (firstSlot, secondSlot) => {
+      const firstInterval =
+        buildSelectedSlotUtcInterval(firstSlot);
+
+      const secondInterval =
+        buildSelectedSlotUtcInterval(secondSlot);
+
+      return (
+        (firstInterval?.startUtc?.getTime() || 0) -
+        (secondInterval?.startUtc?.getTime() || 0)
+      );
     };
 
-    for (const k of Object.keys(base1)) base1[k].sort(sortFn);
-    for (const k of Object.keys(baseG)) baseG[k].sort(sortFn);
+    Object.keys(oneToOne).forEach((key) => {
+      oneToOne[key].sort(sortSlots);
+    });
 
-    return { oneToOneByDay: base1, groupByDay: baseG };
+    Object.keys(group).forEach((key) => {
+      group[key].sort(sortSlots);
+    });
+
+    return {
+      oneToOneByDay: oneToOne,
+      groupByDay: group,
+    };
   }, [
     teacherProfileData,
     weekStartDateStr,
+    weekEndDateStr,
     dayKeys,
-    studentTz,
     timezoneOptions,
     bookedForWeek,
   ]);
@@ -1589,21 +2248,45 @@ if (studentTimezoneName) {
   );
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      return undefined;
+    }
 
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const previousOverflow =
+      document.body.style.overflow;
 
-    const onKeyDown = (e) => {
-      if (e.key === "Escape") onClose?.();
+    document.body.style.overflow =
+      "hidden";
+
+    const handleKeyDown = (event) => {
+      if (
+        event.key === "Escape" &&
+        !bookingSubmitting &&
+        !bookingSubmitLockRef.current
+      ) {
+        onClose?.();
+      }
     };
-    window.addEventListener("keydown", onKeyDown);
+
+    window.addEventListener(
+      "keydown",
+      handleKeyDown
+    );
 
     return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      document.body.style.overflow = prev || "";
+      window.removeEventListener(
+        "keydown",
+        handleKeyDown
+      );
+
+      document.body.style.overflow =
+        previousOverflow || "";
     };
-  }, [isOpen, onClose]);
+  }, [
+    isOpen,
+    onClose,
+    bookingSubmitting,
+  ]);
 
   const toHHMMSS = (hhmm) => {
     const v = String(hhmm || "").trim();
@@ -1615,30 +2298,39 @@ if (studentTimezoneName) {
   };
 
   useEffect(() => {
-    if (normalizeSessionType(sessionType) !== "Online") return;
+    if (normalizeSessionType(sessionType) !== "Online") {
+      return;
+    }
 
     const start = toHHMM(customSlotStart);
-    const end = toHHMM(customSlotEnd);
-    const dateStr = String(customSlotDate || "").trim();
-    const bookingTz = String(customSlotTz || "").trim() || "UTC";
 
-    if (!start || !end || !dateStr) return;
-
-    const durationMinutes = getSlotDurationMinutes(
-      dateStr,
-      start,
-      end,
-      bookingTz
+    setSelectedSlot((previous) =>
+      previous?.kind === "custom"
+        ? null
+        : previous
     );
 
-    if (durationMinutes > 60) {
+    setCustomSlotError("");
+
+    if (!start) {
       setCustomSlotEnd("");
-      setSelectedSlot((prev) => (prev?.kind === "custom" ? null : prev));
-      setCustomSlotError(
-        "Custom slot can be a maximum of 1 hour for online sessions."
-      );
+      return;
     }
-  }, [sessionType, customSlotDate, customSlotStart, customSlotEnd, customSlotTz]);
+
+    const automaticEndTime = moment(
+      start,
+      "HH:mm",
+      true
+    )
+      .clone()
+      .add(1, "hour")
+      .format("HH:mm");
+
+    setCustomSlotEnd(automaticEndTime);
+  }, [
+    sessionType,
+    customSlotStart,
+  ]);
 
   const normalizeSessionType = (v) => {
     const s = String(v || "").toLowerCase().trim();
@@ -1655,288 +2347,588 @@ if (studentTimezoneName) {
   };
 
   const createBooking = async () => {
+    if (bookingSubmitLockRef.current) {
+      return;
+    }
+
     setBookingError("");
     setBookingSuccess("");
 
     if (!studentId) {
-      Swal.fire({
+      await Swal.fire({
         icon: "warning",
         title: "Required",
-        text: "Please select student.",
+        text: "Please select a student.",
       });
       return;
     }
 
     if (!teacherId) {
-      Swal.fire({
+      await Swal.fire({
         icon: "warning",
         title: "Required",
-        text: "Please select teacher.",
+        text: "Please select a teacher.",
       });
       return;
     }
 
     if (!subjectId) {
-      Swal.fire({
+      await Swal.fire({
         icon: "warning",
         title: "Required",
-        text: "Please select subject.",
+        text: "Please select a subject.",
       });
       return;
     }
 
     if (!selectedSlot) {
-      Swal.fire({
+      await Swal.fire({
         icon: "warning",
         title: "Required",
-        text: "Please select slot.",
+        text: "Please select a time slot.",
       });
       return;
     }
 
-    const bookingTz =
-      String(
-        selectedSlot?.kind === "custom"
-          ? selectedSlot?.bookingTz || customSlotTz || studentTz
-          : selectedSlot?.bookingTz || studentTz
-      ).trim() || "UTC";
-
-    const tzId = getTimezoneIdByValue(bookingTz);
-
-    if (!tzId) {
-      Swal.fire({
+    if (!studentTz) {
+      await Swal.fire({
         icon: "warning",
-        title: "Timezone Missing",
-        text: "Timezone ID not found for selected timezone. Please select a valid timezone.",
+        title: "Student Timezone Missing",
+        text:
+          "The selected student's timezone is missing or invalid. Please update the student's profile before creating the booking.",
       });
       return;
     }
 
-    const normalizedPaymentStatus = normalizePaymentStatus(paymentStatus);
+    if (!studentTimezoneId) {
+      await Swal.fire({
+        icon: "warning",
+        title: "Student Timezone Missing",
+        text:
+          "The timezone ID for the selected student could not be found. Please update the student's timezone and try again.",
+      });
+      return;
+    }
 
-    const feesNum =
+    if (bookedLoading) {
+      await Swal.fire({
+        icon: "info",
+        title: "Please Wait",
+        text:
+          "The teacher's booked slots are still loading. Please try again in a moment.",
+      });
+      return;
+    }
+
+    if (bookedLoadError) {
+      await Swal.fire({
+        icon: "error",
+        title: "Booking Verification Failed",
+        text: bookedLoadError,
+      });
+      return;
+    }
+
+    const normalizedPaymentStatus =
+      normalizePaymentStatus(
+        paymentStatus
+      );
+
+    const feesNumber =
       normalizedPaymentStatus === "Free"
         ? 0
-        : Number(String(amount || "").replace(/[^\d.]/g, ""));
+        : Number(
+          String(amount || "").replace(
+            /[^\d.]/g,
+            ""
+          )
+        );
 
-    if (normalizedPaymentStatus !== "Free" && (!feesNum || feesNum <= 0)) {
-      Swal.fire({
+    if (
+      normalizedPaymentStatus !== "Free" &&
+      (
+        !feesNumber ||
+        feesNumber <= 0
+      )
+    ) {
+      await Swal.fire({
         icon: "warning",
         title: "Invalid Amount",
-        text: "Please enter a valid Amount.",
+        text: "Please enter a valid amount.",
       });
       return;
     }
 
-    const bookdate = String(selectedSlot.dateStr || "").trim();
-    const slot_start = toHHMMSS(selectedSlot.start);
-    const slot_end = toHHMMSS(selectedSlot.end);
-
-    if (!bookdate || !slot_start || !slot_end) {
-      Swal.fire({
-        icon: "error",
-        title: "Invalid Slot",
-        text: "Invalid slot date/time. Please re-select a slot.",
-      });
-      return;
-    }
-
-    const selectedUtcInterval = buildSelectedSlotUtcInterval(selectedSlot);
+    const selectedUtcInterval =
+      buildSelectedSlotUtcInterval(
+        selectedSlot
+      );
 
     if (!selectedUtcInterval) {
-      Swal.fire({
+      await Swal.fire({
         icon: "error",
         title: "Invalid Slot",
-        text: "Selected slot timing is invalid. Please re-select a slot.",
+        text:
+          "The selected slot has an invalid date or time. Please select the slot again.",
       });
       return;
     }
 
-    const hasBookingConflict = (bookedUtcIntervals || []).some((b) =>
-      overlaps(
-        selectedUtcInterval.startUtc.getTime(),
-        selectedUtcInterval.endUtc.getTime(),
-        b.start.getTime(),
-        b.end.getTime()
-      )
-    );
+    if (
+      selectedUtcInterval.startUtc.getTime() <=
+      Date.now()
+    ) {
+      await Swal.fire({
+        icon: "warning",
+        title: "Past Time Not Allowed",
+        text:
+          "A booking cannot be created for a past date or time.",
+      });
+      return;
+    }
 
-    if (hasBookingConflict) {
-      Swal.fire({
+    const hasCurrentConflict =
+      bookedUtcIntervals.some((booked) =>
+        overlaps(
+          selectedUtcInterval.startUtc.getTime(),
+          selectedUtcInterval.endUtc.getTime(),
+          booked.start.getTime(),
+          booked.end.getTime()
+        )
+      );
+
+    if (hasCurrentConflict) {
+      await Swal.fire({
         icon: "warning",
         title: "Slot Already Booked",
-        text: "This slot overlaps with an already booked slot. Please choose another slot.",
+        text:
+          "This slot overlaps with an existing booking. Please choose another slot.",
       });
       return;
     }
 
-    const confirmText = `Are you sure you want to book this session of ${selectedStudentName} with ${selectedTeacherName}?\n\nDate: ${bookdate}\nTime: ${selectedSlot.start} - ${selectedSlot.end}\nTimezone: ${bookingTz}`;
+    const adminDate =
+      formatDateInTZ(
+        selectedUtcInterval.startUtc,
+        ADMIN_TIMEZONE
+      );
 
-    const confirmRes = await Swal.fire({
-      icon: "question",
-      title: "Confirm Booking",
-      text: confirmText,
-      showCancelButton: true,
-      confirmButtonText: "Yes, Book",
-      cancelButtonText: "Cancel",
-      reverseButtons: true,
-    });
+    const adminStart =
+      formatInTZ(
+        selectedUtcInterval.startUtc,
+        ADMIN_TIMEZONE
+      );
 
-    if (!confirmRes.isConfirmed) return;
+    const adminEndDate =
+      formatDateInTZ(
+        selectedUtcInterval.endUtc,
+        ADMIN_TIMEZONE
+      );
 
-    const isGroup = selectedSlot.kind === "group" ? 1 : 0;
+    const adminEnd =
+      formatInTZ(
+        selectedUtcInterval.endUtc,
+        ADMIN_TIMEZONE
+      );
 
-    const noofParticipants = String(
-      selectedSlot.kind === "group"
-        ? selectedSlot.noofParticipants || "2"
-        : "2"
-    );
+    const studentDate =
+      formatDateInTZ(
+        selectedUtcInterval.startUtc,
+        studentTz
+      );
 
-        // --------------------------------------------------
-    // Final payment method mapping
-    // direct       => paymentmethod: "card"
-    // block        => paymentmethod: "credits"
-    // subscription => paymentmethod: "subscription"
-    // --------------------------------------------------
-    const finalPaymentType = String(
-      effectiveLock || paymentType || "direct"
-    )
-      .toLowerCase()
-      .trim();
+    const studentStart =
+      formatInTZ(
+        selectedUtcInterval.startUtc,
+        studentTz
+      );
 
-    const paymentmethod =
-      finalPaymentType === "direct"
-        ? "card"
-        : finalPaymentType === "block"
-          ? "credits"
-          : finalPaymentType === "subscription"
-            ? "subscription"
-            : "card";
+    const studentEndDate =
+      formatDateInTZ(
+        selectedUtcInterval.endUtc,
+        studentTz
+      );
 
-    const apiPaymentType =
-      finalPaymentType === "block"
-        ? "Block"
-        : finalPaymentType === "subscription"
-          ? "Subscription"
-          : "Direct";
+    const studentEnd =
+      formatInTZ(
+        selectedUtcInterval.endUtc,
+        studentTz
+      );
 
-    const body = {
-      tablename: "bookteacher",
-      studentid: Number(studentId),
-      userid: Number(studentId),
-      createdby: Number(studentId),
-      teacherid: String(teacherId),
-      timezoneid: String(tzId),
-      bookdate: String(bookdate),
-      slot_start: String(slot_start),
-      slot_end: String(slot_end),
-      payment_status: normalizedPaymentStatus,
-      isGroup: Number(isGroup),
-      noofParticipants: String(noofParticipants),
-      trail_done: "",
-      paymentmethod: paymentmethod,
-      fees: Number(feesNum),
-      subjectid: Number(subjectId),
-      promoCode: "",
-      paymentType: apiPaymentType,
-      sessionType: normalizeSessionType(sessionType),
-      bookingType: normalizeBookingType(bookingType),
-    };
+    const adminTimeText =
+      adminDate === adminEndDate
+        ? `${adminDate}, ${adminStart} - ${adminEnd}`
+        : `${adminDate} ${adminStart} - ${adminEndDate} ${adminEnd}`;
 
-    console.log("BOOKING BODY =>", body);
+    const studentTimeText =
+      studentDate === studentEndDate
+        ? `${studentDate}, ${studentStart} - ${studentEnd}`
+        : `${studentDate} ${studentStart} - ${studentEndDate} ${studentEnd}`;
+
+    bookingSubmitLockRef.current = true;
+
+    const confirmationText =
+      `Are you sure you want to book ${selectedStudentName} ` +
+      `with ${selectedTeacherName}?\n\n` +
+      `Admin Time (UAE): ${adminTimeText}\n` +
+      `Student Time (${studentTz}): ${studentTimeText}`;
+
+    const confirmation =
+      await Swal.fire({
+        icon: "question",
+        title: "Confirm Booking",
+        text: confirmationText,
+        showCancelButton: true,
+        confirmButtonText:
+          "Yes, Create Booking",
+        cancelButtonText: "Cancel",
+        reverseButtons: true,
+      });
+
+    if (!confirmation.isConfirmed) {
+      bookingSubmitLockRef.current = false;
+      return;
+    }
 
     setBookingSubmitting(true);
 
     try {
-      const headers = await buildHeaders();
+      const headers =
+        await buildHeaders();
 
-      const resp = await fetch(BOOK_TEACHER_URL, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-      });
+      /*
+       * Re-fetch the latest teacher bookings immediately
+       * before submission to prevent a race-condition booking.
+       */
+      const latestResponse = await fetch(
+        STORED_PROC_URL,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            procedureName:
+              BOOKED_SLOTS_PROC,
+            parameters: [
+              String(teacherId),
+            ],
+          }),
+        }
+      );
 
-      const json = await resp.json();
+      const latestJson =
+        await latestResponse.json();
 
-      if (json?.statusCode !== 200) {
-        setBookingError(json?.message || "Booking failed");
-        Swal.fire({
-          icon: "error",
-          title: "Booking Failed",
-          text: json?.message || "Booking failed",
-        });
-        return;
+      if (
+        Number(latestJson?.statusCode) !== 200
+      ) {
+        throw new Error(
+          latestJson?.message ||
+          "The teacher's latest bookings could not be verified."
+        );
       }
 
-      const okMsg = `Booking Successful (ID: ${json?.data?.id || "-"}) - ${json?.data?.teachername || selectedTeacherName
-        }`;
+      const latestRows =
+        Array.isArray(latestJson?.data)
+          ? latestJson.data
+          : [];
 
-      setBookingSuccess(okMsg);
+      const {
+        intervals: latestIntervals,
+        invalidRows,
+      } = buildBookedIntervals(
+        latestRows
+      );
 
-      Swal.fire({
+      if (invalidRows > 0) {
+        throw new Error(
+          "Some booked slots could not be verified because their timezone data is missing."
+        );
+      }
+
+      const hasLatestConflict =
+        latestIntervals.some((booked) =>
+          overlaps(
+            selectedUtcInterval.startUtc.getTime(),
+            selectedUtcInterval.endUtc.getTime(),
+            booked.start.getTime(),
+            booked.end.getTime()
+          )
+        );
+
+      if (hasLatestConflict) {
+        throw new Error(
+          "The selected slot has just been booked. Please choose another slot."
+        );
+      }
+
+      const isGroup =
+        selectedSlot.kind === "group"
+          ? 1
+          : 0;
+
+      const noofParticipants = String(
+        selectedSlot.kind === "group"
+          ? selectedSlot.noofParticipants ||
+          "2"
+          : "2"
+      );
+
+      const finalPaymentType = String(
+        effectiveLock ||
+        paymentType ||
+        "direct"
+      )
+        .toLowerCase()
+        .trim();
+
+      const paymentmethod =
+        finalPaymentType === "block"
+          ? "credits"
+          : finalPaymentType ===
+            "subscription"
+            ? "subscription"
+            : "card";
+
+      const apiPaymentType =
+        finalPaymentType === "block"
+          ? "Block"
+          : finalPaymentType ===
+            "subscription"
+            ? "Subscription"
+            : "Direct";
+
+      /*
+       * The admin selected the slot in Asia/Dubai.
+       * The API receives the equivalent student-local
+       * date/time and the student's timezone ID.
+       */
+      const apiBookDate =
+        formatDateInTZ(
+          selectedUtcInterval.startUtc,
+          studentTz
+        );
+
+      const apiSlotStart =
+        toHHMMSS(
+          formatInTZ(
+            selectedUtcInterval.startUtc,
+            studentTz
+          )
+        );
+
+      const apiSlotEnd =
+        toHHMMSS(
+          formatInTZ(
+            selectedUtcInterval.endUtc,
+            studentTz
+          )
+        );
+
+      if (
+        !apiBookDate ||
+        !apiSlotStart ||
+        !apiSlotEnd
+      ) {
+        throw new Error(
+          "The selected slot could not be converted to the student's timezone."
+        );
+      }
+
+      const body = {
+        tablename: "bookteacher",
+        studentid: Number(studentId),
+        userid: Number(studentId),
+        createdby: Number(studentId),
+        teacherid: String(teacherId),
+
+        timezoneid: String(
+          studentTimezoneId
+        ),
+
+        bookdate: String(apiBookDate),
+        slot_start: String(apiSlotStart),
+        slot_end: String(apiSlotEnd),
+
+        payment_status:
+          normalizedPaymentStatus,
+
+        isGroup: Number(isGroup),
+
+        noofParticipants: String(
+          noofParticipants
+        ),
+
+        trail_done: "",
+        paymentmethod,
+        fees: Number(feesNumber),
+        subjectid: Number(subjectId),
+        promoCode: "",
+        paymentType: apiPaymentType,
+
+        sessionType:
+          normalizeSessionType(
+            sessionType
+          ),
+
+        bookingType:
+          normalizeBookingType(
+            bookingType
+          ),
+      };
+
+      console.log(
+        "MANUAL BOOKING TIMEZONE CONVERSION =>",
+        {
+          adminTimezone:
+            ADMIN_TIMEZONE,
+          adminDate,
+          adminStart,
+          adminEnd,
+
+          studentTimezone:
+            studentTz,
+          studentDate:
+            apiBookDate,
+          studentStart:
+            apiSlotStart,
+          studentEnd:
+            apiSlotEnd,
+
+          payload: body,
+        }
+      );
+
+      const response = await fetch(
+        BOOK_TEACHER_URL,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+        }
+      );
+
+      const json = await response.json();
+
+      if (
+        Number(json?.statusCode) !== 200
+      ) {
+        throw new Error(
+          json?.message ||
+          "The booking could not be created."
+        );
+      }
+
+      const successMessage =
+        `Booking created successfully ` +
+        `(ID: ${json?.data?.id || "-"}).`;
+
+      setBookingSuccess(
+        successMessage
+      );
+
+      await Swal.fire({
         icon: "success",
         title: "Booking Created",
-        text: okMsg,
+        text: successMessage,
       });
 
+      /*
+       * Refresh booked intervals after success.
+       */
       try {
-        const headers2 = await buildHeaders();
-        const resp2 = await fetch(STORED_PROC_URL, {
-          method: "POST",
-          headers: headers2,
-          body: JSON.stringify({
-            procedureName: BOOKED_SLOTS_PROC,
-            parameters: [String(teacherId)],
-          }),
-        });
-
-        const json2 = await resp2.json();
-
-        if (json2?.statusCode === 200) {
-          const rows = Array.isArray(json2?.data) ? json2.data : [];
-          const intervals = [];
-
-          for (const r of rows) {
-            const dateStr = String(r?.bookdate || "").trim();
-            const start = toHHMM(r?.slot_start);
-            const end = toHHMM(r?.slot_end);
-            const tz = String(r?.timezone || "UTC").trim() || "UTC";
-
-            if (!dateStr || !start || !end) continue;
-
-            const utcStart = zonedLocalToUtcDate(dateStr, start, tz);
-
-            let endDateStr = dateStr;
-            if (moment(end, "HH:mm").isSameOrBefore(moment(start, "HH:mm"))) {
-              endDateStr = addDaysDateStr(dateStr, 1);
+        const refreshedResponse =
+          await fetch(
+            STORED_PROC_URL,
+            {
+              method: "POST",
+              headers,
+              body: JSON.stringify({
+                procedureName:
+                  BOOKED_SLOTS_PROC,
+                parameters: [
+                  String(teacherId),
+                ],
+              }),
             }
+          );
 
-            const utcEnd = zonedLocalToUtcDate(endDateStr, end, tz);
+        const refreshedJson =
+          await refreshedResponse.json();
 
-            if (utcEnd.getTime() > utcStart.getTime()) {
-              intervals.push({ start: utcStart, end: utcEnd });
-            }
-          }
+        if (
+          Number(
+            refreshedJson?.statusCode
+          ) === 200
+        ) {
+          const refreshedRows =
+            Array.isArray(
+              refreshedJson?.data
+            )
+              ? refreshedJson.data
+              : [];
 
-          setBookedUtcIntervals(intervals);
+          const {
+            intervals,
+            invalidRows:
+            refreshedInvalidRows,
+          } = buildBookedIntervals(
+            refreshedRows
+          );
+
+          setBookedUtcIntervals(
+            intervals
+          );
+
+          setBookedLoadError(
+            refreshedInvalidRows > 0
+              ? "Some booked slots could not be verified because their timezone data is missing."
+              : ""
+          );
         }
-      } catch {
-        // ignore refresh errors
+      } catch (refreshError) {
+        console.error(
+          "Booked slots refresh failed:",
+          refreshError
+        );
       }
-    } catch (e) {
-      console.error("book_teacher error:", e);
-      setBookingError("Network/API error while creating booking");
-      Swal.fire({
+
+      setSelectedSlot(null);
+      setCustomSlotError("");
+    } catch (error) {
+      console.error(
+        "book_teacher error:",
+        error
+      );
+
+      const message =
+        error?.message ||
+        "A network or API error occurred while creating the booking.";
+
+      setBookingError(message);
+
+      await Swal.fire({
         icon: "error",
-        title: "Network Error",
-        text: "Network/API error while creating booking",
+        title: "Booking Failed",
+        text: message,
       });
     } finally {
+      bookingSubmitLockRef.current = false;
       setBookingSubmitting(false);
     }
   };
 
-  if (!isOpen) return null;
+  const closeSafely = () => {
+    if (
+      !bookingSubmitting &&
+      !bookingSubmitLockRef.current
+    ) {
+      onClose?.();
+    }
+  };
+
+  if (!isOpen) {
+    return null;
+  }
 
   const renderSchedule = ({
     titleText,
@@ -1957,6 +2949,10 @@ if (studentTimezoneName) {
               className="btn btn-sm mbmBtnIcon"
               onClick={handlePrevWeek}
               type="button"
+              disabled={
+                !canGoPreviousWeek ||
+                bookingSubmitting
+              }
             >
               ‹
             </button>
@@ -1965,6 +2961,7 @@ if (studentTimezoneName) {
               className="btn btn-sm mbmBtnIcon"
               onClick={handleNextWeek}
               type="button"
+              disabled={bookingSubmitting}
             >
               ›
             </button>
@@ -1973,26 +2970,68 @@ if (studentTimezoneName) {
               type="date"
               className="form-control mbmControl"
               style={{ maxWidth: 210 }}
+              min={adminTodayDateStr}
               value={weekAnchorDateStr}
               onChange={handleDatePick}
+              disabled={bookingSubmitting}
             />
           </div>
 
           <div className="mbmTzBox">
             <div className="mbmTzLabel">
-              Set Your Time Zone {bookedLoading ? " (loading bookings...)" : ""}
+              Admin Time Zone
+              {bookedLoading
+                ? " (loading bookings...)"
+                : ""}
             </div>
+
             <select
               className="form-select mbmControl"
-              value={studentTz}
-              onChange={(e) => setStudentTz(e.target.value)}
+              value={ADMIN_TIMEZONE}
+              disabled
+              aria-label="Admin Time Zone"
             >
-              {timezoneOptions.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
-                </option>
-              ))}
+              <option value={ADMIN_TIMEZONE}>
+                Asia/Dubai (UAE Time)
+              </option>
             </select>
+
+            <div
+              style={{
+                marginTop: 6,
+                fontSize: 11,
+                fontWeight: 700,
+                color:
+                  studentId &&
+                    (
+                      !studentTz ||
+                      !studentTimezoneId
+                    )
+                    ? "#dc3545"
+                    : "var(--mbm-muted)",
+              }}
+            >
+              Student timezone:{" "}
+              {studentTz || "Not available"}
+            </div>
+
+            {studentId &&
+              (
+                !studentTz ||
+                !studentTimezoneId
+              ) ? (
+              <div
+                style={{
+                  marginTop: 4,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: "#dc3545",
+                }}
+              >
+                The student's timezone data is incomplete.
+                Booking is disabled.
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -2049,7 +3088,12 @@ if (studentTimezoneName) {
                               }`}
                             onClick={() => {
                               setCustomSlotError("");
-                              setSelectedSlot({ kind, ...s, bookingTz: studentTz });
+                              setSelectedSlot({
+                                kind,
+                                ...s,
+                                bookingTz:
+                                  ADMIN_TIMEZONE,
+                              });
                             }}
                           >
                             {s.start} - {s.end}
@@ -2075,8 +3119,14 @@ if (studentTimezoneName) {
         background: isDark ? "rgba(0,0,0,0.72)" : "rgba(0,0,0,0.55)",
         padding: "24px 12px",
       }}
-      onMouseDown={(e) => {
-        if (e.target?.classList?.contains("modal")) onClose?.();
+      onMouseDown={(event) => {
+        if (
+          event.target?.classList?.contains(
+            "modal"
+          )
+        ) {
+          closeSafely();
+        }
       }}
     >
       <div className="modal-dialog modal-xl modal-dialog-centered">
@@ -2432,7 +3482,8 @@ if (studentTimezoneName) {
               <button
                 type="button"
                 className="btn btn-sm mbmBtnGhost"
-                onClick={onClose}
+                onClick={closeSafely}
+                disabled={bookingSubmitting}
               >
                 ✕ Close
               </button>
@@ -2649,17 +3700,19 @@ if (studentTimezoneName) {
 
                 <div className="row g-3">
                   <div className="col-lg-3 col-md-6">
-                    <div className="mbmLabel">Custom Slot Time Zone</div>
+                    <div className="mbmLabel">
+                      Admin Time Zone
+                    </div>
+
                     <select
                       className="form-select mbmControl"
-                      value={customSlotTz}
-                      onChange={(e) => setCustomSlotTz(e.target.value)}
+                      value={ADMIN_TIMEZONE}
+                      disabled
+                      aria-label="Admin Time Zone"
                     >
-                      {timezoneOptions.map((t) => (
-                        <option key={t.value} value={t.value}>
-                          {t.label}
-                        </option>
-                      ))}
+                      <option value={ADMIN_TIMEZONE}>
+                        Asia/Dubai (UAE Time)
+                      </option>
                     </select>
                   </div>
 
@@ -2669,7 +3722,9 @@ if (studentTimezoneName) {
                       type="date"
                       className="form-control mbmControl"
                       value={customSlotDate}
-                      min={getTodayDateStr(customSlotTz)}
+                      min={getTodayDateStr(
+                        ADMIN_TIMEZONE
+                      )}
                       onChange={(e) => {
                         setCustomSlotError("");
                         setCustomSlotDate(e.target.value);
@@ -2696,45 +3751,23 @@ if (studentTimezoneName) {
                       type="time"
                       className="form-control mbmControl"
                       value={customSlotEnd}
+                      disabled={
+                        normalizeSessionType(sessionType) === "Online"
+                      }
+                      title={
+                        normalizeSessionType(sessionType) === "Online"
+                          ? "End time is automatically set to 1 hour after the start time."
+                          : "Select end time"
+                      }
                       onChange={(e) => {
-                        const nextEnd = e.target.value;
                         setCustomSlotError("");
+                        setCustomSlotEnd(e.target.value);
 
-                        const start = toHHMM(customSlotStart);
-                        const end = toHHMM(nextEnd);
-                        const dateStr = String(customSlotDate || "").trim();
-                        const bookingTz =
-                          String(customSlotTz || "").trim() || "UTC";
-
-                        if (
-                          normalizeSessionType(sessionType) === "Online" &&
-                          start &&
-                          end &&
-                          dateStr
-                        ) {
-                          const durationMinutes = getSlotDurationMinutes(
-                            dateStr,
-                            start,
-                            end,
-                            bookingTz
-                          );
-
-                          if (durationMinutes > 60) {
-                            setCustomSlotError(
-                              "Custom slot can be a maximum of 1 hour for online sessions."
-                            );
-
-                            Swal.fire({
-                              icon: "warning",
-                              title: "Max 1 Hour",
-                              text:
-                                "Custom slot cannot be longer than 1 hour for online sessions.",
-                            });
-                            return;
-                          }
-                        }
-
-                        setCustomSlotEnd(nextEnd);
+                        setSelectedSlot((previous) =>
+                          previous?.kind === "custom"
+                            ? null
+                            : previous
+                        );
                       }}
                     />
                   </div>
@@ -2744,23 +3777,16 @@ if (studentTimezoneName) {
                       type="button"
                       className="btn btn-sm mbmBtnPrimary w-100"
                       onClick={applyCustomSlot}
+                      disabled={
+                        bookingSubmitting ||
+                        bookedLoading
+                      }
                     >
                       Use Custom Slot
                     </button>
                   </div>
                 </div>
 
-                {/* <div
-                  style={{
-                    marginTop: 8,
-                    fontSize: 12,
-                    fontWeight: 800,
-                    color: "var(--mbm-muted)",
-                  }}
-                >
-                  Custom slot selected timezone ({customSlotTz}) ke mutabiq save
-                  hoga.
-                </div> */}
 
                 {customSlotError ? (
                   <div className="mbmErr">{customSlotError}</div>
@@ -2780,18 +3806,31 @@ if (studentTimezoneName) {
                   Selected Slot:{" "}
                   {selectedSlot ? (
                     <span style={{ color: "var(--mbm-primary)" }}>
-                      {selectedSlot.start}-{selectedSlot.end} ({selectedSlot.dateStr}){" "}
+                      {selectedSlot.start} -{" "}
+                      {selectedSlot.end} (
+                      {selectedSlot.dateStr}){" "}
                       {selectedSlot.kind === "group"
-                        ? "[Group]"
+                        ? "[Group - UAE Time]"
                         : selectedSlot.kind === "custom"
-                          ? `[Custom - ${selectedSlot.bookingTz}]`
-                          : "[One to One]"}
+                          ? "[Custom - UAE Time]"
+                          : "[One to One - UAE Time]"}
                     </span>
                   ) : (
                     <span style={{ color: "var(--mbm-muted)" }}>None</span>
                   )}
 
-                  {bookingError ? <div className="mbmErr">{bookingError}</div> : null}
+                  {bookedLoadError ? (
+                    <div className="mbmErr">
+                      {bookedLoadError}
+                    </div>
+                  ) : null}
+
+                  {bookingError ? (
+                    <div className="mbmErr">
+                      {bookingError}
+                    </div>
+                  ) : null}
+
                   {bookingSuccess ? (
                     <div className="mbmOk">{bookingSuccess}</div>
                   ) : null}
@@ -2807,6 +3846,7 @@ if (studentTimezoneName) {
                       setBookingError("");
                       setBookingSuccess("");
                     }}
+                    disabled={bookingSubmitting}
                   >
                     Clear
                   </button>
@@ -2815,8 +3855,19 @@ if (studentTimezoneName) {
                     type="button"
                     className="btn btn-sm mbmBtnPrimary"
                     onClick={createBooking}
-                    disabled={!studentId || !teacherId || bookingSubmitting}
-                    title={bookingSubmitting ? "Creating booking..." : "Create Booking"}
+                    disabled={
+                      !studentId ||
+                      !teacherId ||
+                      bookingSubmitting ||
+                      bookedLoading
+                    }
+                    title={
+                      bookingSubmitting
+                        ? "Creating booking..."
+                        : bookedLoading
+                          ? "Loading teacher bookings..."
+                          : "Create Booking"
+                    }
                   >
                     {bookingSubmitting ? "Creating..." : "Create Booking"}
                   </button>
@@ -2825,7 +3876,12 @@ if (studentTimezoneName) {
             </div>
 
             <div className="mbmFooter">
-              <button type="button" className="btn mbmBtnGhost" onClick={onClose}>
+              <button
+                type="button"
+                className="btn mbmBtnGhost"
+                onClick={closeSafely}
+                disabled={bookingSubmitting}
+              >
                 Close
               </button>
             </div>
