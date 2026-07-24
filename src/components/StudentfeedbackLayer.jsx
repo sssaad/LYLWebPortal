@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import moment from "moment";
 import { Icon } from "@iconify/react";
@@ -18,47 +18,183 @@ const RUN_SP_URL =
 const UPDATE_DYNAMIC_URL =
   "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=update_dynamic_data";
 
-// ✅ apna exact SP name yahan rakh lo
+const ADD_DYNAMIC_URL =
+  "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=add_dynamic_data";
+
 const STORED_PROCEDURE_NAME = "get_rating_review_with_recordings";
+const PER_PAGE = 15;
 
-// ---------------------- helpers ----------------------
-const formatDate = (d) => {
-  if (!d) return "";
-  const m = moment(
-    d,
-    [
-      "YYYY-MM-DD",
-      "YYYY/MM/DD",
-      "YYYY-MM-DD HH:mm:ss",
-      "YYYY-MM-DDTHH:mm:ss",
-      moment.ISO_8601,
-    ],
-    true
-  );
-  if (m.isValid()) return m.format("DD MMM YYYY");
+const DATE_FORMATS = [
+  "YYYY-MM-DD",
+  "YYYY/MM/DD",
+  "YYYY-MM-DD HH:mm:ss",
+  "YYYY-MM-DDTHH:mm:ss",
+  "DD MMM YYYY",
+  moment.ISO_8601,
+];
 
-  const loose = moment(d);
-  return loose.isValid() ? loose.format("DD MMM YYYY") : String(d);
+const TIME_FORMATS = ["HH:mm:ss", "HH:mm", "hh:mm A", "h:mm A"];
+
+const normalizeUrl = (value) => {
+  const url = String(value || "")
+    .replace(/\\\//g, "/")
+    .replace(/&amp;/g, "&")
+    .trim();
+
+  /*
+   * Path ke duplicate slashes remove karta hai,
+   * lekin https:// ko safe rakhta hai.
+   */
+  return url.replace(/([^:]\/)\/+/g, "$1");
 };
 
-const formatTime = (t) => {
-  if (!t) return "";
-  const m = moment(t, ["HH:mm:ss", "HH:mm", "hh:mm A", "h:mm A"], true);
-  if (m.isValid()) return m.format("hh:mm A");
-
-  const loose = moment(t);
-  return loose.isValid() ? loose.format("hh:mm A") : String(t);
+const clampRating = (value) => {
+  const rating = Number.parseFloat(value) || 0;
+  return Math.max(0, Math.min(5, rating));
 };
 
-const normalizeUrl = (u) => String(u || "").replace(/\\\//g, "/").trim();
+const parseDate = (value) => {
+  if (!value) return null;
+
+  let parsed = moment(String(value).trim(), DATE_FORMATS, true);
+
+  if (!parsed.isValid()) {
+    parsed = moment(value);
+  }
+
+  return parsed.isValid() ? parsed : null;
+};
+
+const parseTime = (value) => {
+  if (!value) return null;
+
+  let parsed = moment(String(value).trim(), TIME_FORMATS, true);
+
+  if (!parsed.isValid()) {
+    parsed = moment(value);
+  }
+
+  return parsed.isValid() ? parsed : null;
+};
+
+const formatDate = (value) => {
+  const parsed = parseDate(value);
+
+  return parsed
+    ? parsed.format("DD MMM YYYY")
+    : value
+      ? String(value)
+      : "";
+};
+
+const formatTime = (value) => {
+  const parsed = parseTime(value);
+
+  return parsed
+    ? parsed.format("hh:mm A")
+    : value
+      ? String(value)
+      : "";
+};
+
+const getDateKey = (value) => {
+  const parsed = parseDate(value);
+  return parsed ? parsed.format("YYYY-MM-DD") : "";
+};
+
+const getBookDateTs = (value) => {
+  const parsed = parseDate(value);
+  return parsed ? parsed.valueOf() : 0;
+};
+
+const getTimeMinutes = (value) => {
+  const parsed = parseTime(value);
+
+  return parsed
+    ? parsed.hours() * 60 + parsed.minutes()
+    : -1;
+};
+
+/*
+ * Stored procedure booking_date, booking_start_time
+ * aur booking_end_time Asia/Dubai mein return karti hai.
+ *
+ * +04:00 explicitly lagane se comparison browser/user
+ * timezone se independent rahega.
+ */
+const buildDubaiDateTimeTs = (rawDate, rawTime) => {
+  const dateKey = getDateKey(rawDate);
+  const parsedTime = parseTime(rawTime);
+
+  if (!dateKey || !parsedTime) {
+    return 0;
+  }
+
+  const timeKey = parsedTime.format("HH:mm:ss");
+
+  return moment
+    .parseZone(`${dateKey}T${timeKey}+04:00`)
+    .valueOf();
+};
+
+const hasSessionEndedInDubai = (row) => {
+  const sessionEndTs = Number(row?.sessionEndTs || 0);
+
+  if (!sessionEndTs) {
+    /*
+     * End date/time missing ho to row hide rahegi.
+     * Is se ongoing ya incomplete booking galti se
+     * review list mein appear nahi hogi.
+     */
+    return false;
+  }
+
+  return sessionEndTs <= Date.now();
+};
+
+/*
+ * Existing JSX compatibility ke liye function name
+ * same rakha hai. Lekin ab date ke bajaye complete
+ * Dubai session end datetime check hota hai.
+ */
+const isFutureDubaiBooking = (row) =>
+  !hasSessionEndedInDubai(row);
+
+const getRowDisabledReason = (row) => {
+  if (!hasSessionEndedInDubai(row)) {
+    return "Rating and review will be available after the session ends in Dubai time.";
+  }
+
+  if (!row?.bookingid) {
+    return "Booking information is missing.";
+  }
+
+  if (
+    !row?.studentid ||
+    !String(row?.studentName || "").trim()
+  ) {
+    return "Student information is missing for this booking.";
+  }
+
+  if (
+    !row?.teacherid ||
+    !String(row?.teacherName || "").trim()
+  ) {
+    return "Teacher information is missing for this booking.";
+  }
+
+  return "";
+};
 
 const detectIsDark = () => {
   try {
     const body = document.body;
 
-    const byAttr =
+    const byAttribute =
       body?.dataset?.theme?.toLowerCase() === "dark" ||
-      body?.getAttribute("data-theme")?.toLowerCase() === "dark";
+      body
+        ?.getAttribute("data-theme")
+        ?.toLowerCase() === "dark";
 
     const byClass =
       body?.classList?.contains("dark") ||
@@ -66,101 +202,91 @@ const detectIsDark = () => {
       body?.classList?.contains("dark-mode") ||
       body?.classList?.contains("bg-dark");
 
-    if (byAttr || byClass) return true;
-
-    if (window.matchMedia?.("(prefers-color-scheme: dark)")?.matches)
+    if (byAttribute || byClass) {
       return true;
+    }
 
-    const bg = window.getComputedStyle(body).backgroundColor;
-    const m = bg.match(/\d+/g);
-    if (m?.length >= 3) {
-      const r = Number(m[0]);
-      const g = Number(m[1]);
-      const b = Number(m[2]);
-      const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+    const background =
+      window.getComputedStyle(body).backgroundColor;
+
+    const values = background.match(/\d+/g);
+
+    if (values?.length >= 3) {
+      const [red, green, blue] = values.map(Number);
+
+      const brightness =
+        (red * 299 + green * 587 + blue * 114) /
+        1000;
+
       return brightness < 128;
     }
 
-    return false;
+    return Boolean(
+      window.matchMedia?.(
+        "(prefers-color-scheme: dark)"
+      )?.matches
+    );
   } catch {
     return false;
   }
 };
 
-const parseBookDateTs = (d) => {
-  const s = String(d || "").trim();
-  if (!s) return 0;
-
-  let m = moment(
-    s,
-    [
-      "YYYY-MM-DD",
-      "YYYY/MM/DD",
-      "YYYY-MM-DD HH:mm:ss",
-      "YYYY-MM-DDTHH:mm:ss",
-      "DD MMM YYYY",
-      moment.ISO_8601,
-    ],
-    true
+const isSuccessResponse = (response) => {
+  const statusCode = Number(
+    response?.data?.statusCode || 0
   );
 
-  if (!m.isValid()) m = moment(s);
-  return m.isValid() ? m.valueOf() : 0;
+  const message = String(
+    response?.data?.message || ""
+  ).toLowerCase();
+
+  return (
+    statusCode === 200 ||
+    statusCode === 201 ||
+    response?.data?.success === true ||
+    message.includes("success")
+  );
 };
 
-const parseTimeMinutes = (t) => {
-  const s = String(t || "").trim();
-  if (!s) return -1;
-
-  let m = moment(s, ["HH:mm:ss", "HH:mm", "hh:mm A", "h:mm A"], true);
-  if (!m.isValid()) m = moment(s);
-  return m.isValid() ? m.hours() * 60 + m.minutes() : -1;
-};
-
-const buildSessionTs = (rawDate, rawStart) => {
-  const dateTs = parseBookDateTs(rawDate);
-  if (!dateTs) return 0;
-
-  const dateMoment = moment(rawDate, ["YYYY-MM-DD", "YYYY/MM/DD", moment.ISO_8601], true);
-  const safeDate = dateMoment.isValid() ? dateMoment : moment(rawDate);
-
-  if (!safeDate.isValid()) return dateTs;
-
-  const minutes = parseTimeMinutes(rawStart);
-  if (minutes >= 0) {
-    return safeDate.clone().startOf("day").add(minutes, "minutes").valueOf();
-  }
-
-  return safeDate.valueOf();
-};
-
-const clampRating = (value) => {
-  const n = parseFloat(value) || 0;
-  return Math.max(0, Math.min(5, n));
-};
-
-// ---------------------- component ----------------------
 const StudentfeedbackLayer = () => {
   const [rows, setRows] = useState([]);
-  const [initialLoading, setInitialLoading] = useState(true);
+  const [initialLoading, setInitialLoading] =
+    useState(true);
 
-  const [showModal, setShowModal] = useState(false);
-  const [currentRow, setCurrentRow] = useState(null);
+  const [showReviewModal, setShowReviewModal] =
+    useState(false);
 
-  const [isRecordingOpen, setIsRecordingOpen] = useState(false);
-  const [activeRecordingUrl, setActiveRecordingUrl] = useState("");
+  const [currentRow, setCurrentRow] =
+    useState(null);
 
-  const [currentPage, setCurrentPage] = useState(1);
-  const perPage = 15;
+  const [savingReview, setSavingReview] =
+    useState(false);
 
-  const [savingReview, setSavingReview] = useState(false);
-  const [publishingId, setPublishingId] = useState(null);
-  const [isDarkTheme, setIsDarkTheme] = useState(false);
+  const [publishingId, setPublishingId] =
+    useState(null);
+
+  const [
+    showRecordingModal,
+    setShowRecordingModal,
+  ] = useState(false);
+
+  const [
+    activeRecordingUrl,
+    setActiveRecordingUrl,
+  ] = useState("");
+
+  const [currentPage, setCurrentPage] =
+    useState(1);
 
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [publishFilter, setPublishFilter] = useState("all");
+
+  const [publishFilter, setPublishFilter] =
+    useState("all");
+
+  const [isDarkTheme, setIsDarkTheme] =
+    useState(false);
 
   const resetFilters = () => {
     setSearch("");
@@ -170,65 +296,77 @@ const StudentfeedbackLayer = () => {
     setCurrentPage(1);
   };
 
-  const openRecording = (row) => {
-    const url = normalizeUrl(
-      row?.recordingUrl ??
-      row?.s3Url ??
-      row?.s3_url ??
-      row?.recording_s3_url ??
-      ""
-    );
-
-    if (!url) return;
-
-    setActiveRecordingUrl(url);
-    setIsRecordingOpen(true);
-  };
-
-  const closeRecording = () => {
-    setIsRecordingOpen(false);
-    setActiveRecordingUrl("");
-  };
-
   useEffect(() => {
-    const updateTheme = () => setIsDarkTheme(detectIsDark());
+    const updateTheme = () => {
+      setIsDarkTheme(detectIsDark());
+    };
+
     updateTheme();
 
-    const obs = new MutationObserver(updateTheme);
-    obs.observe(document.body, {
+    const observer = new MutationObserver(
+      updateTheme
+    );
+
+    observer.observe(document.body, {
       attributes: true,
       attributeFilter: ["class", "data-theme"],
     });
 
-    const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
-    const onMq = () => updateTheme();
-    mq?.addEventListener?.("change", onMq);
+    const mediaQuery = window.matchMedia?.(
+      "(prefers-color-scheme: dark)"
+    );
+
+    mediaQuery?.addEventListener?.(
+      "change",
+      updateTheme
+    );
 
     return () => {
-      obs.disconnect();
-      mq?.removeEventListener?.("change", onMq);
+      observer.disconnect();
+
+      mediaQuery?.removeEventListener?.(
+        "change",
+        updateTheme
+      );
     };
   }, []);
 
-  // ✅ fetch data
   useEffect(() => {
     const fetchRows = async () => {
       try {
+        setInitialLoading(true);
+
         const token = await getToken();
-        if (!token) throw new Error("Token not found");
 
-        const headers = { ...BASE_HEADERS, token };
+        if (!token) {
+          throw new Error("Token not found");
+        }
 
-        const body = {
-          procedureName: STORED_PROCEDURE_NAME,
-          parameters: [],
-        };
+        const response = await axios.post(
+          RUN_SP_URL,
+          {
+            procedureName:
+              STORED_PROCEDURE_NAME,
+            parameters: [],
+          },
+          {
+            headers: {
+              ...BASE_HEADERS,
+              token,
+            },
+          }
+        );
 
-        const res = await axios.post(RUN_SP_URL, body, { headers });
-        const data = res?.data?.data ?? [];
+        const data =
+          response?.data?.data ?? [];
 
-        if (Array.isArray(data) && data.length > 0) {
-          const mapped = data.map((item, index) => {
+        if (!Array.isArray(data)) {
+          setRows([]);
+          return;
+        }
+
+        const mappedRows = data.map(
+          (item, index) => {
             const rawBookDate =
               item.booking_date ??
               item.bookdate ??
@@ -250,116 +388,237 @@ const StudentfeedbackLayer = () => {
               item.slotEnd ??
               "";
 
-            const studentFull = [item.student_firstname, item.student_lastname]
+            const studentNameFromDetails = [
+              item.student_firstname,
+              item.student_lastname,
+            ]
               .filter(Boolean)
               .join(" ")
               .trim();
 
-            const teacherFull = [item.teacher_firstname, item.teacher_lastname]
+            const teacherNameFromDetails = [
+              item.teacher_firstname,
+              item.teacher_lastname,
+            ]
               .filter(Boolean)
               .join(" ")
               .trim();
 
-            const directUrl = normalizeUrl(
-              item.recordingUrl ??
-              item.recording_url ??
+            const bookingid =
+              Number(item.bookingid || 0) ||
+              null;
+
+            const studentid =
+              Number(item.studentid || 0) ||
+              null;
+
+            const teacherid =
+              Number(item.teacherid || 0) ||
+              null;
+
+            const ratingReviewId =
+              Number(
+                item.rating_review_id ||
+                item.id ||
+                0
+              ) || null;
+
+            const studentName = String(
+              studentNameFromDetails ||
+              item.student_fullname ||
+              item.student_name ||
+              item.studentName ||
+              ""
+            ).trim();
+
+            const teacherName = String(
+              teacherNameFromDetails ||
+              item.teacher_fullname ||
+              item.teacher_name ||
+              item.teacherName ||
+              ""
+            ).trim();
+
+            const recordingUrl = normalizeUrl(
               item.s3Url ??
               item.s3_url ??
               item.recording_s3_url ??
+              item.recordingUrl ??
+              item.recording_url ??
+              item.s3Key ??
               ""
             );
 
+            const hasRatingReview =
+              Boolean(ratingReviewId) ||
+              Number(
+                item.has_rating_review || 0
+              ) === 1;
+
             return {
-              key:
-                item.rating_review_id ??
-                item.id ??
-                item.bookingid ??
-                `row-${index}`,
+              key: bookingid
+                ? `booking-${bookingid}`
+                : `row-${index}`,
 
-              ratingReviewId: item.rating_review_id ?? item.id ?? null,
-              bookingid: item.bookingid ?? null,
-              teacherid: item.teacherid ?? null,
-              studentid: item.studentid ?? null,
+              bookingid,
+              studentid,
+              teacherid,
+              ratingReviewId,
+              hasRatingReview,
 
-              recordingUrl: directUrl,
+              recordingUrl,
 
-              bookDate: formatDate(rawBookDate),
+              bookDate: formatDate(
+                rawBookDate
+              ),
+
+              bookDateRaw: rawBookDate,
+
+              bookDateKey:
+                getDateKey(rawBookDate),
+
+              bookDateTs:
+                getBookDateTs(rawBookDate),
+
+              /*
+ * Dubai absolute timestamps.
+ * Start sorting ke liye aur end visibility ke liye.
+ */
+              sessionTs: buildDubaiDateTimeTs(
+                rawBookDate,
+                rawStart
+              ),
+
+              sessionEndTs: buildDubaiDateTimeTs(
+                rawBookDate,
+                rawEnd
+              ),
+
               slotStart: formatTime(rawStart),
               slotEnd: formatTime(rawEnd),
 
-              bookDateRaw: rawBookDate,
-              bookDateTs: parseBookDateTs(rawBookDate),
-              slotStartMin: parseTimeMinutes(rawStart),
-              sessionTs: buildSessionTs(rawBookDate, rawStart),
+              studentName,
+              teacherName,
 
-              studentName:
-                studentFull ||
-                item.student_fullname ||
-                item.student_name ||
-                item.studentName ||
+              studentEmail:
+                item.student_email ?? "",
+
+              teacherEmail:
+                item.teacher_email ?? "",
+
+              subjectName:
+                item.subjectname ??
+                item.subject_name ??
                 "",
-
-              teacherName:
-                teacherFull ||
-                item.teacher_fullname ||
-                item.teacher_name ||
-                item.teacherName ||
-                "",
-
-              studentEmail: item.student_email ?? "",
-              teacherEmail: item.teacher_email ?? "",
 
               rating: clampRating(item.rating),
+
               review: item.review ?? "",
 
-              publishedOnWeb: Number(item.published_on_web || 0),
+              publishedOnWeb: Number(
+                item.published_on_web || 0
+              ),
+
               publishStatusLabel:
-                Number(item.published_on_web || 0) === 1 ? "Published" : "Unpublished",
+                hasRatingReview
+                  ? Number(
+                    item.published_on_web ||
+                    0
+                  ) === 1
+                    ? "Published"
+                    : "Unpublished"
+                  : "Not Added",
 
-              subjectName: item.subjectname ?? item.subject_name ?? "",
+              isGroupBooking:
+                Number(
+                  item.is_group_booking || 0
+                ) === 1,
             };
-          });
+          }
+        );
 
-          // ✅ agar join ki wajah se duplicate rows aa rahi hon to 1 review = 1 row rakho
-          const uniqueMap = new Map();
+        /*
+         * One booking = one row.
+         * In case the stored procedure accidentally
+         * returns duplicate joins, keep the row
+         * containing a recording.
+         */
+        const uniqueByBooking = new Map();
 
-          mapped.forEach((row) => {
-            const uniqueKey =
-              row.ratingReviewId ??
-              `${row.bookingid}-${row.studentid}-${row.teacherid}`;
+        mappedRows.forEach((row) => {
+          const uniqueKey = row.bookingid
+            ? `booking-${row.bookingid}`
+            : row.key;
 
-            if (!uniqueMap.has(uniqueKey)) {
-              uniqueMap.set(uniqueKey, row);
-              return;
-            }
+          const existing =
+            uniqueByBooking.get(uniqueKey);
 
-            const existing = uniqueMap.get(uniqueKey);
+          if (!existing) {
+            uniqueByBooking.set(
+              uniqueKey,
+              row
+            );
 
-            const existingHasRecording = !!normalizeUrl(existing?.recordingUrl);
-            const currentHasRecording = !!normalizeUrl(row?.recordingUrl);
+            return;
+          }
 
-            if (!existingHasRecording && currentHasRecording) {
-              uniqueMap.set(uniqueKey, row);
-              return;
-            }
+          const existingHasRecording =
+            Boolean(
+              normalizeUrl(
+                existing.recordingUrl
+              )
+            );
 
-            if (currentHasRecording === existingHasRecording) {
-              if ((row.sessionTs || 0) > (existing.sessionTs || 0)) {
-                uniqueMap.set(uniqueKey, row);
-              }
-            }
-          });
+          const currentHasRecording =
+            Boolean(
+              normalizeUrl(row.recordingUrl)
+            );
 
-          setRows(Array.from(uniqueMap.values()));
-          setCurrentPage(1);
-        } else {
-          setRows([]);
-          setCurrentPage(1);
-        }
-      } catch (error) {
-        console.error(error);
-        setRows([]);
+          if (
+            !existingHasRecording &&
+            currentHasRecording
+          ) {
+            uniqueByBooking.set(
+              uniqueKey,
+              row
+            );
+
+            return;
+          }
+
+          if (
+            existingHasRecording ===
+            currentHasRecording &&
+            Number(row.sessionTs || 0) >
+            Number(existing.sessionTs || 0)
+          ) {
+            uniqueByBooking.set(
+              uniqueKey,
+              row
+            );
+          }
+        });
+
+        setRows(
+          Array.from(uniqueByBooking.values())
+        );
+
         setCurrentPage(1);
+      } catch (error) {
+        console.error(
+          "Rating/review list error:",
+          error
+        );
+
+        setRows([]);
+
+        Swal.fire(
+          "Error",
+          error?.response?.data?.message ||
+          error?.message ||
+          "Failed to load rating and review records.",
+          "error"
+        );
       } finally {
         setInitialLoading(false);
       }
@@ -368,191 +627,399 @@ const StudentfeedbackLayer = () => {
     fetchRows();
   }, []);
 
-  // ✅ nearest to current date/time first
   const filteredSortedRows = useMemo(() => {
-    const arr = Array.isArray(rows) ? [...rows] : [];
-
-    const fromTs = dateFrom
-      ? moment(dateFrom, "YYYY-MM-DD").startOf("day").valueOf()
+    const fromTimestamp = dateFrom
+      ? moment(dateFrom, "YYYY-MM-DD")
+        .startOf("day")
+        .valueOf()
       : null;
 
-    const toTs = dateTo
-      ? moment(dateTo, "YYYY-MM-DD").endOf("day").valueOf()
+    const toTimestamp = dateTo
+      ? moment(dateTo, "YYYY-MM-DD")
+        .endOf("day")
+        .valueOf()
       : null;
 
-    const q = String(search || "").trim().toLowerCase();
-    const nowTs = Date.now();
+    const query = String(search || "")
+      .trim()
+      .toLowerCase();
 
-    const filtered = arr.filter((r) => {
-      const targetTs = Number(r.sessionTs || r.bookDateTs || 0);
+    return [...rows]
+      .filter((row) => {
+        /*
+         * Future aur currently running sessions
+         * bilkul list mein show nahi hongi.
+         *
+         * Row sirf Dubai slot end ke baad appear hogi.
+         */
+        if (!hasSessionEndedInDubai(row)) {
+          return false;
+        }
 
-      if (fromTs != null || toTs != null) {
-        if (!targetTs) return false;
-        if (fromTs != null && targetTs < fromTs) return false;
-        if (toTs != null && targetTs > toTs) return false;
-      }
+        const targetTimestamp = Number(
+          row.sessionTs ||
+          row.bookDateTs ||
+          0
+        );
 
-      if (publishFilter === "published" && Number(r.publishedOnWeb || 0) !== 1) {
-        return false;
-      }
+        if (
+          fromTimestamp !== null ||
+          toTimestamp !== null
+        ) {
+          if (!targetTimestamp) {
+            return false;
+          }
 
-      if (publishFilter === "unpublished" && Number(r.publishedOnWeb || 0) === 1) {
-        return false;
-      }
+          if (
+            fromTimestamp !== null &&
+            targetTimestamp < fromTimestamp
+          ) {
+            return false;
+          }
 
-      if (q) {
-        const blob = `
-          ${r.bookingid ?? ""}
-          ${r.bookDate ?? ""}
-          ${r.studentName ?? ""}
-          ${r.teacherName ?? ""}
-          ${r.slotStart ?? ""}
-          ${r.slotEnd ?? ""}
-          ${r.subjectName ?? ""}
-        `
-          .toLowerCase()
-          .trim();
+          if (
+            toTimestamp !== null &&
+            targetTimestamp > toTimestamp
+          ) {
+            return false;
+          }
+        }
 
-        if (!blob.includes(q)) return false;
-      }
+        if (
+          publishFilter === "published" &&
+          Number(
+            row.publishedOnWeb || 0
+          ) !== 1
+        ) {
+          return false;
+        }
 
-      return true;
-    });
+        if (
+          publishFilter ===
+          "unpublished" &&
+          (
+            !row.hasRatingReview ||
+            Number(
+              row.publishedOnWeb || 0
+            ) === 1
+          )
+        ) {
+          return false;
+        }
 
-    filtered.sort((a, b) => {
-      const aTs = Number(a.sessionTs || a.bookDateTs || 0);
-      const bTs = Number(b.sessionTs || b.bookDateTs || 0);
+        if (query) {
+          const searchableText = [
+            row.bookingid,
+            row.bookDate,
+            row.studentName,
+            row.teacherName,
+            row.slotStart,
+            row.slotEnd,
+            row.subjectName,
+          ]
+            .join(" ")
+            .toLowerCase();
 
-      const aDiff = aTs ? Math.abs(aTs - nowTs) : Number.MAX_SAFE_INTEGER;
-      const bDiff = bTs ? Math.abs(bTs - nowTs) : Number.MAX_SAFE_INTEGER;
+          if (
+            !searchableText.includes(query)
+          ) {
+            return false;
+          }
+        }
 
-      if (aDiff !== bDiff) return aDiff - bDiff;
+        return true;
+      })
+      .sort((first, second) => {
+        const firstTimestamp = Number(
+          first.sessionTs ||
+          first.bookDateTs ||
+          0
+        );
 
-      if (bTs !== aTs) return bTs - aTs;
+        const secondTimestamp = Number(
+          second.sessionTs ||
+          second.bookDateTs ||
+          0
+        );
 
-      return Number(b.bookingid || 0) - Number(a.bookingid || 0);
-    });
+        if (
+          secondTimestamp !==
+          firstTimestamp
+        ) {
+          return (
+            secondTimestamp -
+            firstTimestamp
+          );
+        }
 
-    return filtered;
-  }, [rows, search, dateFrom, dateTo, publishFilter]);
+        return (
+          Number(second.bookingid || 0) -
+          Number(first.bookingid || 0)
+        );
+      });
+  }, [
+    rows,
+    search,
+    dateFrom,
+    dateTo,
+    publishFilter,
+  ]);
 
-  const indexOfLast = currentPage * perPage;
-  const indexOfFirst = indexOfLast - perPage;
-  const currentRows = filteredSortedRows.slice(indexOfFirst, indexOfLast);
-  const totalPages = Math.ceil(filteredSortedRows.length / perPage) || 1;
+  const totalPages = Math.max(
+    1,
+    Math.ceil(
+      filteredSortedRows.length /
+      PER_PAGE
+    )
+  );
 
-  const handlePageChange = (n) => setCurrentPage(n);
+  const indexOfFirst =
+    (currentPage - 1) * PER_PAGE;
+
+  const indexOfLast =
+    currentPage * PER_PAGE;
+
+  const currentRows =
+    filteredSortedRows.slice(
+      indexOfFirst,
+      indexOfLast
+    );
 
   useEffect(() => {
-    if (filteredSortedRows.length === 0) setCurrentPage(1);
-    else if (currentPage > totalPages) setCurrentPage(totalPages);
-  }, [filteredSortedRows.length, totalPages, currentPage]);
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, dateFrom, dateTo, publishFilter]);
+  }, [
+    search,
+    dateFrom,
+    dateTo,
+    publishFilter,
+  ]);
 
-  const openReviewModal = (row) => {
-    setCurrentRow({
-      ...row,
-      rating: clampRating(row.rating),
-      review: row.review || "",
-    });
-    setShowModal(true);
-  };
-
-  const handleReviewChange = (field, value) => {
-    setCurrentRow((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const handleStarClick = (value) => {
-    setCurrentRow((prev) => ({
-      ...prev,
-      rating: clampRating(value),
-    }));
-  };
-
-  const handlePublishToggle = async (row) => {
-    if (!row?.ratingReviewId) {
-      return Swal.fire(
-        "Error",
-        "rating_review ID is missing. The update cannot be completed.",
-        "error"
+  const openRecording = (row) => {
+    if (isFutureDubaiBooking(row)) {
+      Swal.fire(
+        "Upcoming Booking",
+        "Recording is disabled until the booking date.",
+        "info"
       );
+
+      return;
     }
 
-    const nextValue = Number(row.publishedOnWeb || 0) === 1 ? 0 : 1;
+    const url = normalizeUrl(row?.recordingUrl);
 
-    const confirm = await Swal.fire({
-      title: nextValue === 1 ? "Publish Review?" : "Unpublish Review?",
-      text:
-        nextValue === 1
-          ? "This review will be visible on the website landing page."
-          : "This review will be hidden from the website landing page.",
-      icon: "question",
-      showCancelButton: true,
-      confirmButtonText: nextValue === 1 ? "Yes, Publish" : "Yes, Unpublish",
-      cancelButtonText: "Cancel",
+    if (!url) {
+      Swal.fire(
+        "Recording Unavailable",
+        "Recording URL is not available for this booking.",
+        "warning"
+      );
+
+      return;
+    }
+
+    setActiveRecordingUrl(url);
+    setShowRecordingModal(true);
+  };
+
+  const closeRecording = () => {
+    setShowRecordingModal(false);
+    setActiveRecordingUrl("");
+  };
+
+  const openReviewModal = (row) => {
+    const disabledReason =
+      getRowDisabledReason(row);
+
+    if (disabledReason) {
+      Swal.fire(
+        "Action Unavailable",
+        disabledReason,
+        "info"
+      );
+
+      return;
+    }
+
+    setCurrentRow({
+      ...row,
+
+      rating: row.hasRatingReview
+        ? clampRating(row.rating)
+        : 0,
+
+      review: row.hasRatingReview
+        ? String(row.review || "")
+        : "",
     });
 
-    if (!confirm.isConfirmed) return;
+    setShowReviewModal(true);
+  };
 
-    try {
-      setPublishingId(row.ratingReviewId);
+  const closeReviewModal = () => {
+    if (savingReview) {
+      return;
+    }
 
-      const token = await getToken();
-      if (!token) throw new Error("Token not found");
+    setShowReviewModal(false);
+    setCurrentRow(null);
+  };
 
-      const payload = {
-        token,
-        tablename: "rating_review",
-        conditions: [{ id: Number(row.ratingReviewId) }],
-        updatedata: [
-          {
-            published_on_web: nextValue,
-          },
-        ],
-      };
+  const handlePublishToggle = async (
+    row
+  ) => {
+    const disabledReason =
+      getRowDisabledReason(row);
 
-      const res = await axios.post(UPDATE_DYNAMIC_URL, payload, {
-        headers: BASE_HEADERS,
+    if (disabledReason) {
+      Swal.fire(
+        "Action Unavailable",
+        disabledReason,
+        "info"
+      );
+
+      return;
+    }
+
+    if (
+      !row?.ratingReviewId ||
+      !row?.hasRatingReview
+    ) {
+      Swal.fire(
+        "Review Not Added",
+        "Please add a rating before changing the website status.",
+        "warning"
+      );
+
+      return;
+    }
+
+    const nextValue =
+      Number(row.publishedOnWeb || 0) ===
+        1
+        ? 0
+        : 1;
+
+    const confirmation =
+      await Swal.fire({
+        title:
+          nextValue === 1
+            ? "Publish Review?"
+            : "Unpublish Review?",
+
+        text:
+          nextValue === 1
+            ? "This rating and review will be visible on the website."
+            : "This rating and review will be hidden from the website.",
+
+        icon: "question",
+        showCancelButton: true,
+
+        confirmButtonText:
+          nextValue === 1
+            ? "Yes, Publish"
+            : "Yes, Unpublish",
+
+        cancelButtonText: "Cancel",
       });
 
-      const ok = res?.data?.statusCode === 200;
+    if (!confirmation.isConfirmed) {
+      return;
+    }
 
-      if (!ok) {
-        return Swal.fire(
-          "Error",
-          res?.data?.message || "Failed to update publish status.",
-          "error"
+    try {
+      setPublishingId(
+        row.ratingReviewId
+      );
+
+      const token = await getToken();
+
+      if (!token) {
+        throw new Error(
+          "Token not found"
         );
       }
 
-      setRows((prev) =>
-        prev.map((r) =>
-          Number(r.ratingReviewId) === Number(row.ratingReviewId)
+      const response =
+        await axios.post(
+          UPDATE_DYNAMIC_URL,
+          {
+            token,
+            tablename: "rating_review",
+
+            conditions: [
+              {
+                id: Number(
+                  row.ratingReviewId
+                ),
+              },
+            ],
+
+            updatedata: [
+              {
+                published_on_web:
+                  nextValue,
+              },
+            ],
+          },
+          {
+            headers: BASE_HEADERS,
+          }
+        );
+
+      if (!isSuccessResponse(response)) {
+        throw new Error(
+          response?.data?.message ||
+          "Failed to update website status."
+        );
+      }
+
+      setRows((previousRows) =>
+        previousRows.map((item) =>
+          Number(
+            item.ratingReviewId
+          ) ===
+            Number(
+              row.ratingReviewId
+            )
             ? {
-              ...r,
-              publishedOnWeb: nextValue,
+              ...item,
+
+              publishedOnWeb:
+                nextValue,
+
               publishStatusLabel:
-                nextValue === 1 ? "Published" : "Unpublished",
+                nextValue === 1
+                  ? "Published"
+                  : "Unpublished",
             }
-            : r
+            : item
         )
       );
 
       Swal.fire(
         "Updated!",
         nextValue === 1
-          ? "Review published on website successfully."
-          : "Review unpublished from website successfully.",
+          ? "Review published on the website successfully."
+          : "Review unpublished from the website successfully.",
         "success"
       );
     } catch (error) {
-      console.error(error);
+      console.error(
+        "Publish status error:",
+        error
+      );
+
       Swal.fire(
         "Error",
-        "Something went wrong while updating publish status.",
+        error?.response?.data?.message ||
+        error?.message ||
+        "Something went wrong while updating website status.",
         "error"
       );
     } finally {
@@ -561,82 +1028,249 @@ const StudentfeedbackLayer = () => {
   };
 
   const handleSaveReview = async () => {
-    if (!currentRow?.ratingReviewId) {
-      return Swal.fire(
-        "Error",
-        "rating_review ID is missing. The update cannot be completed.",
-        "error"
+    const disabledReason =
+      getRowDisabledReason(currentRow);
+
+    if (disabledReason) {
+      Swal.fire(
+        "Action Unavailable",
+        disabledReason,
+        "info"
       );
+
+      return;
     }
 
-    const confirm = await Swal.fire({
-      title: "Save Rating & Review?",
-      text: "Do you want to update this rating and review?",
-      icon: "question",
-      showCancelButton: true,
-      confirmButtonText: "Yes, Update",
-      cancelButtonText: "Cancel",
-    });
+    const rating = clampRating(
+      currentRow?.rating
+    );
 
-    if (!confirm.isConfirmed) return;
+    const review = String(
+      currentRow?.review || ""
+    ).trim();
+
+    const isEdit = Boolean(
+      currentRow?.ratingReviewId
+    );
+
+    if (rating <= 0) {
+      Swal.fire(
+        "Rating Required",
+        "Please select a rating before saving.",
+        "warning"
+      );
+
+      return;
+    }
+
+    const confirmation =
+      await Swal.fire({
+        title: isEdit
+          ? "Update Rating & Review?"
+          : "Add Rating & Review?",
+
+        text: isEdit
+          ? "Do you want to update this rating and review?"
+          : "This rating and review will be added against the selected booking.",
+
+        icon: "question",
+        showCancelButton: true,
+
+        confirmButtonText: isEdit
+          ? "Yes, Update"
+          : "Yes, Add",
+
+        cancelButtonText: "Cancel",
+      });
+
+    if (!confirmation.isConfirmed) {
+      return;
+    }
 
     try {
       setSavingReview(true);
 
       const token = await getToken();
-      if (!token) throw new Error("Token not found");
 
-      Swal.fire({
-        title: "Updating...",
-        allowOutsideClick: false,
-        didOpen: () => Swal.showLoading(),
-      });
-
-      const payload = {
-        token,
-        tablename: "rating_review",
-        conditions: [{ id: Number(currentRow.ratingReviewId) }],
-        updatedata: [
-          {
-            rating: clampRating(currentRow.rating),
-            review: String(currentRow.review || "").trim(),
-          },
-        ],
-      };
-
-      const res = await axios.post(UPDATE_DYNAMIC_URL, payload, {
-        headers: BASE_HEADERS,
-      });
-
-      const ok = res?.data?.statusCode === 200;
-
-      if (!ok) {
-        return Swal.fire(
-          "Error",
-          res?.data?.message || "Failed to update rating/review.",
-          "error"
+      if (!token) {
+        throw new Error(
+          "Token not found"
         );
       }
 
-      setRows((prev) =>
-        prev.map((r) =>
-          Number(r.ratingReviewId) === Number(currentRow.ratingReviewId)
+      Swal.fire({
+        title: isEdit
+          ? "Updating..."
+          : "Adding...",
+
+        allowOutsideClick: false,
+
+        didOpen: () =>
+          Swal.showLoading(),
+      });
+
+      let response;
+
+      let savedRatingReviewId =
+        currentRow.ratingReviewId;
+
+      if (isEdit) {
+        response = await axios.post(
+          UPDATE_DYNAMIC_URL,
+          {
+            token,
+
+            tablename:
+              "rating_review",
+
+            conditions: [
+              {
+                id: Number(
+                  currentRow.ratingReviewId
+                ),
+              },
+            ],
+
+            updatedata: [
+              {
+                rating,
+                review,
+              },
+            ],
+          },
+          {
+            headers: BASE_HEADERS,
+          }
+        );
+      } else {
+        /*
+         * Important:
+         * add_dynamic_data inserts all payload
+         * fields except tablename.
+         *
+         * Therefore token is sent in headers,
+         * not inside the insert payload.
+         */
+        response = await axios.post(
+          ADD_DYNAMIC_URL,
+          {
+            tablename:
+              "rating_review",
+
+            bookingid: Number(
+              currentRow.bookingid
+            ),
+
+            teacherid: Number(
+              currentRow.teacherid
+            ),
+
+            studentid: Number(
+              currentRow.studentid
+            ),
+
+            rating,
+            review,
+
+            published_on_web: 0,
+          },
+          {
+            headers: {
+              ...BASE_HEADERS,
+              token,
+
+              "Content-Type":
+                "application/json",
+            },
+          }
+        );
+
+        savedRatingReviewId =
+          Number(
+            response?.data?.data?.id ??
+            response?.data?.id ??
+            response?.data?.data
+              ?.insert_id ??
+            0
+          ) || null;
+      }
+
+      if (!isSuccessResponse(response)) {
+        throw new Error(
+          response?.data?.message ||
+          `Failed to ${isEdit
+            ? "update"
+            : "add"
+          } rating and review.`
+        );
+      }
+
+      if (
+        !isEdit &&
+        !savedRatingReviewId
+      ) {
+        throw new Error(
+          "Rating was added, but the new rating ID was not returned. Please refresh the page."
+        );
+      }
+
+      setRows((previousRows) =>
+        previousRows.map((item) =>
+          Number(item.bookingid) ===
+            Number(currentRow.bookingid)
             ? {
-              ...r,
-              rating: clampRating(currentRow.rating),
-              review: String(currentRow.review || "").trim(),
+              ...item,
+
+              ratingReviewId: Number(
+                savedRatingReviewId
+              ),
+
+              hasRatingReview: true,
+
+              rating,
+              review,
+
+              publishedOnWeb: isEdit
+                ? Number(
+                  item.publishedOnWeb ||
+                  0
+                )
+                : 0,
+
+              publishStatusLabel:
+                isEdit
+                  ? item.publishStatusLabel
+                  : "Unpublished",
             }
-            : r
+            : item
         )
       );
 
-      Swal.fire("Updated!", "Rating and review updated successfully.", "success");
-      setShowModal(false);
+      await Swal.fire(
+        isEdit
+          ? "Updated!"
+          : "Added!",
+
+        isEdit
+          ? "Rating and review updated successfully."
+          : "Rating and review added successfully.",
+
+        "success"
+      );
+
+      setShowReviewModal(false);
+      setCurrentRow(null);
     } catch (error) {
-      console.error(error);
+      console.error(
+        "Save rating/review error:",
+        error
+      );
+
       Swal.fire(
         "Error",
-        "Something went wrong while updating rating/review.",
+        error?.response?.data?.message ||
+        error?.message ||
+        "Something went wrong while saving rating and review.",
         "error"
       );
     } finally {
@@ -644,79 +1278,105 @@ const StudentfeedbackLayer = () => {
     }
   };
 
-  const renderStars = (value, onClick, disabled = false, size = 26) => {
-    const rating = clampRating(value);
+  const renderStars = (
+    value,
+    onChange,
+    disabled = false,
+    size = 26
+  ) => {
+    const rating =
+      clampRating(value);
 
     return (
       <div className="d-flex align-items-center gap-1 flex-wrap">
-        {[1, 2, 3, 4, 5].map((star) => {
-          let icon = "mdi:star-outline";
+        {[1, 2, 3, 4, 5].map(
+          (star) => {
+            let icon =
+              "mdi:star-outline";
 
-          if (rating >= star) {
-            icon = "mdi:star"; // full
-          } else if (rating >= star - 0.5) {
-            icon = "mdi:star-half-full"; // half
+            if (rating >= star) {
+              icon = "mdi:star";
+            } else if (
+              rating >= star - 0.5
+            ) {
+              icon =
+                "mdi:star-half-full";
+            }
+
+            return (
+              <button
+                key={star}
+                type="button"
+                className="rr-star-button"
+                disabled={disabled}
+                onClick={(event) => {
+                  if (disabled) {
+                    return;
+                  }
+
+                  const {
+                    left,
+                    width,
+                  } =
+                    event.currentTarget.getBoundingClientRect();
+
+                  const clickedValue =
+                    event.clientX - left <
+                      width / 2
+                      ? star - 0.5
+                      : star;
+
+                  onChange?.(
+                    clickedValue
+                  );
+                }}
+                style={{
+                  fontSize: `${size}px`,
+
+                  cursor: disabled
+                    ? "default"
+                    : "pointer",
+                }}
+                aria-label={`${star} star`}
+              >
+                <Icon icon={icon} />
+              </button>
+            );
           }
-
-          return (
-            <button
-              key={star}
-              type="button"
-              onClick={(e) => {
-                if (disabled) return;
-
-                const { left, width } = e.currentTarget.getBoundingClientRect();
-                const clickX = e.clientX - left;
-
-                const isHalf = clickX < width / 2;
-
-                const value = isHalf ? star - 0.5 : star;
-
-                onClick?.(value);
-              }}
-              disabled={disabled}
-              style={{
-                border: "none",
-                background: "transparent",
-                padding: 0,
-                cursor: disabled ? "default" : "pointer",
-                fontSize: `${size}px`,
-                color: "#f5b301",
-              }}
-            >
-              <Icon icon={icon} />
-            </button>
-          );
-        })}
+        )}
       </div>
     );
   };
 
-  const modalThemeClass = useMemo(
-    () => (isDarkTheme ? "rr-dark" : "rr-light"),
-    [isDarkTheme]
-  );
+  const modalThemeClass =
+    isDarkTheme
+      ? "rr-dark"
+      : "rr-light";
 
   if (initialLoading) {
     return (
       <div
         className="d-flex justify-content-center align-items-center"
-        style={{ height: "300px" }}
+        style={{
+          height: "300px",
+        }}
       >
-        <div
-          style={{
-            width: "48px",
-            height: "48px",
-            border: "6px solid #e0e0e0",
-            borderTop: "6px solid #45B369",
-            borderRadius: "50%",
-            animation: "spin 1s linear infinite",
-          }}
-        />
+        <div className="rr-loader" />
+
         <style>{`
-          @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+          .rr-loader {
+            width: 48px;
+            height: 48px;
+            border: 6px solid #e0e0e0;
+            border-top-color: #45b369;
+            border-radius: 50%;
+            animation: rrSpin 1s linear infinite;
+          }
+
+          @keyframes rrSpin {
+            to {
+              transform: rotate(360deg);
+            }
           }
         `}</style>
       </div>
@@ -726,179 +1386,262 @@ const StudentfeedbackLayer = () => {
   return (
     <div className="row gy-4">
       <style>{`
-        .rr-modal-card{
-          border-radius: 14px;
-          overflow: hidden;
-          box-shadow: 0 14px 45px rgba(0,0,0,.18);
-          border: 1px solid rgba(0,0,0,.06);
+        .rr-table-row {
+          transition:
+            background-color .2s ease,
+            opacity .2s ease;
         }
 
-        .rr-divider{
-          border-top: 1px dashed rgba(0,0,0,.15);
-          margin: 14px 0;
+        .rr-table-row:hover {
+          background:
+            rgba(13, 110, 253, .035);
         }
 
-        .rr-meta{
-          border-radius: 12px;
-          padding: 12px;
-          border: 1px solid rgba(0,0,0,.06);
+        .rr-table-row.is-locked {
+          opacity: .72;
         }
 
-        .rr-meta small{
-          opacity: .75;
+        .rr-date-wrap {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 5px;
         }
 
-        .rr-box{
-          border-radius: 12px;
-          padding: 12px;
-          height: 100%;
-          border: 1px solid rgba(0,0,0,.08);
-          background: transparent;
+        .rr-status-badge {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 5px;
+          min-height: 28px;
+          padding: 5px 10px;
+          border: 1px solid transparent;
+          border-radius: 999px;
+          font-size: 11px;
+          font-weight: 700;
+          white-space: nowrap;
         }
 
-        .rr-box .form-label{
+        .rr-status-badge.upcoming {
+          color: #8a5a00;
+          background:
+            rgba(255, 193, 7, .14);
+          border-color:
+            rgba(255, 193, 7, .28);
+        }
+
+        .rr-status-badge.missing {
+          color: #b42318;
+          background:
+            rgba(220, 53, 69, .10);
+          border-color:
+            rgba(220, 53, 69, .22);
+        }
+
+        .rr-status-badge.not-added {
+          color: #5c667a;
+          background:
+            rgba(108, 117, 125, .11);
+          border-color:
+            rgba(108, 117, 125, .23);
+        }
+
+        .rr-recording-button,
+        .rr-action-button {
+          border-radius: 8px;
           font-weight: 600;
-          font-size: 13px;
-          margin-bottom: 8px;
         }
 
-        .rr-light{
-          background: #ffffff;
-          color: rgba(0,0,0,.88);
-          border-color: rgba(0,0,0,.08);
-        }
-
-        .rr-light .modal-header{
-          border-bottom: 1px solid rgba(0,0,0,.08);
-        }
-
-        .rr-light .rr-meta{
-          background: rgba(0,0,0,.03);
-          border-color: rgba(0,0,0,.06);
-        }
-
-        .rr-light .rr-box{
-          border-color: rgba(0,0,0,.08);
-        }
-
-        .rr-light .rr-divider{
-          border-top: 1px dashed rgba(0,0,0,.18);
-        }
-
-        .rr-light .rr-box .form-control{
-          background: #ffffff;
-          color: rgba(0,0,0,.88);
-          border-color: rgba(0,0,0,.12);
-        }
-
-        .rr-dark{
-          background: #1f2a3a;
-          color: rgba(255,255,255,.92);
-          border-color: rgba(255,255,255,.08);
-        }
-
-        .rr-dark .modal-header{
-          border-bottom: 1px solid rgba(255,255,255,.10);
-        }
-
-        .rr-dark .modal-title{
-          color: rgba(255,255,255,.95);
-        }
-
-        .rr-dark .btn-close{
-          filter: invert(1) grayscale(100%);
-          opacity: .85;
-        }
-
-        .rr-dark .rr-meta{
-          background: rgba(255,255,255,.04);
-          border-color: rgba(255,255,255,.08);
-        }
-
-        .rr-dark .rr-box{
-          border-color: rgba(255,255,255,.10);
-        }
-
-        .rr-dark .rr-divider{
-          border-top: 1px dashed rgba(255,255,255,.16);
-        }
-
-        .rr-dark .rr-box .form-control{
-          background: rgba(255,255,255,.06);
-          color: rgba(255,255,255,.92);
-          border-color: rgba(255,255,255,.12);
-        }
-
-        .rr-star-btn:disabled{
-          opacity: 1;
+        .rr-action-button {
+          min-width: 105px;
         }
 
         .rr-publish-toggle {
-  min-width: 132px;
-  height: 34px;
-  border: 1px solid rgba(108, 117, 125, 0.35);
-  background: rgba(108, 117, 125, 0.12);
-  color: #6c757d;
-  border-radius: 999px;
-  padding: 4px 7px 4px 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1;
-  transition: all 0.2s ease;
-}
+          min-width: 132px;
+          height: 34px;
+          padding:
+            4px 7px 4px 12px;
+          display: inline-flex;
+          align-items: center;
+          justify-content:
+            space-between;
+          gap: 8px;
+          border:
+            1px solid
+            rgba(108, 117, 125, .35);
+          border-radius: 999px;
+          background:
+            rgba(108, 117, 125, .12);
+          color: #6c757d;
+          font-size: 12px;
+          font-weight: 700;
+          line-height: 1;
+          transition: .2s ease;
+        }
 
-.rr-publish-toggle:hover:not(:disabled) {
-  transform: translateY(-1px);
-  background: rgba(108, 117, 125, 0.18);
-}
+        .rr-publish-toggle:hover:not(:disabled) {
+          transform:
+            translateY(-1px);
+          background:
+            rgba(108, 117, 125, .18);
+        }
 
-.rr-publish-toggle:disabled {
-  opacity: 0.65;
-  cursor: not-allowed;
-}
+        .rr-publish-toggle:disabled {
+          opacity: .65;
+          cursor: not-allowed;
+        }
 
-.rr-publish-switch {
-  width: 34px;
-  height: 18px;
-  border-radius: 999px;
-  background: #8b95a5;
-  position: relative;
-  flex: 0 0 auto;
-  transition: all 0.2s ease;
-}
+        .rr-publish-switch {
+          width: 34px;
+          height: 18px;
+          position: relative;
+          flex: 0 0 auto;
+          border-radius: 999px;
+          background: #8b95a5;
+          transition: .2s ease;
+        }
 
-.rr-publish-dot {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: #ffffff;
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  transition: all 0.2s ease;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
-}
+        .rr-publish-dot {
+          width: 14px;
+          height: 14px;
+          position: absolute;
+          top: 2px;
+          left: 2px;
+          border-radius: 50%;
+          background: #fff;
+          box-shadow:
+            0 1px 4px
+            rgba(0, 0, 0, .22);
+          transition: .2s ease;
+        }
 
-.rr-publish-toggle.is-published {
-  border-color: rgba(69, 179, 105, 0.35);
-  background: rgba(69, 179, 105, 0.12);
-  color: #45b369;
-}
+        .rr-publish-toggle.is-published {
+          color: #45b369;
+          border-color:
+            rgba(69, 179, 105, .35);
+          background:
+            rgba(69, 179, 105, .12);
+        }
 
-.rr-publish-toggle.is-published .rr-publish-switch {
-  background: #45b369;
-}
+        .rr-publish-toggle.is-published
+        .rr-publish-switch {
+          background: #45b369;
+        }
 
-.rr-publish-toggle.is-published .rr-publish-dot {
-  left: 18px;
-}
+        .rr-publish-toggle.is-published
+        .rr-publish-dot {
+          left: 18px;
+        }
 
-        .rr-action-btn{
-          min-width: 92px;
+        .rr-star-button {
+          padding: 0;
+          border: none;
+          background: transparent;
+          color: #f5b301;
+          line-height: 1;
+        }
+
+        .rr-star-button:disabled {
+          opacity: 1;
+        }
+
+        .rr-modal-card {
+          overflow: hidden;
+          border-radius: 14px;
+          border:
+            1px solid
+            rgba(0, 0, 0, .06);
+          box-shadow:
+            0 14px 45px
+            rgba(0, 0, 0, .18);
+        }
+
+        .rr-meta,
+        .rr-box {
+          padding: 14px;
+          border-radius: 12px;
+          border:
+            1px solid
+            rgba(0, 0, 0, .08);
+        }
+
+        .rr-box .form-label {
+          margin-bottom: 8px;
+          font-size: 13px;
+          font-weight: 600;
+        }
+
+        .rr-divider {
+          margin: 14px 0;
+          border-top:
+            1px dashed
+            rgba(0, 0, 0, .18);
+        }
+
+        .rr-light {
+          color:
+            rgba(0, 0, 0, .88);
+          background: #fff;
+        }
+
+        .rr-light .rr-meta {
+          background:
+            rgba(0, 0, 0, .03);
+        }
+
+        .rr-dark {
+          color:
+            rgba(255, 255, 255, .92);
+          background: #1f2a3a;
+          border-color:
+            rgba(255, 255, 255, .08);
+        }
+
+        .rr-dark .modal-header {
+          border-bottom-color:
+            rgba(255, 255, 255, .10);
+        }
+
+        .rr-dark .modal-title {
+          color:
+            rgba(255, 255, 255, .95);
+        }
+
+        .rr-dark .btn-close {
+          filter:
+            invert(1)
+            grayscale(100%);
+        }
+
+        .rr-dark .rr-meta,
+        .rr-dark .rr-box {
+          border-color:
+            rgba(255, 255, 255, .10);
+          background:
+            rgba(255, 255, 255, .04);
+        }
+
+        .rr-dark .rr-divider {
+          border-top-color:
+            rgba(255, 255, 255, .16);
+        }
+
+        .rr-dark .form-control {
+          color:
+            rgba(255, 255, 255, .92);
+          border-color:
+            rgba(255, 255, 255, .12);
+          background:
+            rgba(255, 255, 255, .06);
+        }
+
+        @media (max-width: 767px) {
+          .rr-pagination-wrap {
+            flex-direction: column;
+            align-items:
+              flex-start !important;
+            gap: 12px;
+          }
         }
       `}</style>
 
@@ -907,42 +1650,98 @@ const StudentfeedbackLayer = () => {
           <div className="card-body p-0">
             <div className="px-3 pt-3">
               <div className="d-flex flex-wrap gap-2 align-items-end">
-                <div style={{ minWidth: 240 }}>
+                <div
+                  style={{
+                    minWidth: 240,
+                  }}
+                >
+                  <label className="form-label small fw-semibold">
+                    Search
+                  </label>
+
                   <input
                     className="form-control"
-                    placeholder="Search"
+                    placeholder="Booking, student, teacher or subject"
                     value={search}
-                    onChange={(e) => setSearch(e.target.value)}
+                    onChange={(event) =>
+                      setSearch(
+                        event.target.value
+                      )
+                    }
                   />
                 </div>
 
-                <div style={{ minWidth: 170 }}>
+                <div
+                  style={{
+                    minWidth: 170,
+                  }}
+                >
+                  <label className="form-label small fw-semibold">
+                    From Date
+                  </label>
+
                   <input
                     type="date"
                     className="form-control"
                     value={dateFrom}
-                    onChange={(e) => setDateFrom(e.target.value)}
+                    onChange={(event) =>
+                      setDateFrom(
+                        event.target.value
+                      )
+                    }
                   />
                 </div>
 
-                <div style={{ minWidth: 170 }}>
+                <div
+                  style={{
+                    minWidth: 170,
+                  }}
+                >
+                  <label className="form-label small fw-semibold">
+                    To Date
+                  </label>
+
                   <input
                     type="date"
                     className="form-control"
                     value={dateTo}
-                    onChange={(e) => setDateTo(e.target.value)}
+                    onChange={(event) =>
+                      setDateTo(
+                        event.target.value
+                      )
+                    }
                   />
                 </div>
 
-                <div style={{ minWidth: 190 }}>
+                <div
+                  style={{
+                    minWidth: 190,
+                  }}
+                >
+                  <label className="form-label small fw-semibold">
+                    Web Status
+                  </label>
+
                   <select
                     className="form-select"
                     value={publishFilter}
-                    onChange={(e) => setPublishFilter(e.target.value)}
+                    onChange={(event) =>
+                      setPublishFilter(
+                        event.target.value
+                      )
+                    }
                   >
-                    <option value="all">All Web Status</option>
-                    <option value="published">Published</option>
-                    <option value="unpublished">Unpublished</option>
+                    <option value="all">
+                      All Web Status
+                    </option>
+
+                    <option value="published">
+                      Published
+                    </option>
+
+                    <option value="unpublished">
+                      Unpublished
+                    </option>
                   </select>
                 </div>
 
@@ -951,6 +1750,11 @@ const StudentfeedbackLayer = () => {
                   className="btn btn-outline-secondary"
                   onClick={resetFilters}
                 >
+                  <Icon
+                    icon="mdi:filter-remove-outline"
+                    className="me-1"
+                  />
+
                   Reset Filters
                 </button>
               </div>
@@ -959,200 +1763,563 @@ const StudentfeedbackLayer = () => {
             </div>
 
             <div className="table-responsive">
-              <table className="table bordered-table sm-table mb-0">
+              <table className="table bordered-table sm-table mb-0 align-middle">
                 <thead>
                   <tr>
-                    <th className="text-center">S.L</th>
-                    <th className="text-center">Recording</th>
-                    <th className="text-center">Book Date</th>
-                    <th className="text-center">Student Name</th>
-                    <th className="text-center">Teacher Name</th>
-                    <th className="text-center">Slot Start</th>
-                    <th className="text-center">Slot End</th>
-                    <th className="text-center">Rating</th>
-                    <th className="text-center">Web Status</th>
-                    <th className="text-center">Action</th>
+                    <th className="text-center">
+                      S.L
+                    </th>
+
+                    <th className="text-center">
+                      Recording
+                    </th>
+
+                    <th className="text-center">
+                      Book Date
+                    </th>
+
+                    <th className="text-center">
+                      Student Name
+                    </th>
+
+                    <th className="text-center">
+                      Teacher Name
+                    </th>
+
+                    <th className="text-center">
+                      Slot Start
+                    </th>
+
+                    <th className="text-center">
+                      Slot End
+                    </th>
+
+                    <th className="text-center">
+                      Rating
+                    </th>
+
+                    <th className="text-center">
+                      Web Status
+                    </th>
+
+                    <th className="text-center">
+                      Action
+                    </th>
                   </tr>
                 </thead>
 
                 <tbody>
-                  {currentRows.length === 0 ? (
+                  {currentRows.length ===
+                    0 ? (
                     <tr>
-                      <td className="text-center" colSpan={10}>
+                      <td
+                        className="text-center py-4"
+                        colSpan={10}
+                      >
                         No records found.
                       </td>
                     </tr>
                   ) : (
-                    currentRows.map((row, idx) => {
-                      const recUrl = normalizeUrl(row.recordingUrl);
+                    currentRows.map(
+                      (row, index) => {
+                        const recordingUrl =
+                          normalizeUrl(
+                            row.recordingUrl
+                          );
 
-                      return (
-                        <tr key={row.key ?? `${row.ratingReviewId}-${idx}`}>
-                          <td className="text-center">{indexOfFirst + idx + 1}</td>
+                        const isFuture =
+                          isFutureDubaiBooking(
+                            row
+                          );
 
-                          <td className="text-center">
-                            {recUrl ? (
+                        const missingStudent =
+                          !row.studentid ||
+                          !String(
+                            row.studentName ||
+                            ""
+                          ).trim();
+
+                        const missingTeacher =
+                          !row.teacherid ||
+                          !String(
+                            row.teacherName ||
+                            ""
+                          ).trim();
+
+                        const disabledReason =
+                          getRowDisabledReason(
+                            row
+                          );
+
+                        const actionDisabled =
+                          Boolean(
+                            disabledReason
+                          );
+
+                        let actionLabel =
+                          row.hasRatingReview
+                            ? "View / Edit"
+                            : "Add";
+
+                        let actionIcon =
+                          row.hasRatingReview
+                            ? "majesticons:eye-line"
+                            : "mdi:plus-circle-outline";
+
+                        if (isFuture) {
+                          actionLabel =
+                            "Locked";
+
+                          actionIcon =
+                            "mdi:lock-outline";
+                        } else if (
+                          missingStudent ||
+                          missingTeacher
+                        ) {
+                          actionLabel =
+                            "Unavailable";
+
+                          actionIcon =
+                            "mdi:alert-circle-outline";
+                        }
+
+                        return (
+                          <tr
+                            key={
+                              row.key ||
+                              `booking-${row.bookingid}-${index}`
+                            }
+                            className={`rr-table-row ${actionDisabled
+                              ? "is-locked"
+                              : ""
+                              }`}
+                          >
+                            <td className="text-center">
+                              {indexOfFirst +
+                                index +
+                                1}
+                            </td>
+
+                            <td className="text-center">
+                              {recordingUrl ? (
+                                <button
+                                  type="button"
+                                  className="btn btn-sm btn-outline-primary rr-recording-button"
+                                  onClick={() =>
+                                    openRecording(
+                                      row
+                                    )
+                                  }
+                                  disabled={
+                                    isFuture
+                                  }
+                                  title={
+                                    isFuture
+                                      ? "Recording is disabled for upcoming bookings."
+                                      : "View Recording"
+                                  }
+                                >
+                                  <Icon
+                                    icon={
+                                      isFuture
+                                        ? "mdi:lock-outline"
+                                        : "mdi:play-circle-outline"
+                                    }
+                                    className="me-1"
+                                  />
+
+                                  {isFuture
+                                    ? "Locked"
+                                    : "View"}
+                                </button>
+                              ) : (
+                                <span className="text-muted">
+                                  -
+                                </span>
+                              )}
+                            </td>
+
+                            <td className="text-center">
+                              <div className="rr-date-wrap">
+                                <span>
+                                  {row.bookDate ||
+                                    "-"}
+                                </span>
+
+                                {isFuture && (
+                                  <span className="rr-status-badge upcoming">
+                                    <Icon icon="mdi:clock-outline" />
+
+                                    Upcoming
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+
+                            <td className="text-center">
+                              {missingStudent ? (
+                                <span className="rr-status-badge missing">
+                                  <Icon icon="mdi:account-alert-outline" />
+
+                                  Student Missing
+                                </span>
+                              ) : (
+                                row.studentName
+                              )}
+                            </td>
+
+                            <td className="text-center">
+                              {missingTeacher ? (
+                                <span className="rr-status-badge missing">
+                                  <Icon icon="mdi:account-alert-outline" />
+
+                                  Teacher Missing
+                                </span>
+                              ) : (
+                                row.teacherName
+                              )}
+                            </td>
+
+                            <td className="text-center">
+                              {row.slotStart ||
+                                "-"}
+                            </td>
+
+                            <td className="text-center">
+                              {row.slotEnd ||
+                                "-"}
+                            </td>
+
+                            <td className="text-center">
+                              <div className="d-flex justify-content-center">
+                                {row.hasRatingReview &&
+                                  row.rating > 0 ? (
+                                  renderStars(
+                                    row.rating,
+                                    null,
+                                    true,
+                                    18
+                                  )
+                                ) : (
+                                  <span className="rr-status-badge not-added">
+                                    <Icon icon="mdi:star-off-outline" />
+
+                                    Not Added
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+
+                            <td className="text-center">
+                              {isFuture ? (
+                                <span className="rr-status-badge upcoming">
+                                  <Icon icon="mdi:lock-outline" />
+
+                                  Locked
+                                </span>
+                              ) : missingStudent ||
+                                missingTeacher ? (
+                                <span className="rr-status-badge missing">
+                                  <Icon icon="mdi:alert-circle-outline" />
+
+                                  Unavailable
+                                </span>
+                              ) : !row.hasRatingReview ||
+                                !row.ratingReviewId ? (
+                                <span className="rr-status-badge not-added">
+                                  <Icon icon="mdi:web-off" />
+
+                                  Review Not Added
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className={`rr-publish-toggle ${Number(
+                                    row.publishedOnWeb ||
+                                    0
+                                  ) === 1
+                                    ? "is-published"
+                                    : ""
+                                    }`}
+                                  disabled={
+                                    Number(
+                                      publishingId
+                                    ) ===
+                                    Number(
+                                      row.ratingReviewId
+                                    )
+                                  }
+                                  onClick={() =>
+                                    handlePublishToggle(
+                                      row
+                                    )
+                                  }
+                                >
+                                  <span>
+                                    {Number(
+                                      row.publishedOnWeb ||
+                                      0
+                                    ) === 1
+                                      ? "Published"
+                                      : "Unpublished"}
+                                  </span>
+
+                                  <span className="rr-publish-switch">
+                                    <span className="rr-publish-dot" />
+                                  </span>
+                                </button>
+                              )}
+                            </td>
+
+                            <td className="text-center">
                               <button
                                 type="button"
-                                className="btn btn-sm btn-outline-primary"
-                                onClick={() => openRecording(row)}
-                                title="View Recording"
+                                className={`btn btn-sm rr-action-button ${row.hasRatingReview
+                                  ? "btn-outline-primary"
+                                  : "btn-outline-success"
+                                  }`}
+                                onClick={() =>
+                                  openReviewModal(
+                                    row
+                                  )
+                                }
+                                disabled={
+                                  actionDisabled
+                                }
+                                title={
+                                  disabledReason ||
+                                  (row.hasRatingReview
+                                    ? "View or edit rating and review"
+                                    : "Add rating and review")
+                                }
                               >
-                                View
+                                <Icon
+                                  icon={
+                                    actionIcon
+                                  }
+                                  className="me-1"
+                                />
+
+                                {actionLabel}
                               </button>
-                            ) : (
-                              "-"
-                            )}
-                          </td>
-
-                          <td className="text-center">{row.bookDate || "-"}</td>
-                          <td className="text-center">{row.studentName || "-"}</td>
-                          <td className="text-center">{row.teacherName || "-"}</td>
-                          <td className="text-center">{row.slotStart || "-"}</td>
-                          <td className="text-center">{row.slotEnd || "-"}</td>
-                          <td className="text-center">
-                            <div
-                              className="d-flex justify-content-center align-items-center"
-                              style={{ height: "100%" }}
-                            >
-                              {row.rating > 0 ? (
-                                renderStars(row.rating, null, true, 18)
-                              ) : (
-                                "-"
-                              )}
-                            </div>
-                          </td>
-
-                          <td className="text-center">
-                            <button
-                              type="button"
-                              className={`rr-publish-toggle ${Number(row.publishedOnWeb || 0) === 1 ? "is-published" : ""
-                                }`}
-                              disabled={Number(publishingId) === Number(row.ratingReviewId)}
-                              onClick={() => handlePublishToggle(row)}
-                              title={
-                                Number(row.publishedOnWeb || 0) === 1
-                                  ? "Click to unpublish from website"
-                                  : "Click to publish on website"
-                              }
-                            >
-                              <span className="rr-publish-text">
-                                {Number(row.publishedOnWeb || 0) === 1 ? "Published" : "Unpublished"}
-                              </span>
-                              <span className="rr-publish-switch">
-                                <span className="rr-publish-dot" />
-                              </span>
-                            </button>
-                          </td>
-
-                          <td className="text-center">
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-outline-primary rr-action-btn"
-                              onClick={() => openReviewModal(row)}
-                              title="View / Edit Rating & Review"
-                            >
-                              <Icon icon="majesticons:eye-line" className="me-1" />
-                              View
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })
+                            </td>
+                          </tr>
+                        );
+                      }
+                    )
                   )}
                 </tbody>
               </table>
             </div>
 
-            <div className="d-flex justify-content-between mt-3 px-3 pb-3">
+            <div className="rr-pagination-wrap d-flex justify-content-between align-items-center mt-3 px-3 pb-3">
               <span>
-                Showing {filteredSortedRows.length === 0 ? 0 : indexOfFirst + 1} to{" "}
-                {Math.min(indexOfLast, filteredSortedRows.length)} of{" "}
-                {filteredSortedRows.length} entries
+                Showing{" "}
+                {filteredSortedRows.length ===
+                  0
+                  ? 0
+                  : indexOfFirst + 1}{" "}
+                to{" "}
+                {Math.min(
+                  indexOfLast,
+                  filteredSortedRows.length
+                )}{" "}
+                of{" "}
+                {
+                  filteredSortedRows.length
+                }{" "}
+                entries
               </span>
 
-              <ul className="pagination mb-0">
-                {Array.from({ length: totalPages }).map((_, i) => (
+              <ul className="pagination mb-0 flex-wrap">
+                <li
+                  className={`page-item ${currentPage === 1
+                    ? "disabled"
+                    : ""
+                    }`}
+                >
+                  <button
+                    type="button"
+                    className="page-link"
+                    onClick={() =>
+                      setCurrentPage(
+                        (page) =>
+                          Math.max(
+                            1,
+                            page - 1
+                          )
+                      )
+                    }
+                  >
+                    Previous
+                  </button>
+                </li>
+
+                {Array.from({
+                  length: totalPages,
+                }).map((_, index) => (
                   <li
-                    key={i}
-                    className={`page-item ${currentPage === i + 1 ? "active" : ""}`}
+                    key={index + 1}
+                    className={`page-item ${currentPage ===
+                      index + 1
+                      ? "active"
+                      : ""
+                      }`}
                   >
                     <button
-                      onClick={() => handlePageChange(i + 1)}
+                      type="button"
                       className="page-link"
+                      onClick={() =>
+                        setCurrentPage(
+                          index + 1
+                        )
+                      }
                     >
-                      {i + 1}
+                      {index + 1}
                     </button>
                   </li>
                 ))}
+
+                <li
+                  className={`page-item ${currentPage ===
+                    totalPages
+                    ? "disabled"
+                    : ""
+                    }`}
+                >
+                  <button
+                    type="button"
+                    className="page-link"
+                    onClick={() =>
+                      setCurrentPage(
+                        (page) =>
+                          Math.min(
+                            totalPages,
+                            page + 1
+                          )
+                      )
+                    }
+                  >
+                    Next
+                  </button>
+                </li>
               </ul>
             </div>
           </div>
         </div>
       </div>
 
-      {/* ✅ Recording Modal */}
-      {isRecordingOpen && (
+      {showRecordingModal && (
         <div
           className="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
-          style={{ background: "rgba(0,0,0,0.6)", zIndex: 1060 }}
+          style={{
+            background:
+              "rgba(0,0,0,.65)",
+
+            zIndex: 1060,
+          }}
           role="dialog"
           aria-modal="true"
           onClick={closeRecording}
         >
           <div
-            className="bg-white radius-12 p-16"
-            style={{ width: "min(900px, 92vw)" }}
-            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-4 p-3 shadow-lg"
+            style={{
+              width:
+                "min(900px, 92vw)",
+            }}
+            onClick={(event) =>
+              event.stopPropagation()
+            }
           >
-            <div className="d-flex justify-content-between align-items-center mb-2">
-              <h6 className="mb-0">Recording</h6>
+            <div className="d-flex justify-content-between align-items-center mb-3">
+              <h5 className="mb-0">
+                Class Recording
+              </h5>
+
               <button
+                type="button"
                 className="btn btn-sm btn-outline-secondary"
                 onClick={closeRecording}
               >
+                <Icon
+                  icon="mdi:close"
+                  className="me-1"
+                />
+
                 Close
               </button>
             </div>
 
             {activeRecordingUrl ? (
               <video
+                key={activeRecordingUrl}
                 controls
                 autoPlay
+                playsInline
+                preload="metadata"
                 style={{
                   width: "100%",
                   maxHeight: "70vh",
+                  borderRadius: "10px",
                   background: "#000",
                 }}
               >
-                <source src={activeRecordingUrl} type="video/mp4" />
-                Your browser does not support the video tag.
+                <source
+                  src={
+                    activeRecordingUrl
+                  }
+                  type="video/mp4"
+                />
+
+                Your browser does not
+                support the video tag.
               </video>
             ) : (
-              <div className="text-center py-5">Recording not available</div>
+              <div className="text-center py-5">
+                Recording not available.
+              </div>
             )}
           </div>
         </div>
       )}
 
-      {/* ✅ Rating / Review Modal */}
-      {showModal && (
+      {showReviewModal && (
         <div
           className="modal fade show"
-          style={{ display: "block", background: "rgba(0,0,0,0.5)" }}
-          onClick={() => setShowModal(false)}
+          style={{
+            display: "block",
+
+            background:
+              "rgba(0,0,0,.55)",
+          }}
+          onClick={closeReviewModal}
         >
           <div
             className="modal-dialog modal-dialog-centered modal-lg"
-            onClick={(e) => e.stopPropagation()}
+            onClick={(event) =>
+              event.stopPropagation()
+            }
           >
-            <div className={`modal-content rr-modal-card ${modalThemeClass}`}>
+            <div
+              className={`modal-content rr-modal-card ${modalThemeClass}`}
+            >
               <div className="modal-header">
-                <h5 className="modal-title">Rating & Review</h5>
+                <h5 className="modal-title">
+                  {currentRow?.hasRatingReview
+                    ? "View / Edit Rating & Review"
+                    : "Add Rating & Review"}
+                </h5>
+
                 <button
                   type="button"
                   className="btn-close"
-                  onClick={() => setShowModal(false)}
+                  onClick={
+                    closeReviewModal
+                  }
+                  disabled={
+                    savingReview
+                  }
                 />
               </div>
 
@@ -1160,39 +2327,59 @@ const StudentfeedbackLayer = () => {
                 {currentRow && (
                   <>
                     <div className="rr-meta">
-                      <div className="row g-2">
+                      <div className="row g-3">
                         <div className="col-md-6">
-                          <small>Student</small>
+                          <small className="opacity-75">
+                            Student
+                          </small>
+
                           <div className="fw-semibold">
-                            {currentRow.studentName || "-"}
+                            {currentRow.studentName ||
+                              "-"}
                           </div>
                         </div>
 
                         <div className="col-md-6">
-                          <small>Teacher</small>
+                          <small className="opacity-75">
+                            Teacher
+                          </small>
+
                           <div className="fw-semibold">
-                            {currentRow.teacherName || "-"}
+                            {currentRow.teacherName ||
+                              "-"}
                           </div>
                         </div>
 
-                        <div className="col-md-4 mt-2">
-                          <small>Book Date</small>
+                        <div className="col-md-4">
+                          <small className="opacity-75">
+                            Book Date
+                          </small>
+
                           <div className="fw-semibold">
-                            {currentRow.bookDate || "-"}
+                            {currentRow.bookDate ||
+                              "-"}
                           </div>
                         </div>
 
-                        <div className="col-md-4 mt-2">
-                          <small>Slot Start</small>
+                        <div className="col-md-4">
+                          <small className="opacity-75">
+                            Slot Start
+                          </small>
+
                           <div className="fw-semibold">
-                            {currentRow.slotStart || "-"}
+                            {currentRow.slotStart ||
+                              "-"}
                           </div>
                         </div>
 
-                        <div className="col-md-4 mt-2">
-                          <small>Slot End</small>
+                        <div className="col-md-4">
+                          <small className="opacity-75">
+                            Slot End
+                          </small>
+
                           <div className="fw-semibold">
-                            {currentRow.slotEnd || "-"}
+                            {currentRow.slotEnd ||
+                              "-"}
                           </div>
                         </div>
                       </div>
@@ -1203,23 +2390,69 @@ const StudentfeedbackLayer = () => {
                     <div className="row g-3">
                       <div className="col-12">
                         <div className="rr-box">
-                          <label className="form-label d-block">Rating</label>
-                          {renderStars(currentRow.rating, handleStarClick, false, 36)}
+                          <label className="form-label d-block">
+                            Rating
+                          </label>
+
+                          {renderStars(
+                            currentRow.rating,
+
+                            (value) =>
+                              setCurrentRow(
+                                (
+                                  previous
+                                ) => ({
+                                  ...previous,
+
+                                  rating:
+                                    clampRating(
+                                      value
+                                    ),
+                                })
+                              ),
+
+                            false,
+
+                            36
+                          )}
+
                           <div className="mt-2 fw-semibold">
-                            Selected Rating: {clampRating(currentRow.rating)}/5
+                            Selected Rating:{" "}
+                            {clampRating(
+                              currentRow.rating
+                            )}
+                            /5
                           </div>
                         </div>
                       </div>
 
                       <div className="col-12">
                         <div className="rr-box">
-                          <label className="form-label">Review</label>
+                          <label className="form-label">
+                            Review
+                          </label>
+
                           <textarea
                             className="form-control"
-                            rows="5"
-                            value={currentRow.review}
-                            onChange={(e) =>
-                              handleReviewChange("review", e.target.value)
+                            rows={5}
+                            value={
+                              currentRow.review
+                            }
+                            onChange={(
+                              event
+                            ) =>
+                              setCurrentRow(
+                                (
+                                  previous
+                                ) => ({
+                                  ...previous,
+
+                                  review:
+                                    event
+                                      .target
+                                      .value,
+                                })
+                              )
                             }
                             placeholder="Write review here..."
                           />
@@ -1234,7 +2467,12 @@ const StudentfeedbackLayer = () => {
                 <button
                   type="button"
                   className="btn btn-outline-secondary"
-                  onClick={() => setShowModal(false)}
+                  onClick={
+                    closeReviewModal
+                  }
+                  disabled={
+                    savingReview
+                  }
                 >
                   Close
                 </button>
@@ -1242,10 +2480,24 @@ const StudentfeedbackLayer = () => {
                 <button
                   type="button"
                   className="btn btn-success"
-                  onClick={handleSaveReview}
-                  disabled={savingReview}
+                  onClick={
+                    handleSaveReview
+                  }
+                  disabled={
+                    savingReview
+                  }
                 >
-                  {savingReview ? "Saving..." : "Save Rating & Review"}
+                  {savingReview ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm me-2" />
+
+                      Saving...
+                    </>
+                  ) : currentRow?.hasRatingReview ? (
+                    "Update Rating & Review"
+                  ) : (
+                    "Add Rating & Review"
+                  )}
                 </button>
               </div>
             </div>
