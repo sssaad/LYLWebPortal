@@ -37,11 +37,16 @@ const DarkSelectEditor = ({
       <select
         className="lyl-select"
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(event) =>
+          onChange(event.target.value)
+        }
         disabled={loading}
       >
         {options.map((option) => (
-          <option key={option} value={option}>
+          <option
+            key={option}
+            value={option}
+          >
             {option}
           </option>
         ))}
@@ -62,22 +67,34 @@ const ConfirmActionModal = ({
   onClose,
   loading,
 }) => {
-  if (!open) return null;
+  if (!open) {
+    return null;
+  }
 
-  const isDanger = variant === "danger";
+  const isDanger =
+    variant === "danger";
 
   return (
     <div
       className="lyl-modal-overlay"
-      onClick={loading ? undefined : onClose}
+      onClick={
+        loading
+          ? undefined
+          : onClose
+      }
     >
       <div
         className="lyl-modal-card"
-        onClick={(e) => e.stopPropagation()}
+        onClick={(event) =>
+          event.stopPropagation()
+        }
       >
         <div
-          className={`lyl-modal-icon ${isDanger ? "danger" : ""
-            }`}
+          className={`lyl-modal-icon ${
+            isDanger
+              ? "danger"
+              : ""
+          }`}
         >
           !
         </div>
@@ -102,16 +119,19 @@ const ConfirmActionModal = ({
 
           <button
             type="button"
-            className={`lyl-btn ${isDanger
-              ? "lyl-btn-danger"
-              : "lyl-btn-primary"
-              }`}
+            className={`lyl-btn ${
+              isDanger
+                ? "lyl-btn-danger"
+                : "lyl-btn-primary"
+            }`}
             onClick={onConfirm}
             disabled={loading}
           >
             {loading
-              ? loadingText || "Please wait..."
-              : confirmText || "Confirm"}
+              ? loadingText ||
+                "Please wait..."
+              : confirmText ||
+                "Confirm"}
           </button>
         </div>
       </div>
@@ -123,14 +143,18 @@ const AlertToast = ({
   alertData,
   onClose,
 }) => {
-  if (!alertData?.open) return null;
+  if (!alertData?.open) {
+    return null;
+  }
 
   return (
     <div
-      className={`lyl-toast ${alertData.type === "success"
-        ? "success"
-        : "error"
-        }`}
+      className={`lyl-toast ${
+        alertData.type ===
+        "success"
+          ? "success"
+          : "error"
+      }`}
     >
       <div className="lyl-toast-content">
         <div className="lyl-toast-title">
@@ -154,48 +178,76 @@ const AlertToast = ({
 };
 
 const RoleAccessLayer = () => {
-  const [rows, setRows] = useState([]);
-  const [initialLoading, setInitialLoading] =
-    useState(true);
-  const [loadError, setLoadError] = useState("");
+  const TZ = "Asia/Dubai";
+  const itemsPerPage = 10;
 
-  const [searchTerm, setSearchTerm] =
-    useState("");
+  const [rows, setRows] =
+    useState([]);
+
+  const [
+    initialLoading,
+    setInitialLoading,
+  ] = useState(true);
+
+  const [
+    loadError,
+    setLoadError,
+  ] = useState("");
+
+  const [
+    searchTerm,
+    setSearchTerm,
+  ] = useState("");
+
   const [
     paymentTypeFilter,
     setPaymentTypeFilter,
   ] = useState("");
+
   const [
     bookingStatusFilter,
     setBookingStatusFilter,
   ] = useState("");
+
   const [
     paymentStatusFilter,
     setPaymentStatusFilter,
   ] = useState("");
+
   const [
     sessionTypeFilter,
     setSessionTypeFilter,
   ] = useState("");
+
   const [
     bookingTypeFilter,
     setBookingTypeFilter,
   ] = useState("");
-  const [groupFilter, setGroupFilter] =
-    useState("");
+
+  const [
+    groupFilter,
+    setGroupFilter,
+  ] = useState("");
+
   const [
     groupBatchFilter,
     setGroupBatchFilter,
   ] = useState("");
-  const [startDate, setStartDate] =
-    useState("");
-  const [endDate, setEndDate] =
-    useState("");
 
-  const [currentPage, setCurrentPage] =
-    useState(1);
+  const [
+    startDate,
+    setStartDate,
+  ] = useState("");
 
-  const itemsPerPage = 10;
+  const [
+    endDate,
+    setEndDate,
+  ] = useState("");
+
+  const [
+    currentPage,
+    setCurrentPage,
+  ] = useState(1);
 
   const [
     isManualBookingOpen,
@@ -222,29 +274,35 @@ const RoleAccessLayer = () => {
     setSelectedBooking,
   ] = useState(null);
 
-  const [savingMap, setSavingMap] =
-    useState({});
+  const [
+    savingMap,
+    setSavingMap,
+  ] = useState({});
 
-  const [confirmModal, setConfirmModal] =
-    useState({
-      open: false,
-      item: null,
-      field: "",
-      newValue: "",
-      title: "",
-      message: "",
-    });
+  const [
+    confirmModal,
+    setConfirmModal,
+  ] = useState({
+    open: false,
+    item: null,
+    field: "",
+    newValue: "",
+    title: "",
+    message: "",
+  });
 
   const [
     confirmLoading,
     setConfirmLoading,
   ] = useState(false);
 
-  const [deleteModal, setDeleteModal] =
-    useState({
-      open: false,
-      item: null,
-    });
+  const [
+    deleteModal,
+    setDeleteModal,
+  ] = useState({
+    open: false,
+    item: null,
+  });
 
   const [
     deletingBookingId,
@@ -256,23 +314,39 @@ const RoleAccessLayer = () => {
     setAmountDraftMap,
   ] = useState({});
 
-  const [alertData, setAlertData] =
-    useState({
-      open: false,
-      type: "success",
-      title: "",
-      message: "",
-    });
+  const [
+    alertData,
+    setAlertData,
+  ] = useState({
+    open: false,
+    type: "success",
+    title: "",
+    message: "",
+  });
 
-  const TZ = "Asia/Dubai";
+  const norm = (value) =>
+    String(value ?? "")
+      .toLowerCase()
+      .trim();
 
-  const cleanTimezone = (value) =>
+  const cleanTimezone = (
+    value
+  ) =>
     String(value || "")
       .replace(/\\\//g, "/")
       .trim();
 
-  const getStudentTimezone = (item) => {
-    const tz =
+  const normalizeRecordingUrl = (
+    value
+  ) =>
+    String(value || "")
+      .replace(/\\\//g, "/")
+      .trim();
+
+  const getStudentTimezone = (
+    item
+  ) => {
+    const timezone =
       cleanTimezone(
         item?.studentTime_zone
       ) ||
@@ -285,30 +359,93 @@ const RoleAccessLayer = () => {
       cleanTimezone(
         item?.timezone_location
       ) ||
-      cleanTimezone(item?.timezone) ||
+      cleanTimezone(
+        item?.timezone
+      ) ||
       TZ;
 
-    return moment.tz.zone(tz)
-      ? tz
+    return moment.tz.zone(
+      timezone
+    )
+      ? timezone
       : TZ;
   };
 
-  const getBookDateValue = (item) =>
-    item?.bookdate ||
-    item?.booking_date ||
-    "";
+  const getBookDateValue = (
+    item
+  ) => {
+    if (
+      Number(
+        item?.is_group_booking ||
+          0
+      ) === 1
+    ) {
+      return (
+        item?.group_session_date ||
+        item?.bookdate ||
+        item?.booking_date ||
+        ""
+      );
+    }
 
-  const getSlotStartValue = (item) =>
-    item?.slot_start ||
-    item?.booking_start_time ||
-    "";
+    return (
+      item?.bookdate ||
+      item?.booking_date ||
+      ""
+    );
+  };
 
-  const getSlotEndValue = (item) =>
-    item?.slot_end ||
-    item?.booking_end_time ||
-    "";
+  const getSlotStartValue = (
+    item
+  ) => {
+    if (
+      Number(
+        item?.is_group_booking ||
+          0
+      ) === 1
+    ) {
+      return (
+        item?.group_session_start ||
+        item?.slot_start ||
+        item?.booking_start_time ||
+        ""
+      );
+    }
 
-  const getBookingId = (item) =>
+    return (
+      item?.slot_start ||
+      item?.booking_start_time ||
+      ""
+    );
+  };
+
+  const getSlotEndValue = (
+    item
+  ) => {
+    if (
+      Number(
+        item?.is_group_booking ||
+          0
+      ) === 1
+    ) {
+      return (
+        item?.group_session_end ||
+        item?.slot_end ||
+        item?.booking_end_time ||
+        ""
+      );
+    }
+
+    return (
+      item?.slot_end ||
+      item?.booking_end_time ||
+      ""
+    );
+  };
+
+  const getBookingId = (
+    item
+  ) =>
     item?.bookingid ??
     item?.booking_id ??
     item?.id ??
@@ -318,22 +455,39 @@ const RoleAccessLayer = () => {
     item,
     type = "start"
   ) => {
-    const dateStr =
+    const dateValue =
       getBookDateValue(item);
 
-    const timeStr =
+    const timeValue =
       type === "end"
         ? getSlotEndValue(item)
         : getSlotStartValue(item);
 
-    if (!dateStr) return null;
+    if (!dateValue) {
+      return null;
+    }
 
-    const sourceTZ =
-      getStudentTimezone(item);
+    /*
+     * Official group session date and time
+     * are already stored in Asia/Dubai.
+     */
+    const sourceTimezone =
+      Number(
+        item?.is_group_booking ||
+          0
+      ) === 1 &&
+      Boolean(
+        item?.group_session_date
+      )
+        ? TZ
+        : getStudentTimezone(
+            item
+          );
 
-    const dtString = timeStr
-      ? `${dateStr} ${timeStr}`
-      : `${dateStr} 00:00:00`;
+    const dateTimeValue =
+      timeValue
+        ? `${dateValue} ${timeValue}`
+        : `${dateValue} 00:00:00`;
 
     const formats = [
       "YYYY-MM-DD HH:mm:ss",
@@ -347,48 +501,64 @@ const RoleAccessLayer = () => {
       moment.ISO_8601,
     ];
 
-    let m = moment.tz(
-      dtString,
-      formats,
-      true,
-      sourceTZ
-    );
-
-    if (!m.isValid()) {
-      m = moment.tz(
-        dtString,
+    let parsed =
+      moment.tz(
+        dateTimeValue,
         formats,
-        sourceTZ
+        true,
+        sourceTimezone
       );
+
+    if (!parsed.isValid()) {
+      parsed =
+        moment.tz(
+          dateTimeValue,
+          formats,
+          sourceTimezone
+        );
     }
 
-    if (!m.isValid()) {
+    if (!parsed.isValid()) {
       return null;
     }
 
-    return m.tz(TZ);
+    return parsed.tz(TZ);
   };
 
   const getDubaiBookDateMoment = (
     item
   ) => {
-    const startDT =
+    const startDateTime =
       parseBookingDateTime(
         item,
         "start"
       );
 
-    if (startDT?.isValid?.()) {
-      return startDT;
+    if (
+      startDateTime?.isValid?.()
+    ) {
+      return startDateTime;
     }
 
-    const dateStr =
+    const dateValue =
       getBookDateValue(item);
 
-    if (!dateStr) return null;
+    if (!dateValue) {
+      return null;
+    }
 
-    const sourceTZ =
-      getStudentTimezone(item);
+    const sourceTimezone =
+      Number(
+        item?.is_group_booking ||
+          0
+      ) === 1 &&
+      Boolean(
+        item?.group_session_date
+      )
+        ? TZ
+        : getStudentTimezone(
+            item
+          );
 
     const formats = [
       "YYYY-MM-DD",
@@ -402,46 +572,46 @@ const RoleAccessLayer = () => {
       moment.ISO_8601,
     ];
 
-    let m = moment.tz(
-      dateStr,
-      formats,
-      true,
-      sourceTZ
-    );
-
-    if (!m.isValid()) {
-      m = moment.tz(
-        dateStr,
+    let parsed =
+      moment.tz(
+        dateValue,
         formats,
-        sourceTZ
+        true,
+        sourceTimezone
       );
+
+    if (!parsed.isValid()) {
+      parsed =
+        moment.tz(
+          dateValue,
+          formats,
+          sourceTimezone
+        );
     }
 
-    if (!m.isValid()) {
+    if (!parsed.isValid()) {
       return null;
     }
 
-    return m.tz(TZ);
+    return parsed.tz(TZ);
   };
 
   const formatDubaiBookingTime = (
     item,
     type = "start"
   ) => {
-    const m = parseBookingDateTime(
-      item,
-      type
-    );
+    const dateTime =
+      parseBookingDateTime(
+        item,
+        type
+      );
 
-    return m?.isValid?.()
-      ? m.format("hh:mm A")
+    return dateTime?.isValid?.()
+      ? dateTime.format(
+          "hh:mm A"
+        )
       : "-";
   };
-
-  const norm = (value) =>
-    String(value ?? "")
-      .toLowerCase()
-      .trim();
 
   const showAlert = (
     type,
@@ -455,26 +625,93 @@ const RoleAccessLayer = () => {
       message,
     });
 
-    setTimeout(() => {
-      setAlertData((previous) => ({
-        ...previous,
-        open: false,
-      }));
+    window.setTimeout(() => {
+      setAlertData(
+        (previous) => ({
+          ...previous,
+          open: false,
+        })
+      );
     }, 3000);
   };
 
-  const isGroupBooking = (item) =>
+  const isGroupBooking = (
+    item
+  ) =>
     Number(
-      item?.is_group_booking || 0
+      item?.is_group_booking ||
+        0
     ) === 1;
+
+  const getGroupRole = (
+    item
+  ) =>
+    norm(
+      item?.group_user_role
+    ).replace(
+      /[\s-]+/g,
+      "_"
+    );
+
+  const isAssistantTeacherRow = (
+    item
+  ) =>
+    getGroupRole(item) ===
+    "assistant_teacher";
+
+  const getGroupAssistantNames = (
+    item
+  ) =>
+    Array.isArray(
+      item?._group_assistant_teachers
+    )
+      ? item._group_assistant_teachers
+          .map(
+            (teacher) =>
+              teacher?.name ||
+              teacher?.teachername ||
+              ""
+          )
+          .filter(Boolean)
+      : [];
+
+  const getMainTeacherText = (
+    item
+  ) =>
+    item?._group_main_teacher
+      ?.name ||
+    item?.teachername ||
+    "-";
+
+  const getTeacherExportText = (
+    item
+  ) => {
+    const mainTeacher =
+      getMainTeacherText(item);
+
+    const assistants =
+      getGroupAssistantNames(
+        item
+      );
+
+    if (
+      !isGroupBooking(item) ||
+      assistants.length === 0
+    ) {
+      return mainTeacher;
+    }
+
+    return `${mainTeacher} | Assistants: ${assistants.join(
+      ", "
+    )}`;
+  };
 
   const getBookingCategory = (
     item
-  ) => {
-    return isGroupBooking(item)
+  ) =>
+    isGroupBooking(item)
       ? "Group"
       : "One-to-One";
-  };
 
   const getGroupBatchText = (
     item
@@ -483,7 +720,9 @@ const RoleAccessLayer = () => {
       return "-";
     }
 
-    if (item?.group_batch_label) {
+    if (
+      item?.group_batch_label
+    ) {
       return item.group_batch_label;
     }
 
@@ -522,11 +761,19 @@ const RoleAccessLayer = () => {
     value
   ) => {
     const type = norm(value)
-      .replace(/[_-]+/g, " ")
-      .replace(/\s+/g, " ")
+      .replace(
+        /[_-]+/g,
+        " "
+      )
+      .replace(
+        /\s+/g,
+        " "
+      )
       .trim();
 
-    if (type === "in person") {
+    if (
+      type === "in person"
+    ) {
       return "in-person";
     }
 
@@ -541,11 +788,19 @@ const RoleAccessLayer = () => {
     value
   ) => {
     const type = norm(value)
-      .replace(/[_-]+/g, " ")
-      .replace(/\s+/g, " ")
+      .replace(
+        /[_-]+/g,
+        " "
+      )
+      .replace(
+        /\s+/g,
+        " "
+      )
       .trim();
 
-    if (type === "in person") {
+    if (
+      type === "in person"
+    ) {
       return "In-Person";
     }
 
@@ -556,24 +811,114 @@ const RoleAccessLayer = () => {
     return "Online";
   };
 
-  const getPaymentStatusDisplay = (
+  const normalizePaymentStatus = (
     value
   ) => {
-    const status = norm(value);
+    const status =
+      norm(value).replace(
+        /[\s-]+/g,
+        "_"
+      );
 
-    if (status === "paid") {
+    if (
+      [
+        "paid",
+        "success",
+        "successful",
+        "completed",
+      ].includes(status)
+    ) {
       return "Paid";
     }
 
-    if (status === "unpaid") {
-      return "Unpaid";
-    }
-
-    if (status === "free") {
+    if (
+      [
+        "free",
+        "complimentary",
+      ].includes(status)
+    ) {
       return "Free";
     }
 
-    return "Unpaid";
+    if (
+      [
+        "pending",
+        "processing",
+        "initiated",
+      ].includes(status)
+    ) {
+      return "Pending";
+    }
+
+    if (
+      [
+        "failed",
+        "declined",
+      ].includes(status)
+    ) {
+      return "Failed";
+    }
+
+    if (
+      [
+        "refunded",
+        "partially_refunded",
+        "partial_refund",
+      ].includes(status)
+    ) {
+      return "Refunded";
+    }
+
+    if (
+      [
+        "unpaid",
+        "not_paid",
+        "due",
+      ].includes(status)
+    ) {
+      return "Unpaid";
+    }
+
+    return "";
+  };
+
+  const getPaymentStatusDisplay = (
+    value
+  ) =>
+    normalizePaymentStatus(
+      value
+    ) || "Unpaid";
+
+  const getResolvedPaymentStatus = (
+    item
+  ) => {
+    const bookingStatus =
+      normalizePaymentStatus(
+        item?.payment_status
+      );
+
+    const groupStatus =
+      normalizePaymentStatus(
+        item?.group_payment_status
+      );
+
+    if (
+      [
+        "Failed",
+        "Refunded",
+      ].includes(groupStatus)
+    ) {
+      return groupStatus;
+    }
+
+    if (bookingStatus) {
+      return bookingStatus;
+    }
+
+    return (
+      groupStatus ||
+      "Unpaid"
+    );
   };
 
   const getInpersonStatusDisplay = (
@@ -581,23 +926,33 @@ const RoleAccessLayer = () => {
   ) => {
     const status = norm(value);
 
-    if (status === "upcoming") {
+    if (
+      status === "upcoming"
+    ) {
       return "Upcoming";
     }
 
-    if (status === "ongoing") {
+    if (
+      status === "ongoing"
+    ) {
       return "Ongoing";
     }
 
-    if (status === "completed") {
+    if (
+      status === "completed"
+    ) {
       return "Completed";
     }
 
-    if (status === "cancelled") {
+    if (
+      status === "cancelled"
+    ) {
       return "Cancelled";
     }
 
-    if (status === "missed") {
+    if (
+      status === "missed"
+    ) {
       return "Missed";
     }
 
@@ -611,35 +966,44 @@ const RoleAccessLayer = () => {
       item?.session_type
     ) === "in-person";
 
-  const normalizeRecordingUrl = (
-    value
+  const hasRecordingUrl = (
+    item
   ) =>
-    String(value || "")
-      .replace(/\\\//g, "/")
-      .trim();
-
-  const hasRecordingUrl = (item) =>
     Boolean(
       normalizeRecordingUrl(
         item?.recording_s3_url
       )
     );
 
-  const openRecording = (item) => {
-    const url =
+  const openRecording = (
+    item
+  ) => {
+    const recordingUrl =
       normalizeRecordingUrl(
         item?.recording_s3_url
       );
 
-    if (!url) return;
+    if (!recordingUrl) {
+      return;
+    }
 
-    setActiveRecordingUrl(url);
-    setIsRecordingOpen(true);
+    setActiveRecordingUrl(
+      recordingUrl
+    );
+
+    setIsRecordingOpen(
+      true
+    );
   };
 
   const closeRecording = () => {
-    setIsRecordingOpen(false);
-    setActiveRecordingUrl("");
+    setIsRecordingOpen(
+      false
+    );
+
+    setActiveRecordingUrl(
+      ""
+    );
   };
 
   const openRescheduleModal = (
@@ -649,10 +1013,14 @@ const RoleAccessLayer = () => {
     setIsRescheduleOpen(true);
   };
 
-  const closeRescheduleModal = () => {
-    setIsRescheduleOpen(false);
-    setSelectedBooking(null);
-  };
+  const closeRescheduleModal =
+    () => {
+      setIsRescheduleOpen(
+        false
+      );
+
+      setSelectedBooking(null);
+    };
 
   const getNow = () =>
     moment.tz(TZ);
@@ -660,9 +1028,115 @@ const RoleAccessLayer = () => {
   const getBookingStatus = (
     item
   ) => {
+    const now = getNow();
+
+    const startDateTime =
+      parseBookingDateTime(
+        item,
+        "start"
+      );
+
+    let endDateTime =
+      parseBookingDateTime(
+        item,
+        "end"
+      );
+
+    const hasRecording =
+      hasRecordingUrl(item);
+
+    if (isGroupBooking(item)) {
+      /*
+       * Recording confirms that the
+       * group class happened. It also
+       * overrides stale cancellation flags.
+       */
+      if (hasRecording) {
+        return "completed";
+      }
+
+      const relatedRows =
+        Array.isArray(
+          item?._group_related_rows
+        ) &&
+        item._group_related_rows
+          .length
+          ? item._group_related_rows
+          : [item];
+
+      /*
+       * One cancelled assistant row must
+       * not cancel the full group session.
+       */
+      const allRowsCancelled =
+        relatedRows.length > 0 &&
+        relatedRows.every(
+          (row) =>
+            Number(
+              row?.is_cancelled ||
+                0
+            ) === 1 ||
+            norm(
+              row
+                ?.group_session_status
+            ) === "cancelled"
+        );
+
+      if (
+        !startDateTime?.isValid?.()
+      ) {
+        return allRowsCancelled
+          ? "cancelled"
+          : "upcoming";
+      }
+
+      if (
+        !endDateTime?.isValid?.()
+      ) {
+        endDateTime =
+          startDateTime
+            .clone()
+            .add(
+              1,
+              "hour"
+            );
+      }
+
+      if (
+        now.isBefore(
+          startDateTime
+        )
+      ) {
+        return allRowsCancelled
+          ? "cancelled"
+          : "upcoming";
+      }
+
+      if (
+        now.isSameOrAfter(
+          startDateTime
+        ) &&
+        now.isSameOrBefore(
+          endDateTime
+        )
+      ) {
+        return allRowsCancelled
+          ? "cancelled"
+          : "ongoing";
+      }
+
+      /*
+       * Past group session:
+       * recording = Completed
+       * no recording = Missed
+       */
+      return "missed";
+    }
+
     if (
       Number(
-        item?.is_cancelled || 0
+        item?.is_cancelled ||
+          0
       ) === 1
     ) {
       return "cancelled";
@@ -682,51 +1156,33 @@ const RoleAccessLayer = () => {
       );
     }
 
-    const now = getNow();
-
-    const date =
+    const bookingDate =
       getBookDateValue(item);
-
-    const start =
-      getSlotStartValue(item);
-
-    const end =
-      getSlotEndValue(item);
-
-    const hasRecording =
-      hasRecordingUrl(item);
 
     const inPerson =
       isInPersonSession(item);
 
-    if (!date) {
+    if (!bookingDate) {
       return "upcoming";
     }
 
-    const startDT = start
-      ? parseBookingDateTime(
-        item,
-        "start"
-      )
-      : null;
-
-    const endDT = end
-      ? parseBookingDateTime(
-        item,
-        "end"
-      )
-      : null;
-
-    if (endDT) {
-      if (now.isAfter(endDT)) {
+    if (
+      endDateTime?.isValid?.()
+    ) {
+      if (
+        now.isAfter(
+          endDateTime
+        )
+      ) {
         if (inPerson) {
           return "completed";
         }
 
         const teacherFeedbackDone =
           Number(
-            item?.has_teacher_feedback ||
-            0
+            item
+              ?.has_teacher_feedback ||
+              0
           ) === 1;
 
         return hasRecording ||
@@ -736,9 +1192,14 @@ const RoleAccessLayer = () => {
       }
 
       if (
-        startDT &&
-        now.isSameOrAfter(startDT) &&
-        now.isSameOrBefore(endDT)
+        startDateTime
+          ?.isValid?.() &&
+        now.isSameOrAfter(
+          startDateTime
+        ) &&
+        now.isSameOrBefore(
+          endDateTime
+        )
       ) {
         return "ongoing";
       }
@@ -750,7 +1211,8 @@ const RoleAccessLayer = () => {
       parseBookingDateTime(
         {
           ...item,
-          slot_end: "23:59:59",
+          slot_end:
+            "23:59:59",
         },
         "end"
       );
@@ -765,8 +1227,9 @@ const RoleAccessLayer = () => {
 
       const teacherFeedbackDone =
         Number(
-          item?.has_teacher_feedback ||
-          0
+          item
+            ?.has_teacher_feedback ||
+            0
         ) === 1;
 
       return hasRecording ||
@@ -793,36 +1256,43 @@ const RoleAccessLayer = () => {
         "missed",
         "completed",
         "cancelled",
-      ].includes(norm(status))
+      ].includes(
+        norm(status)
+      )
     ) {
       return true;
     }
 
-    const date =
+    const dateValue =
       getBookDateValue(item);
 
-    const start =
+    const startValue =
       getSlotStartValue(item);
 
-    if (!date) return false;
+    if (!dateValue) {
+      return false;
+    }
 
     const now = getNow();
 
-    const startDT = start
-      ? parseBookingDateTime(
-        item,
-        "start"
-      )
-      : null;
+    const startDateTime =
+      startValue
+        ? parseBookingDateTime(
+            item,
+            "start"
+          )
+        : null;
 
-    if (startDT) {
+    if (startDateTime) {
       return now.isSameOrAfter(
-        startDT
+        startDateTime
       );
     }
 
     const bookingDate =
-      getDubaiBookDateMoment(item);
+      getDubaiBookDateMoment(
+        item
+      );
 
     if (!bookingDate) {
       return false;
@@ -834,11 +1304,9 @@ const RoleAccessLayer = () => {
     );
   };
 
-  const isDeleteDisabled = (item) => {
-    /*
-     * Group bookings cannot be deleted
-     * through this one-to-one action.
-     */
+  const isDeleteDisabled = (
+    item
+  ) => {
     if (isGroupBooking(item)) {
       return true;
     }
@@ -847,45 +1315,39 @@ const RoleAccessLayer = () => {
       getBookingStatus(item)
     );
 
-    /*
-     * Missed sessions can always be deleted,
-     * including sessions from today or previous dates.
-     */
-    if (status === "missed") {
+    if (
+      status === "missed"
+    ) {
       return false;
     }
 
-    /*
-     * As soon as the session is completed,
-     * Delete must be disabled.
-     */
-    if (status === "completed") {
+    if (
+      status === "completed"
+    ) {
       return true;
     }
 
     const bookingDate =
-      getDubaiBookDateMoment(item);
+      getDubaiBookDateMoment(
+        item
+      );
 
-    /*
-     * Disable deletion when the date is invalid.
-     */
-    if (!bookingDate?.isValid?.()) {
+    if (
+      !bookingDate?.isValid?.()
+    ) {
       return true;
     }
 
-    const todayDubai = moment
-      .tz(TZ)
-      .startOf("day");
+    const todayDubai =
+      moment
+        .tz(TZ)
+        .startOf("day");
 
-    const bookingDayDubai = bookingDate
-      .clone()
-      .startOf("day");
+    const bookingDayDubai =
+      bookingDate
+        .clone()
+        .startOf("day");
 
-    /*
-     * Previous-date bookings are disabled.
-     * Today and future bookings remain enabled,
-     * unless status is Completed.
-     */
     return bookingDayDubai.isBefore(
       todayDubai,
       "day"
@@ -897,19 +1359,22 @@ const RoleAccessLayer = () => {
   ) => {
     const value = norm(status);
 
-    if (value === "completed") {
+    if (
+      value === "completed"
+    ) {
       return "bg-success";
     }
 
-    if (value === "ongoing") {
+    if (
+      value === "ongoing"
+    ) {
       return "bg-info";
     }
 
-    if (value === "missed") {
-      return "bg-danger";
-    }
-
-    if (value === "cancelled") {
+    if (
+      value === "missed" ||
+      value === "cancelled"
+    ) {
       return "bg-danger";
     }
 
@@ -929,7 +1394,9 @@ const RoleAccessLayer = () => {
       return "bg-primary";
     }
 
-    if (value === "subscription") {
+    if (
+      value === "subscription"
+    ) {
       return "bg-warning text-dark";
     }
 
@@ -945,7 +1412,9 @@ const RoleAccessLayer = () => {
       return "Manual";
     }
 
-    if (value === "web app") {
+    if (
+      value === "web app"
+    ) {
       return "Web App";
     }
 
@@ -954,8 +1423,14 @@ const RoleAccessLayer = () => {
     }
 
     return String(type || "-")
-      .replace(/[_-]+/g, " ")
-      .replace(/\s+/g, " ")
+      .replace(
+        /[_-]+/g,
+        " "
+      )
+      .replace(
+        /\s+/g,
+        " "
+      )
       .trim()
       .replace(
         /\b\w/g,
@@ -973,65 +1448,100 @@ const RoleAccessLayer = () => {
       return "bg-primary";
     }
 
-    if (value === "web app") {
+    if (
+      value === "web app"
+    ) {
       return "bg-success";
     }
 
     return "bg-secondary";
   };
 
-  const getAmountValue = (item) => {
-    const raw =
+  const getAmountValue = (
+    item
+  ) => {
+    const rawAmount =
       item?.booking_amount ??
       item?.amount ??
       0;
 
-    const value = Number(
-      String(raw ?? "0")
+    const amount = Number(
+      String(
+        rawAmount ?? "0"
+      )
         .replace(/,/g, "")
         .trim()
     );
 
-    return Number.isFinite(value)
-      ? value
+    return Number.isFinite(
+      amount
+    )
+      ? amount
       : 0;
   };
 
-  const getAmountText = (item) => {
-    const value =
-      getAmountValue(item);
+  const getAmountText = (
+    item
+  ) =>
+    `AED ${getAmountValue(
+      item
+    ).toFixed(2)}`;
 
-    return `AED ${value.toFixed(2)}`;
-  };
+  const isDirectBooking = (
+    item
+  ) =>
+    norm(
+      item?.payment_type
+    ) === "direct";
 
-  const isDirectBooking = (item) =>
-    norm(item?.payment_type) ===
-    "direct";
+  const makeRowKey = (
+    item
+  ) => {
+    /*
+     * For group bookings, assistant rows
+     * must merge into the same student
+     * booking instead of appearing separately.
+     */
+    if (isGroupBooking(item)) {
+      return [
+        "group",
+        item
+          ?.group_programme_id ||
+          "na",
+        item?.group_batch_id ||
+          "na",
+        item
+          ?.group_live_session_id ||
+          "na",
+        item?.studentid ||
+          item?.studentname ||
+          "na",
+      ].join("|");
+    }
 
-  const makeRowKey = (item) => {
     const bookingId =
       item?.bookingid ??
       item?.booking_id ??
       item?.id ??
       "na";
 
-    const date =
+    const dateValue =
       getBookDateValue(item) ||
       "na";
 
-    const slotStart =
+    const startValue =
       getSlotStartValue(item) ||
       "na";
 
-    const slotEnd =
+    const endValue =
       getSlotEndValue(item) ||
       "na";
 
-    const teacher =
+    const teacherName =
       item?.teachername ??
       "na";
 
-    const student =
+    const studentName =
       item?.studentname ??
       "na";
 
@@ -1039,92 +1549,290 @@ const RoleAccessLayer = () => {
       item?.studentid ??
       "na";
 
-    const groupBatchId =
-      item?.group_batch_id ??
-      "na";
-
-    const groupSessionId =
-      item?.group_live_session_id ??
-      "na";
-
-    return `${bookingId}|${date}|${slotStart}|${slotEnd}|${teacher}|${student}|${studentId}|${groupBatchId}|${groupSessionId}`;
+    return [
+      bookingId,
+      dateValue,
+      startValue,
+      endValue,
+      teacherName,
+      studentName,
+      studentId,
+    ].join("|");
   };
 
-  const dedupeBookings = (list) => {
-    const seen = new Set();
-    const output = [];
+  const consolidateBookings = (
+    list
+  ) => {
+    const oneToOneMap =
+      new Map();
 
-    for (const item of list || []) {
-      const key = makeRowKey(item);
+    const groupMap =
+      new Map();
 
-      if (seen.has(key)) {
-        continue;
+    (list || []).forEach(
+      (item) => {
+        const key =
+          makeRowKey(item);
+
+        if (
+          !isGroupBooking(item)
+        ) {
+          if (
+            !oneToOneMap.has(
+              key
+            )
+          ) {
+            oneToOneMap.set(
+              key,
+              item
+            );
+          }
+
+          return;
+        }
+
+        if (!groupMap.has(key)) {
+          groupMap.set(key, {
+            rows: [],
+            mainRow: null,
+          });
+        }
+
+        const group =
+          groupMap.get(key);
+
+        group.rows.push(item);
+
+        if (
+          !isAssistantTeacherRow(
+            item
+          ) &&
+          !group.mainRow
+        ) {
+          group.mainRow = item;
+        }
+      }
+    );
+
+    const consolidatedGroupRows =
+      Array.from(
+        groupMap.values()
+      ).map((group) => {
+        const baseRow =
+          group.mainRow ||
+          group.rows[0] ||
+          {};
+
+        const assistantMap =
+          new Map();
+
+        group.rows
+          .filter(
+            isAssistantTeacherRow
+          )
+          .forEach((row) => {
+            const teacherKey =
+              String(
+                row?.teacherid ||
+                  row?.teachername ||
+                  ""
+              ).trim();
+
+            if (
+              teacherKey &&
+              !assistantMap.has(
+                teacherKey
+              )
+            ) {
+              assistantMap.set(
+                teacherKey,
+                {
+                  id:
+                    row?.teacherid ||
+                    "",
+                  name:
+                    row?.teachername ||
+                    "Assistant Teacher",
+                }
+              );
+            }
+          });
+
+        const recordingRow =
+          group.rows.find(
+            (row) =>
+              Boolean(
+                normalizeRecordingUrl(
+                  row
+                    ?.recording_s3_url
+                )
+              )
+          );
+
+        return {
+          ...baseRow,
+
+          recording_s3_url:
+            recordingRow
+              ?.recording_s3_url ||
+            baseRow
+              ?.recording_s3_url ||
+            null,
+
+          _group_related_rows:
+            group.rows,
+
+          _group_main_teacher: {
+            id:
+              group.mainRow
+                ?.teacherid ||
+              "",
+
+            name:
+              group.mainRow
+                ?.teachername ||
+              baseRow?.teachername ||
+              "Main Teacher N/A",
+          },
+
+          _group_assistant_teachers:
+            Array.from(
+              assistantMap.values()
+            ),
+        };
+      });
+
+    return [
+      ...oneToOneMap.values(),
+      ...consolidatedGroupRows,
+    ];
+  };
+
+  const sortBookings = (
+    first,
+    second
+  ) => {
+    /*
+     * Sorting is based on session end
+     * date/time in descending order.
+     *
+     * Example:
+     * 29 July first
+     * 25 July afterwards
+     */
+    const firstMoment =
+      parseBookingDateTime(
+        first,
+        "end"
+      ) ||
+      getDubaiBookDateMoment(
+        first
+      );
+
+    const secondMoment =
+      parseBookingDateTime(
+        second,
+        "end"
+      ) ||
+      getDubaiBookDateMoment(
+        second
+      );
+
+    const firstTime =
+      firstMoment?.isValid?.()
+        ? firstMoment.valueOf()
+        : 0;
+
+    const secondTime =
+      secondMoment?.isValid?.()
+        ? secondMoment.valueOf()
+        : 0;
+
+    if (
+      firstTime !== secondTime
+    ) {
+      return (
+        secondTime -
+        firstTime
+      );
+    }
+
+    return (
+      Number(
+        getBookingId(second) ||
+          0
+      ) -
+      Number(
+        getBookingId(first) ||
+          0
+      )
+    );
+  };
+
+  const getTokenValue =
+    async () => {
+      const tokenResponse =
+        await getToken();
+
+      if (
+        typeof tokenResponse ===
+        "string"
+      ) {
+        return tokenResponse;
       }
 
-      seen.add(key);
-      output.push(item);
-    }
+      if (
+        typeof tokenResponse
+          ?.token === "string"
+      ) {
+        return tokenResponse.token;
+      }
 
-    return output;
-  };
+      if (
+        typeof tokenResponse
+          ?.Token === "string"
+      ) {
+        return tokenResponse.Token;
+      }
 
-  const getTokenValue = async () => {
-    const tokenResponse =
-      await getToken();
+      if (
+        typeof tokenResponse
+          ?.data?.token ===
+        "string"
+      ) {
+        return tokenResponse
+          .data.token;
+      }
 
-    if (
-      typeof tokenResponse ===
-      "string"
-    ) {
-      return tokenResponse;
-    }
+      if (
+        typeof tokenResponse
+          ?.data?.Token ===
+        "string"
+      ) {
+        return tokenResponse
+          .data.Token;
+      }
 
-    if (
-      typeof tokenResponse?.token ===
-      "string"
-    ) {
-      return tokenResponse.token;
-    }
+      if (
+        typeof tokenResponse
+          ?.data?.data
+          ?.token === "string"
+      ) {
+        return tokenResponse
+          .data.data.token;
+      }
 
-    if (
-      typeof tokenResponse?.Token ===
-      "string"
-    ) {
-      return tokenResponse.Token;
-    }
+      if (
+        typeof tokenResponse
+          ?.data?.data
+          ?.Token === "string"
+      ) {
+        return tokenResponse
+          .data.data.Token;
+      }
 
-    if (
-      typeof tokenResponse?.data
-        ?.token === "string"
-    ) {
-      return tokenResponse.data.token;
-    }
-
-    if (
-      typeof tokenResponse?.data
-        ?.Token === "string"
-    ) {
-      return tokenResponse.data.Token;
-    }
-
-    if (
-      typeof tokenResponse?.data
-        ?.data?.token === "string"
-    ) {
-      return tokenResponse.data.data
-        .token;
-    }
-
-    if (
-      typeof tokenResponse?.data
-        ?.data?.Token === "string"
-    ) {
-      return tokenResponse.data.data
-        .Token;
-    }
-
-    return "";
-  };
+      return "";
+    };
 
   const findPortalAdminSession = (
     value,
@@ -1179,8 +1887,9 @@ const RoleAccessLayer = () => {
       "";
 
     const hasValidId =
-      String(possibleAdminId).trim() !==
-      "";
+      String(
+        possibleAdminId
+      ).trim() !== "";
 
     const hasValidSession =
       String(
@@ -1188,9 +1897,12 @@ const RoleAccessLayer = () => {
       ).trim() !== "";
 
     const isPortalAdmin =
-      String(possibleRoleId).trim() ===
-      "" ||
-      Number(possibleRoleId) === 6;
+      String(
+        possibleRoleId
+      ).trim() === "" ||
+      Number(
+        possibleRoleId
+      ) === 6;
 
     if (
       hasValidId &&
@@ -1198,18 +1910,22 @@ const RoleAccessLayer = () => {
       isPortalAdmin
     ) {
       return {
-        adminUserId: Number(
-          possibleAdminId
-        ),
-        sessionVersion: String(
-          possibleSessionVersion
-        ),
+        adminUserId:
+          Number(
+            possibleAdminId
+          ),
+
+        sessionVersion:
+          String(
+            possibleSessionVersion
+          ),
       };
     }
 
-    for (const nestedValue of Object.values(
-      value
-    )) {
+    for (
+      const nestedValue of
+      Object.values(value)
+    ) {
       const found =
         findPortalAdminSession(
           nestedValue,
@@ -1235,9 +1951,15 @@ const RoleAccessLayer = () => {
       storage.getItem(
         "admin_user_id"
       ) ||
-      storage.getItem("user_id") ||
-      storage.getItem("userid") ||
-      storage.getItem("userId") ||
+      storage.getItem(
+        "user_id"
+      ) ||
+      storage.getItem(
+        "userid"
+      ) ||
+      storage.getItem(
+        "userId"
+      ) ||
       "";
 
     const directSessionVersion =
@@ -1250,19 +1972,23 @@ const RoleAccessLayer = () => {
       "";
 
     if (
-      String(directAdminId).trim() !==
-      "" &&
+      String(
+        directAdminId
+      ).trim() !== "" &&
       String(
         directSessionVersion
       ).trim() !== ""
     ) {
       return {
-        adminUserId: Number(
-          directAdminId
-        ),
-        sessionVersion: String(
-          directSessionVersion
-        ),
+        adminUserId:
+          Number(
+            directAdminId
+          ),
+
+        sessionVersion:
+          String(
+            directSessionVersion
+          ),
       };
     }
 
@@ -1287,7 +2013,9 @@ const RoleAccessLayer = () => {
 
       try {
         const parsedValue =
-          JSON.parse(storedValue);
+          JSON.parse(
+            storedValue
+          );
 
         const found =
           findPortalAdminSession(
@@ -1298,7 +2026,7 @@ const RoleAccessLayer = () => {
           return found;
         }
       } catch (error) {
-        // Plain string storage values are ignored.
+        // Plain values are ignored.
       }
     }
 
@@ -1321,7 +2049,9 @@ const RoleAccessLayer = () => {
           window.sessionStorage
         );
 
-      if (sessionCredentials) {
+      if (
+        sessionCredentials
+      ) {
         return sessionCredentials;
       }
 
@@ -1331,7 +2061,9 @@ const RoleAccessLayer = () => {
       };
     };
 
-  const openDeleteModal = (item) => {
+  const openDeleteModal = (
+    item
+  ) => {
     if (isGroupBooking(item)) {
       showAlert(
         "error",
@@ -1361,16 +2093,19 @@ const RoleAccessLayer = () => {
     });
   };
 
-  const closeDeleteModal = () => {
-    if (deletingBookingId) {
-      return;
-    }
+  const closeDeleteModal =
+    () => {
+      if (
+        deletingBookingId
+      ) {
+        return;
+      }
 
-    setDeleteModal({
-      open: false,
-      item: null,
-    });
-  };
+      setDeleteModal({
+        open: false,
+        item: null,
+      });
+    };
 
   const handleHardDeleteBooking =
     async () => {
@@ -1434,12 +2169,17 @@ const RoleAccessLayer = () => {
         const payload = {
           bookingid:
             numericBookingId,
-          admin_user_id: Number(
-            adminUserId
-          ),
-          session_version: String(
-            sessionVersion
-          ),
+
+          admin_user_id:
+            Number(
+              adminUserId
+            ),
+
+          session_version:
+            String(
+              sessionVersion
+            ),
+
           token,
         };
 
@@ -1448,7 +2188,8 @@ const RoleAccessLayer = () => {
             HARD_DELETE_BOOKING_URL,
             payload,
             {
-              headers: API_HEADERS,
+              headers:
+                API_HEADERS,
             }
           );
 
@@ -1461,7 +2202,7 @@ const RoleAccessLayer = () => {
           throw new Error(
             response?.data
               ?.message ||
-            "Booking could not be permanently deleted. No changes were saved."
+              "Booking could not be permanently deleted. No changes were saved."
           );
         }
 
@@ -1470,9 +2211,13 @@ const RoleAccessLayer = () => {
             previousRows.filter(
               (row) =>
                 String(
-                  getBookingId(row)
+                  getBookingId(
+                    row
+                  )
                 ) !==
-                String(bookingId)
+                String(
+                  bookingId
+                )
             )
         );
 
@@ -1482,7 +2227,9 @@ const RoleAccessLayer = () => {
               ...previous,
             };
 
-            delete next[bookingId];
+            delete next[
+              bookingId
+            ];
 
             return next;
           }
@@ -1498,7 +2245,7 @@ const RoleAccessLayer = () => {
           "Booking Deleted",
           response?.data
             ?.message ||
-          "Booking permanently deleted successfully."
+            "Booking permanently deleted successfully."
         );
       } catch (error) {
         const message =
@@ -1513,7 +2260,9 @@ const RoleAccessLayer = () => {
           message
         );
       } finally {
-        setDeletingBookingId("");
+        setDeletingBookingId(
+          ""
+        );
       }
     };
 
@@ -1525,10 +2274,12 @@ const RoleAccessLayer = () => {
     const key =
       `${bookingId}_${field}`;
 
-    setSavingMap((previous) => ({
-      ...previous,
-      [key]: isSaving,
-    }));
+    setSavingMap(
+      (previous) => ({
+        ...previous,
+        [key]: isSaving,
+      })
+    );
   };
 
   const isFieldSaving = (
@@ -1538,23 +2289,33 @@ const RoleAccessLayer = () => {
     const key =
       `${bookingId}_${field}`;
 
-    return Boolean(savingMap[key]);
+    return Boolean(
+      savingMap[key]
+    );
   };
 
   const patchRow = (
     bookingId,
     patch
   ) => {
-    setRows((previous) =>
-      previous.map((row) =>
-        String(getBookingId(row)) ===
-          String(bookingId)
-          ? {
-            ...row,
-            ...patch,
-          }
-          : row
-      )
+    setRows(
+      (previous) =>
+        previous.map(
+          (row) =>
+            String(
+              getBookingId(
+                row
+              )
+            ) ===
+            String(
+              bookingId
+            )
+              ? {
+                  ...row,
+                  ...patch,
+                }
+              : row
+        )
     );
   };
 
@@ -1568,7 +2329,7 @@ const RoleAccessLayer = () => {
 
       if (!bookingId) {
         throw new Error(
-          "Booking ID nahi mila."
+          "Booking ID was not found."
         );
       }
 
@@ -1577,7 +2338,7 @@ const RoleAccessLayer = () => {
 
       if (!token) {
         throw new Error(
-          "Token nahi mila."
+          "API token was not found."
         );
       }
 
@@ -1621,22 +2382,27 @@ const RoleAccessLayer = () => {
       }
 
       if (
-        Object.keys(updateData)
-          .length === 0
+        Object.keys(
+          updateData
+        ).length === 0
       ) {
         throw new Error(
-          "Update data nahi mila."
+          "Update data was not found."
         );
       }
 
       const payload = {
         token,
-        tablename: "bookteacher",
+
+        tablename:
+          "bookteacher",
+
         conditions: [
           {
             id: conditionId,
           },
         ],
+
         updatedata: [
           updateData,
         ],
@@ -1647,7 +2413,8 @@ const RoleAccessLayer = () => {
           UPDATE_DYNAMIC_DATA_URL,
           payload,
           {
-            headers: API_HEADERS,
+            headers:
+              API_HEADERS,
           }
         );
 
@@ -1660,7 +2427,7 @@ const RoleAccessLayer = () => {
         throw new Error(
           response?.data
             ?.message ||
-          "Update failed"
+            "Update failed."
         );
       }
 
@@ -1682,7 +2449,8 @@ const RoleAccessLayer = () => {
         );
 
       if (
-        currentValue === newValue
+        currentValue ===
+        newValue
       ) {
         return;
       }
@@ -1692,16 +2460,20 @@ const RoleAccessLayer = () => {
         item,
         field,
         newValue,
+
         title:
           "Update Payment Status",
-        message: `Are you sure you want to change payment status from "${currentValue}" to "${newValue}"?`,
+
+        message:
+          `Are you sure you want to change payment status from "${currentValue}" to "${newValue}"?`,
       });
 
       return;
     }
 
     if (
-      field === "session_type"
+      field ===
+      "session_type"
     ) {
       const currentValue =
         getSessionTypeDisplay(
@@ -1709,7 +2481,8 @@ const RoleAccessLayer = () => {
         );
 
       if (
-        currentValue === newValue
+        currentValue ===
+        newValue
       ) {
         return;
       }
@@ -1719,9 +2492,12 @@ const RoleAccessLayer = () => {
         item,
         field,
         newValue,
+
         title:
           "Update Session Type",
-        message: `Are you sure you want to change session type from "${currentValue}" to "${newValue}"?`,
+
+        message:
+          `Are you sure you want to change session type from "${currentValue}" to "${newValue}"?`,
       });
 
       return;
@@ -1731,14 +2507,19 @@ const RoleAccessLayer = () => {
       const currentValue =
         getAmountValue(item);
 
-      const nextValue = Number(
-        String(newValue ?? "0")
-          .replace(/,/g, "")
-          .trim()
-      );
+      const nextValue =
+        Number(
+          String(
+            newValue ?? "0"
+          )
+            .replace(/,/g, "")
+            .trim()
+        );
 
       if (
-        !Number.isFinite(nextValue) ||
+        !Number.isFinite(
+          nextValue
+        ) ||
         nextValue < 0
       ) {
         showAlert(
@@ -1751,7 +2532,8 @@ const RoleAccessLayer = () => {
       }
 
       if (
-        currentValue === nextValue
+        currentValue ===
+        nextValue
       ) {
         return;
       }
@@ -1760,31 +2542,37 @@ const RoleAccessLayer = () => {
         open: true,
         item,
         field,
-        newValue: nextValue,
-        title: "Update Amount",
-        message: `Are you sure you want to change amount from "AED ${currentValue.toFixed(
-          2
-        )}" to "AED ${nextValue.toFixed(
-          2
-        )}"?`,
+        newValue:
+          nextValue,
+
+        title:
+          "Update Amount",
+
+        message:
+          `Are you sure you want to change amount from "AED ${currentValue.toFixed(
+            2
+          )}" to "AED ${nextValue.toFixed(
+            2
+          )}"?`,
       });
     }
   };
 
-  const closeConfirmModal = () => {
-    if (confirmLoading) {
-      return;
-    }
+  const closeConfirmModal =
+    () => {
+      if (confirmLoading) {
+        return;
+      }
 
-    setConfirmModal({
-      open: false,
-      item: null,
-      field: "",
-      newValue: "",
-      title: "",
-      message: "",
-    });
-  };
+      setConfirmModal({
+        open: false,
+        item: null,
+        field: "",
+        newValue: "",
+        title: "",
+        message: "",
+      });
+    };
 
   const handleConfirmUpdate =
     async () => {
@@ -1811,7 +2599,7 @@ const RoleAccessLayer = () => {
         showAlert(
           "error",
           "Update Failed",
-          "Booking ID nahi mila."
+          "Booking ID was not found."
         );
 
         closeConfirmModal();
@@ -1827,30 +2615,34 @@ const RoleAccessLayer = () => {
       );
 
       const previousValue =
-        field === "payment_status"
+        field ===
+        "payment_status"
           ? getPaymentStatusDisplay(
-            item?.payment_status
-          )
+              item?.payment_status
+            )
           : field ===
             "session_type"
-            ? getSessionTypeDisplay(
+          ? getSessionTypeDisplay(
               item?.session_type
             )
-            : getAmountValue(item);
+          : getAmountValue(
+              item
+            );
 
       const optimisticPatch =
-        field === "payment_status"
+        field ===
+        "payment_status"
           ? {
-            payment_status:
-              newValue,
-          }
+              payment_status:
+                newValue,
+            }
           : field ===
             "session_type"
-            ? {
+          ? {
               session_type:
                 newValue,
             }
-            : {
+          : {
               booking_amount:
                 newValue,
             };
@@ -1866,28 +2658,32 @@ const RoleAccessLayer = () => {
             ...item,
             ...optimisticPatch,
           },
+
           field ===
-            "payment_status"
+          "payment_status"
             ? {
-              payment_status:
-                newValue,
-            }
+                payment_status:
+                  newValue,
+              }
             : field ===
               "session_type"
-              ? {
+            ? {
                 sessionType:
                   newValue,
               }
-              : {
+            : {
                 amount:
                   newValue,
               }
         );
 
-        if (field === "amount") {
+        if (
+          field === "amount"
+        ) {
           setAmountDraftMap(
             (previous) => ({
               ...previous,
+
               [bookingId]:
                 newValue,
             })
@@ -1897,35 +2693,39 @@ const RoleAccessLayer = () => {
         showAlert(
           "success",
           "Updated Successfully",
-          `${confirmModal.title} done successfully.`
+          `${confirmModal.title} completed successfully.`
         );
 
         closeConfirmModal();
       } catch (error) {
         patchRow(
           bookingId,
+
           field ===
-            "payment_status"
+          "payment_status"
             ? {
-              payment_status:
-                previousValue,
-            }
+                payment_status:
+                  previousValue,
+              }
             : field ===
               "session_type"
-              ? {
+            ? {
                 session_type:
                   previousValue,
               }
-              : {
+            : {
                 booking_amount:
                   previousValue,
               }
         );
 
-        if (field === "amount") {
+        if (
+          field === "amount"
+        ) {
           setAmountDraftMap(
             (previous) => ({
               ...previous,
+
               [bookingId]:
                 previousValue,
             })
@@ -1936,10 +2736,12 @@ const RoleAccessLayer = () => {
           "error",
           "Update Failed",
           error?.message ||
-          "Something went wrong."
+            "Something went wrong."
         );
       } finally {
-        setConfirmLoading(false);
+        setConfirmLoading(
+          false
+        );
 
         setFieldSaving(
           bookingId,
@@ -1955,52 +2757,43 @@ const RoleAccessLayer = () => {
       setLoadError("");
 
       try {
-        const data =
+        const response =
           await getAllBookings();
 
-        const raw =
-          Array.isArray(data)
-            ? data
+        const rawRows =
+          Array.isArray(
+            response
+          )
+            ? response
             : Array.isArray(
-              data?.data
-            )
-              ? data.data
-              : Array.isArray(
-                data?.getall_bookings
+                response?.data
               )
-                ? data.getall_bookings
-                : Array.isArray(
-                  data?.getallbookings
-                )
-                  ? data.getallbookings
-                  : [];
+            ? response.data
+            : Array.isArray(
+                response
+                  ?.getall_bookings
+              )
+            ? response
+                .getall_bookings
+            : Array.isArray(
+                response
+                  ?.getallbookings
+              )
+            ? response
+                .getallbookings
+            : [];
 
-        const deduped =
-          dedupeBookings(raw);
+        const consolidatedRows =
+          consolidateBookings(
+            rawRows
+          );
 
-        const sorted =
-          deduped
+        const sortedRows =
+          consolidatedRows
             .slice()
-            .sort((a, b) => {
-              const first =
-                getDubaiBookDateMoment(
-                  a
-                );
+            .sort(sortBookings);
 
-              const second =
-                getDubaiBookDateMoment(
-                  b
-                );
-
-              return (
-                (second?.valueOf?.() ||
-                  0) -
-                (first?.valueOf?.() ||
-                  0)
-              );
-            });
-
-        setRows(sorted);
+        setRows(sortedRows);
       } catch (error) {
         console.error(
           "getAllBookings failed:",
@@ -2010,10 +2803,12 @@ const RoleAccessLayer = () => {
         setRows([]);
 
         setLoadError(
-          "Bookings are not loading. Please check the Network."
+          "Bookings are not loading. Please check the network."
         );
       } finally {
-        setInitialLoading(false);
+        setInitialLoading(
+          false
+        );
       }
     }, []);
 
@@ -2038,67 +2833,83 @@ const RoleAccessLayer = () => {
 
   const paymentOptions =
     useMemo(() => {
-      const options = new Set();
+      const options =
+        new Set();
 
       (rows || []).forEach(
         (row) => {
-          const payment =
+          const paymentType =
             norm(
               row?.payment_type
             );
 
-          if (payment) {
-            options.add(payment);
+          if (paymentType) {
+            options.add(
+              paymentType
+            );
           }
         }
       );
 
-      return Array.from(options);
+      return Array.from(
+        options
+      );
     }, [rows]);
 
   const sessionTypeOptions =
     useMemo(() => {
-      const options = new Set();
+      const options =
+        new Set();
 
       (rows || []).forEach(
         (row) => {
-          const session =
+          const sessionType =
             getSessionTypeKey(
               row?.session_type
             );
 
-          if (session) {
-            options.add(session);
+          if (sessionType) {
+            options.add(
+              sessionType
+            );
           }
         }
       );
 
-      return Array.from(options);
+      return Array.from(
+        options
+      );
     }, [rows]);
 
   const bookingTypeOptions =
     useMemo(() => {
-      const options = new Set();
+      const options =
+        new Set();
 
       (rows || []).forEach(
         (row) => {
-          const booking =
+          const bookingType =
             norm(
               row?.booking_type
             );
 
-          if (booking) {
-            options.add(booking);
+          if (bookingType) {
+            options.add(
+              bookingType
+            );
           }
         }
       );
 
-      return Array.from(options);
+      return Array.from(
+        options
+      );
     }, [rows]);
 
   const groupBatchOptions =
     useMemo(() => {
-      const map = new Map();
+      const optionsMap =
+        new Map();
 
       (rows || []).forEach(
         (row) => {
@@ -2108,24 +2919,29 @@ const RoleAccessLayer = () => {
             return;
           }
 
-          const id =
+          const batchId =
             row?.group_batch_id;
 
-          if (!id) {
+          if (!batchId) {
             return;
           }
 
-          map.set(
-            String(id),
-            getGroupBatchText(row)
+          optionsMap.set(
+            String(batchId),
+            getGroupBatchText(
+              row
+            )
           );
         }
       );
 
       return Array.from(
-        map.entries()
+        optionsMap.entries()
       ).map(
-        ([value, label]) => ({
+        ([
+          value,
+          label,
+        ]) => ({
           value,
           label,
         })
@@ -2137,10 +2953,12 @@ const RoleAccessLayer = () => {
       const normalizedSearch =
         norm(searchTerm);
 
-      const normalizedPayment =
-        norm(paymentTypeFilter);
+      const normalizedPaymentType =
+        norm(
+          paymentTypeFilter
+        );
 
-      const normalizedStatus =
+      const normalizedBookingStatus =
         norm(
           bookingStatusFilter
         );
@@ -2150,7 +2968,7 @@ const RoleAccessLayer = () => {
           paymentStatusFilter
         );
 
-      const normalizedSession =
+      const normalizedSessionType =
         getSessionTypeKey(
           sessionTypeFilter
         );
@@ -2164,188 +2982,215 @@ const RoleAccessLayer = () => {
         norm(groupFilter);
 
       const normalizedBatch =
-        norm(groupBatchFilter);
+        norm(
+          groupBatchFilter
+        );
 
       const startMoment =
         startDate
           ? moment.tz(
-            startDate,
-            "YYYY-MM-DD",
-            true,
-            TZ
-          )
+              startDate,
+              "YYYY-MM-DD",
+              true,
+              TZ
+            )
           : null;
 
       const endMoment =
         endDate
           ? moment.tz(
-            endDate,
-            "YYYY-MM-DD",
-            true,
-            TZ
-          )
+              endDate,
+              "YYYY-MM-DD",
+              true,
+              TZ
+            )
           : null;
 
-      return (rows || []).filter(
-        (item) => {
-          const bookingStatus =
-            getBookingStatus(
-              item
-            );
-
-          const fullText = [
-            item?.studentname ||
-            "",
-            item?.teachername ||
-            "",
-            item?.payment_type ||
-            "",
-            getPaymentStatusDisplay(
-              item?.payment_status
-            ),
-            getSessionTypeDisplay(
-              item?.session_type
-            ),
-            item?.booking_type ||
-            "",
-            getBookingCategory(
-              item
-            ),
-            getGroupProgrammeText(
-              item
-            ),
-            getGroupBatchText(
-              item
-            ),
-            getGroupSessionTitle(
-              item
-            ),
-            item?.group_batch_id ||
-            "",
+      return (
+        rows || []
+      ).filter((item) => {
+        const bookingStatus =
+          getBookingStatus(
             item
-              ?.group_programme_id ||
+          );
+
+        const fullText = [
+          item?.studentname ||
             "",
+
+          item?.teachername ||
+            "",
+
+          ...getGroupAssistantNames(
             item
-              ?.group_live_session_id ||
+          ),
+
+          item?.payment_type ||
             "",
-            getAmountText(item),
-            bookingStatus,
-            getBookDateValue(
+
+          getResolvedPaymentStatus(
+            item
+          ),
+
+          getSessionTypeDisplay(
+            item?.session_type
+          ),
+
+          item?.booking_type ||
+            "",
+
+          getBookingCategory(
+            item
+          ),
+
+          getGroupProgrammeText(
+            item
+          ),
+
+          getGroupBatchText(
+            item
+          ),
+
+          getGroupSessionTitle(
+            item
+          ),
+
+          item?.group_batch_id ||
+            "",
+
+          item
+            ?.group_programme_id ||
+            "",
+
+          item
+            ?.group_live_session_id ||
+            "",
+
+          getAmountText(item),
+
+          bookingStatus,
+
+          getBookDateValue(
+            item
+          ),
+
+          getSlotStartValue(
+            item
+          ),
+
+          getSlotEndValue(
+            item
+          ),
+        ]
+          .join(" ")
+          .toLowerCase();
+
+        const matchesSearch =
+          !normalizedSearch ||
+          fullText.includes(
+            normalizedSearch
+          );
+
+        const matchesPaymentType =
+          !normalizedPaymentType ||
+          norm(
+            item?.payment_type
+          ) ===
+            normalizedPaymentType;
+
+        const matchesBookingStatus =
+          !normalizedBookingStatus ||
+          norm(
+            bookingStatus
+          ) ===
+            normalizedBookingStatus;
+
+        const matchesPaymentStatus =
+          !normalizedPaymentStatus ||
+          norm(
+            getResolvedPaymentStatus(
               item
-            ),
-            getSlotStartValue(
-              item
-            ),
-            getSlotEndValue(
-              item
-            ),
-          ]
-            .join(" ")
-            .toLowerCase();
-
-          const matchesSearch =
-            !normalizedSearch ||
-            fullText.includes(
-              normalizedSearch
-            );
-
-          const matchesPayment =
-            !normalizedPayment ||
-            norm(
-              item?.payment_type
-            ) ===
-            normalizedPayment;
-
-          const matchesStatus =
-            !normalizedStatus ||
-            norm(bookingStatus) ===
-            normalizedStatus;
-
-          const matchesPaymentStatus =
-            !normalizedPaymentStatus ||
-            norm(
-              getPaymentStatusDisplay(
-                item?.payment_status
-              )
-            ) ===
+            )
+          ) ===
             normalizedPaymentStatus;
 
-          const matchesSessionType =
-            !normalizedSession ||
-            getSessionTypeKey(
-              item?.session_type
-            ) ===
-            normalizedSession;
+        const matchesSessionType =
+          !normalizedSessionType ||
+          getSessionTypeKey(
+            item?.session_type
+          ) ===
+            normalizedSessionType;
 
-          const matchesBookingType =
-            !normalizedBookingType ||
-            norm(
-              item?.booking_type
-            ) ===
+        const matchesBookingType =
+          !normalizedBookingType ||
+          norm(
+            item?.booking_type
+          ) ===
             normalizedBookingType;
 
-          const matchesGroup =
-            !normalizedGroup ||
-            (normalizedGroup ===
+        const matchesGroupType =
+          !normalizedGroup ||
+          (
+            normalizedGroup ===
               "group" &&
-              isGroupBooking(
-                item
-              )) ||
-            (normalizedGroup ===
+            isGroupBooking(item)
+          ) ||
+          (
+            normalizedGroup ===
               "one-to-one" &&
-              !isGroupBooking(
-                item
-              ));
+            !isGroupBooking(
+              item
+            )
+          );
 
-          const matchesGroupBatch =
-            !normalizedBatch ||
-            String(
-              item?.group_batch_id ||
+        const matchesBatch =
+          !normalizedBatch ||
+          String(
+            item?.group_batch_id ||
               ""
-            ) ===
+          ) ===
             String(
               normalizedBatch
             );
 
-          const itemDate =
-            getDubaiBookDateMoment(
-              item
-            );
+        const itemDate =
+          getDubaiBookDateMoment(
+            item
+          );
 
-          const fromOk =
-            startMoment
-              ? itemDate
-                ? itemDate.isSameOrAfter(
+        const matchesStartDate =
+          startMoment
+            ? itemDate
+              ? itemDate.isSameOrAfter(
                   startMoment,
                   "day"
                 )
-                : false
-              : true;
+              : false
+            : true;
 
-          const toOk =
-            endMoment
-              ? itemDate
-                ? itemDate.isSameOrBefore(
+        const matchesEndDate =
+          endMoment
+            ? itemDate
+              ? itemDate.isSameOrBefore(
                   endMoment,
                   "day"
                 )
-                : false
-              : true;
+              : false
+            : true;
 
-          return (
-            matchesSearch &&
-            matchesPayment &&
-            matchesStatus &&
-            matchesPaymentStatus &&
-            matchesSessionType &&
-            matchesBookingType &&
-            matchesGroup &&
-            matchesGroupBatch &&
-            fromOk &&
-            toOk
-          );
-        }
-      );
+        return (
+          matchesSearch &&
+          matchesPaymentType &&
+          matchesBookingStatus &&
+          matchesPaymentStatus &&
+          matchesSessionType &&
+          matchesBookingType &&
+          matchesGroupType &&
+          matchesBatch &&
+          matchesStartDate &&
+          matchesEndDate
+        );
+      });
     }, [
       rows,
       searchTerm,
@@ -2363,16 +3208,20 @@ const RoleAccessLayer = () => {
   const totalPages =
     Math.ceil(
       filteredData.length /
-      itemsPerPage
+        itemsPerPage
     ) || 1;
 
   const safePage = Math.min(
-    Math.max(currentPage, 1),
+    Math.max(
+      currentPage,
+      1
+    ),
     totalPages
   );
 
   const indexOfLastItem =
-    safePage * itemsPerPage;
+    safePage *
+    itemsPerPage;
 
   const indexOfFirstItem =
     indexOfLastItem -
@@ -2386,18 +3235,24 @@ const RoleAccessLayer = () => {
 
   useEffect(() => {
     if (
-      currentPage !== safePage
+      currentPage !==
+      safePage
     ) {
-      setCurrentPage(safePage);
+      setCurrentPage(
+        safePage
+      );
     }
-  }, [safePage, currentPage]);
+  }, [
+    safePage,
+    currentPage,
+  ]);
 
   const exportToExcel = () => {
     const heading = [
       ["Booking List"],
     ];
 
-    const data =
+    const exportData =
       filteredData.map(
         (item, index) => {
           const status =
@@ -2412,74 +3267,93 @@ const RoleAccessLayer = () => {
 
           return {
             "S.L": index + 1,
+
             "Book Date":
               bookingDate
                 ? bookingDate.format(
-                  "DD MMM YYYY"
-                )
+                    "DD MMM YYYY"
+                  )
                 : "-",
+
             "Student Name":
               item?.studentname ||
               "-",
+
             "Booked Teacher":
-              item?.teachername ||
-              "-",
+              getTeacherExportText(
+                item
+              ),
+
             "Slot Start":
               formatDubaiBookingTime(
                 item,
                 "start"
               ),
+
             "Slot End":
               formatDubaiBookingTime(
                 item,
                 "end"
               ),
+
             Amount:
-              getAmountText(item),
+              getAmountText(
+                item
+              ),
+
             "Payment Type":
               item?.payment_type ||
               "-",
+
             "Payment Status":
-              getPaymentStatusDisplay(
-                item?.payment_status
+              getResolvedPaymentStatus(
+                item
               ) || "-",
+
             "Session Type":
               getSessionTypeDisplay(
                 item?.session_type
               ) || "-",
+
             "Booking Type":
               getBookingTypeDisplay(
                 item?.booking_type
               ),
+
             "Class Type":
               getBookingCategory(
                 item
               ),
+
             Programme:
               getGroupProgrammeText(
                 item
               ),
+
             Batch:
               getGroupBatchText(
                 item
               ),
+
             "Group Session":
               getGroupSessionTitle(
                 item
               ),
-            Status: status
-              ? status
-                .charAt(0)
-                .toUpperCase() +
-              status.slice(1)
-              : "-",
+
+            Status:
+              status
+                ? status
+                    .charAt(0)
+                    .toUpperCase() +
+                  status.slice(1)
+                : "-",
           };
         }
       );
 
     const worksheet =
       XLSX.utils.json_to_sheet(
-        data,
+        exportData,
         {
           origin: -1,
         }
@@ -2509,11 +3383,12 @@ const RoleAccessLayer = () => {
   };
 
   const exportToPDF = () => {
-    const doc = new jsPDF();
+    const document =
+      new jsPDF();
 
-    doc.setFontSize(16);
+    document.setFontSize(16);
 
-    doc.text(
+    document.text(
       "Booking List",
       14,
       20
@@ -2538,7 +3413,7 @@ const RoleAccessLayer = () => {
       "Status",
     ];
 
-    const rowsPdf =
+    const pdfRows =
       filteredData.map(
         (item, index) => {
           const status =
@@ -2553,70 +3428,90 @@ const RoleAccessLayer = () => {
 
           return [
             index + 1,
+
             bookingDate
               ? bookingDate.format(
-                "DD MMM YYYY"
-              )
+                  "DD MMM YYYY"
+                )
               : "-",
+
             item?.studentname ||
-            "-",
-            item?.teachername ||
-            "-",
+              "-",
+
+            getTeacherExportText(
+              item
+            ),
+
             formatDubaiBookingTime(
               item,
               "start"
             ),
+
             formatDubaiBookingTime(
               item,
               "end"
             ),
+
             getAmountText(item),
+
             item?.payment_type ||
-            "-",
-            getPaymentStatusDisplay(
-              item?.payment_status
+              "-",
+
+            getResolvedPaymentStatus(
+              item
             ) || "-",
+
             getSessionTypeDisplay(
               item?.session_type
             ) || "-",
+
             getBookingTypeDisplay(
               item?.booking_type
             ),
+
             getBookingCategory(
               item
             ),
+
             getGroupProgrammeText(
               item
             ),
+
             getGroupBatchText(
               item
             ),
+
             getGroupSessionTitle(
               item
             ),
+
             status
               ? status
-                .charAt(0)
-                .toUpperCase() +
-              status.slice(1)
+                  .charAt(0)
+                  .toUpperCase() +
+                status.slice(1)
               : "-",
           ];
         }
       );
 
-    autoTable(doc, {
+    autoTable(document, {
       startY: 25,
       head: [columns],
-      body: rowsPdf,
+      body: pdfRows,
+
       styles: {
         fontSize: 8,
       },
+
       headStyles: {
         fontSize: 8,
       },
     });
 
-    doc.save("bookings.pdf");
+    document.save(
+      "bookings.pdf"
+    );
   };
 
   if (initialLoading) {
@@ -2631,11 +3526,16 @@ const RoleAccessLayer = () => {
           style={{
             width: "48px",
             height: "48px",
+
             border:
               "6px solid #e0e0e0",
+
             borderTop:
               "6px solid #45B369",
-            borderRadius: "50%",
+
+            borderRadius:
+              "50%",
+
             animation:
               "spin 1s linear infinite",
           }}
@@ -2688,8 +3588,8 @@ const RoleAccessLayer = () => {
           .lyl-select:hover {
             border-color: #2f83ff;
             box-shadow:
-              inset 0 0 0 1px rgba(255,255,255,0.03),
-              0 10px 22px rgba(0,0,0,0.2);
+              inset 0 0 0 1px rgba(255, 255, 255, 0.03),
+              0 10px 22px rgba(0, 0, 0, 0.2);
           }
 
           .lyl-select-wrap::after {
@@ -2699,8 +3599,8 @@ const RoleAccessLayer = () => {
             top: 50%;
             width: 10px;
             height: 10px;
-            border-right: 2px solid rgba(255,255,255,0.9);
-            border-bottom: 2px solid rgba(255,255,255,0.9);
+            border-right: 2px solid rgba(255, 255, 255, 0.9);
+            border-bottom: 2px solid rgba(255, 255, 255, 0.9);
             transform: translateY(-65%) rotate(45deg);
             pointer-events: none;
           }
@@ -2741,8 +3641,8 @@ const RoleAccessLayer = () => {
             border-radius: 24px;
             padding: 28px 24px 22px;
             box-shadow:
-              0 24px 70px rgba(0,0,0,0.42),
-              inset 0 0 0 1px rgba(255,255,255,0.02);
+              0 24px 70px rgba(0, 0, 0, 0.42),
+              inset 0 0 0 1px rgba(255, 255, 255, 0.02);
             text-align: center;
             color: #ffffff;
           }
@@ -2817,24 +3717,23 @@ const RoleAccessLayer = () => {
           }
 
           .lyl-btn-danger {
-  color: #ffffff;
-  background: linear-gradient(
-    180deg,
-    #ef4444 0%,
-    #b91c1c 100%
-  );
-  box-shadow: 0 12px 24px rgba(239, 68, 68, 0.22);
-
-  min-width: 190px;
-  width: auto;
-  padding: 0 20px;
-  white-space: nowrap;
-}
+            color: #ffffff;
+            background: linear-gradient(
+              180deg,
+              #ef4444 0%,
+              #b91c1c 100%
+            );
+            box-shadow: 0 12px 24px rgba(239, 68, 68, 0.22);
+            min-width: 190px;
+            width: auto;
+            padding: 0 20px;
+            white-space: nowrap;
+          }
 
           .lyl-btn-secondary {
             color: #d7e4f7;
-            background: rgba(255,255,255,0.06);
-            border: 1px solid rgba(255,255,255,0.08);
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.08);
           }
 
           .lyl-btn:disabled {
@@ -2856,8 +3755,8 @@ const RoleAccessLayer = () => {
             justify-content: space-between;
             gap: 14px;
             color: #ffffff;
-            box-shadow: 0 18px 48px rgba(0,0,0,0.3);
-            border: 1px solid rgba(255,255,255,0.08);
+            box-shadow: 0 18px 48px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.08);
             backdrop-filter: blur(6px);
           }
 
@@ -2886,7 +3785,7 @@ const RoleAccessLayer = () => {
           .lyl-toast-message {
             font-size: 13px;
             line-height: 1.5;
-            color: rgba(255,255,255,0.88);
+            color: rgba(255, 255, 255, 0.88);
           }
 
           .lyl-toast-close {
@@ -2908,7 +3807,7 @@ const RoleAccessLayer = () => {
             border: 1px solid rgba(52, 123, 255, 0.22);
             border-radius: 18px;
             padding: 16px;
-            box-shadow: 0 24px 60px rgba(0,0,0,0.35);
+            box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
           }
 
           .lyl-recording-title {
@@ -2919,19 +3818,101 @@ const RoleAccessLayer = () => {
           .lyl-recording-close {
             border-radius: 12px;
           }
-            @media (max-width: 480px) {
-  .lyl-modal-actions {
-    flex-direction: column-reverse;
-  }
 
-  .lyl-modal-actions .lyl-btn {
-    width: 100%;
-    min-width: 100%;
-  }
-}
+          .lyl-teacher-card {
+            min-width: 170px;
+          }
 
+          .lyl-teacher-name {
+            font-size: 13px;
+            font-weight: 700;
+          }
 
-      
+          .lyl-assistant-line {
+            margin-top: 5px;
+            color: #d97706;
+            font-size: 11px;
+            font-weight: 600;
+            line-height: 1.4;
+          }
+
+          .lyl-assistant-label {
+            font-weight: 800;
+          }
+
+          .lyl-class-type-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 88px;
+            padding: 7px 12px;
+            border: 1px solid transparent;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 800;
+            line-height: 1;
+            white-space: nowrap;
+          }
+
+          .lyl-class-type-badge.group {
+            color: #2563eb;
+            background: rgba(37, 99, 235, 0.12);
+            border-color: rgba(37, 99, 235, 0.22);
+          }
+
+          .lyl-class-type-badge.one-to-one {
+            color: #7c3aed;
+            background: rgba(124, 58, 237, 0.12);
+            border-color: rgba(124, 58, 237, 0.22);
+          }
+
+          .lyl-no-recording {
+            display: inline-flex;
+            padding: 6px 9px;
+            border-radius: 999px;
+            color: #dc2626;
+            background: rgba(220, 38, 38, 0.10);
+            font-size: 10px;
+            font-weight: 700;
+            white-space: nowrap;
+          }
+
+          .lyl-payment-readonly {
+            min-width: 100px;
+          }
+
+          [data-theme="dark"]
+          .lyl-class-type-badge.group,
+          [data-bs-theme="dark"]
+          .lyl-class-type-badge.group,
+          body.dark-theme
+          .lyl-class-type-badge.group {
+            color: #93c5fd;
+            background: rgba(59, 130, 246, 0.18);
+            border-color: rgba(147, 197, 253, 0.22);
+          }
+
+          [data-theme="dark"]
+          .lyl-class-type-badge.one-to-one,
+          [data-bs-theme="dark"]
+          .lyl-class-type-badge.one-to-one,
+          body.dark-theme
+          .lyl-class-type-badge.one-to-one {
+            color: #c4b5fd;
+            background: rgba(139, 92, 246, 0.18);
+            border-color: rgba(196, 181, 253, 0.22);
+          }
+
+          @media (max-width: 480px) {
+            .lyl-modal-actions {
+              flex-direction: column-reverse;
+            }
+
+            .lyl-modal-actions .lyl-btn {
+              width: 100%;
+              min-width: 100%;
+            }
+          }
         `}
       </style>
 
@@ -2948,9 +3929,15 @@ const RoleAccessLayer = () => {
       />
 
       <ConfirmActionModal
-        open={confirmModal.open}
-        title={confirmModal.title}
-        message={confirmModal.message}
+        open={
+          confirmModal.open
+        }
+        title={
+          confirmModal.title
+        }
+        message={
+          confirmModal.message
+        }
         confirmText="Yes, Update"
         cancelText="Cancel"
         loadingText="Updating..."
@@ -2960,23 +3947,29 @@ const RoleAccessLayer = () => {
         onClose={
           closeConfirmModal
         }
-        loading={confirmLoading}
+        loading={
+          confirmLoading
+        }
       />
 
       <ConfirmActionModal
-        open={deleteModal.open}
+        open={
+          deleteModal.open
+        }
         title="Delete Booking"
         message={
           deleteModal.item
             ? `This will permanently delete booking #${getBookingId(
-              deleteModal.item
-            )} for ${deleteModal.item
-              ?.studentname ||
-            "the student"
-            } with ${deleteModal.item
-              ?.teachername ||
-            "the teacher"
-            }. This action cannot be undone.`
+                deleteModal.item
+              )} for ${
+                deleteModal.item
+                  ?.studentname ||
+                "the student"
+              } with ${
+                deleteModal.item
+                  ?.teachername ||
+                "the teacher"
+              }. This action cannot be undone.`
             : "This booking will be permanently deleted. This action cannot be undone."
         }
         confirmText="Yes, Delete Permanently"
@@ -2986,7 +3979,9 @@ const RoleAccessLayer = () => {
         onConfirm={
           handleHardDeleteBooking
         }
-        onClose={closeDeleteModal}
+        onClose={
+          closeDeleteModal
+        }
         loading={Boolean(
           deletingBookingId
         )}
@@ -2999,9 +3994,9 @@ const RoleAccessLayer = () => {
             className="form-control w-auto"
             placeholder="Search"
             value={searchTerm}
-            onChange={(e) =>
+            onChange={(event) =>
               setSearchTerm(
-                e.target.value
+                event.target.value
               )
             }
           />
@@ -3010,9 +4005,9 @@ const RoleAccessLayer = () => {
             type="date"
             className="form-control w-auto"
             value={startDate}
-            onChange={(e) =>
+            onChange={(event) =>
               setStartDate(
-                e.target.value
+                event.target.value
               )
             }
           />
@@ -3021,9 +4016,9 @@ const RoleAccessLayer = () => {
             type="date"
             className="form-control w-auto"
             value={endDate}
-            onChange={(e) =>
+            onChange={(event) =>
               setEndDate(
-                e.target.value
+                event.target.value
               )
             }
           />
@@ -3033,9 +4028,9 @@ const RoleAccessLayer = () => {
             value={
               paymentTypeFilter
             }
-            onChange={(e) =>
+            onChange={(event) =>
               setPaymentTypeFilter(
-                e.target.value
+                event.target.value
               )
             }
           >
@@ -3081,9 +4076,9 @@ const RoleAccessLayer = () => {
             value={
               paymentStatusFilter
             }
-            onChange={(e) =>
+            onChange={(event) =>
               setPaymentStatusFilter(
-                e.target.value
+                event.target.value
               )
             }
           >
@@ -3102,6 +4097,18 @@ const RoleAccessLayer = () => {
             <option value="free">
               Free
             </option>
+
+            <option value="pending">
+              Pending
+            </option>
+
+            <option value="failed">
+              Failed
+            </option>
+
+            <option value="refunded">
+              Refunded
+            </option>
           </select>
 
           <select
@@ -3109,9 +4116,9 @@ const RoleAccessLayer = () => {
             value={
               sessionTypeFilter
             }
-            onChange={(e) =>
+            onChange={(event) =>
               setSessionTypeFilter(
-                e.target.value
+                event.target.value
               )
             }
           >
@@ -3152,9 +4159,9 @@ const RoleAccessLayer = () => {
             value={
               bookingTypeFilter
             }
-            onChange={(e) =>
+            onChange={(event) =>
               setBookingTypeFilter(
-                e.target.value
+                event.target.value
               )
             }
           >
@@ -3194,14 +4201,16 @@ const RoleAccessLayer = () => {
 
           <select
             className="form-select form-select-sm w-auto"
-            value={groupFilter}
-            onChange={(e) => {
+            value={
+              groupFilter
+            }
+            onChange={(event) => {
               setGroupFilter(
-                e.target.value
+                event.target.value
               );
 
               if (
-                e.target.value !==
+                event.target.value !==
                 "group"
               ) {
                 setGroupBatchFilter(
@@ -3228,9 +4237,9 @@ const RoleAccessLayer = () => {
             value={
               groupBatchFilter
             }
-            onChange={(e) =>
+            onChange={(event) =>
               setGroupBatchFilter(
-                e.target.value
+                event.target.value
               )
             }
             disabled={
@@ -3245,8 +4254,12 @@ const RoleAccessLayer = () => {
             {groupBatchOptions.map(
               (batch) => (
                 <option
-                  key={batch.value}
-                  value={batch.value}
+                  key={
+                    batch.value
+                  }
+                  value={
+                    batch.value
+                  }
                 >
                   {batch.label}
                 </option>
@@ -3259,9 +4272,9 @@ const RoleAccessLayer = () => {
             value={
               bookingStatusFilter
             }
-            onChange={(e) =>
+            onChange={(event) =>
               setBookingStatusFilter(
-                e.target.value
+                event.target.value
               )
             }
           >
@@ -3273,12 +4286,12 @@ const RoleAccessLayer = () => {
               Upcoming
             </option>
 
-            <option value="completed">
-              Completed
-            </option>
-
             <option value="ongoing">
               Ongoing
+            </option>
+
+            <option value="completed">
+              Completed
             </option>
 
             <option value="missed">
@@ -3292,48 +4305,40 @@ const RoleAccessLayer = () => {
 
           <button
             type="button"
+            className="btn btn-outline-secondary btn-sm"
             onClick={() => {
               setSearchTerm("");
-              setPaymentTypeFilter(
-                ""
-              );
-              setBookingStatusFilter(
-                ""
-              );
-              setPaymentStatusFilter(
-                ""
-              );
-              setSessionTypeFilter(
-                ""
-              );
-              setBookingTypeFilter(
-                ""
-              );
+              setPaymentTypeFilter("");
+              setBookingStatusFilter("");
+              setPaymentStatusFilter("");
+              setSessionTypeFilter("");
+              setBookingTypeFilter("");
               setGroupFilter("");
-              setGroupBatchFilter(
-                ""
-              );
+              setGroupBatchFilter("");
               setStartDate("");
               setEndDate("");
               setCurrentPage(1);
             }}
-            className="btn btn-outline-secondary btn-sm"
           >
             Reset Filters
           </button>
 
           <button
             type="button"
-            onClick={exportToExcel}
             className="btn btn-success btn-sm"
+            onClick={
+              exportToExcel
+            }
           >
             Excel Export
           </button>
 
           <button
             type="button"
-            onClick={exportToPDF}
             className="btn btn-danger btn-sm"
+            onClick={
+              exportToPDF
+            }
           >
             PDF Export
           </button>
@@ -3343,10 +4348,14 @@ const RoleAccessLayer = () => {
           type="button"
           className="btn btn-primary btn-sm d-flex align-items-center gap-2"
           style={{
-            borderRadius: "999px",
-            padding: "10px 18px",
+            borderRadius:
+              "999px",
+
+            padding:
+              "10px 18px",
+
             boxShadow:
-              "0 10px 22px rgba(13,110,253,0.22)",
+              "0 10px 22px rgba(13, 110, 253, 0.22)",
           }}
           onClick={() =>
             setIsManualBookingOpen(
@@ -3358,14 +4367,23 @@ const RoleAccessLayer = () => {
             style={{
               width: 20,
               height: 20,
-              borderRadius: "50%",
+
+              borderRadius:
+                "50%",
+
               background:
-                "rgba(255,255,255,0.2)",
+                "rgba(255, 255, 255, 0.2)",
+
               display: "flex",
-              alignItems: "center",
+
+              alignItems:
+                "center",
+
               justifyContent:
                 "center",
-              fontWeight: "bold",
+
+              fontWeight:
+                "bold",
             }}
           >
             +
@@ -3378,7 +4396,9 @@ const RoleAccessLayer = () => {
       <div className="card-body p-24">
         {loadError ? (
           <div className="alert alert-danger d-flex align-items-center justify-content-between">
-            <div>{loadError}</div>
+            <div>
+              {loadError}
+            </div>
 
             <button
               type="button"
@@ -3398,9 +4418,7 @@ const RoleAccessLayer = () => {
             fontWeight: 600,
           }}
         >
-          All booking dates and
-          times are shown in
-          Asia/Dubai timezone.
+          All booking dates and times are shown in Asia/Dubai timezone.
         </div>
 
         <div className="table-responsive">
@@ -3408,31 +4426,72 @@ const RoleAccessLayer = () => {
             <thead>
               <tr>
                 <th>S.L</th>
+
                 <th>
                   Reschedule Booking
                 </th>
-                <th>Book Date</th>
-                <th>Recording</th>
-                <th>Student Name</th>
-                <th>Teacher Name</th>
-                <th>Slot Start</th>
-                <th>Slot End</th>
-                <th>Amount</th>
-                <th>Payment Type</th>
+
+                <th>
+                  Book Date
+                </th>
+
+                <th>
+                  Recording
+                </th>
+
+                <th>
+                  Student Name
+                </th>
+
+                <th>
+                  Teacher Name
+                </th>
+
+                <th>
+                  Slot Start
+                </th>
+
+                <th>
+                  Slot End
+                </th>
+
+                <th>
+                  Amount
+                </th>
+
+                <th>
+                  Payment Type
+                </th>
+
                 <th>
                   Payment Status
                 </th>
-                <th>Session Type</th>
-                <th>Booking Type</th>
-                <th>Class Type</th>
-                <th>Status</th>
-                <th>Action</th>
+
+                <th>
+                  Session Type
+                </th>
+
+                <th>
+                  Booking Type
+                </th>
+
+                <th>
+                  Class Type
+                </th>
+
+                <th>
+                  Status
+                </th>
+
+                <th>
+                  Action
+                </th>
               </tr>
             </thead>
 
             <tbody>
               {currentItems.length ===
-                0 ? (
+              0 ? (
                 <tr>
                   <td
                     colSpan={16}
@@ -3500,12 +4559,18 @@ const RoleAccessLayer = () => {
                       );
 
                     const deleteDisabled =
-                      isDeleteDisabled(item);
+                      isDeleteDisabled(
+                        item
+                      );
 
                     const currentPaymentStatus =
-                      getPaymentStatusDisplay(
+                      getResolvedPaymentStatus(
                         item
-                          ?.payment_status
+                      );
+
+                    const assistantNames =
+                      getGroupAssistantNames(
+                        item
                       );
 
                     const currentSessionType =
@@ -3516,9 +4581,11 @@ const RoleAccessLayer = () => {
 
                     return (
                       <tr
-                        key={makeRowKey(
-                          item
-                        )}
+                        key={
+                          makeRowKey(
+                            item
+                          )
+                        }
                       >
                         <td>
                           {indexOfFirstItem +
@@ -3529,10 +4596,11 @@ const RoleAccessLayer = () => {
                         <td>
                           <button
                             type="button"
-                            className={`btn btn-sm ${rescheduleDisabled
-                              ? "btn-outline-secondary"
-                              : "btn-outline-primary"
-                              }`}
+                            className={`btn btn-sm ${
+                              rescheduleDisabled
+                                ? "btn-outline-secondary"
+                                : "btn-outline-primary"
+                            }`}
                             onClick={() => {
                               if (
                                 !rescheduleDisabled
@@ -3551,20 +4619,24 @@ const RoleAccessLayer = () => {
                               )
                                 ? "Group bookings cannot be rescheduled from this list"
                                 : rescheduleDisabled
-                                  ? "This booking cannot be rescheduled after session start time or missed status"
-                                  : "Reschedule booking"
+                                ? "This booking cannot be rescheduled after the session start time"
+                                : "Reschedule booking"
                             }
                             style={{
                               minWidth:
                                 "110px",
+
                               borderRadius:
                                 "8px",
+
                               fontWeight:
                                 600,
+
                               cursor:
                                 rescheduleDisabled
                                   ? "not-allowed"
                                   : "pointer",
+
                               opacity:
                                 rescheduleDisabled
                                   ? 0.6
@@ -3578,8 +4650,8 @@ const RoleAccessLayer = () => {
                         <td>
                           {bookingDate
                             ? bookingDate.format(
-                              "DD MMM YYYY"
-                            )
+                                "DD MMM YYYY"
+                              )
                             : "-"}
                         </td>
 
@@ -3596,6 +4668,13 @@ const RoleAccessLayer = () => {
                             >
                               View
                             </button>
+                          ) : norm(
+                              status
+                            ) ===
+                            "missed" ? (
+                            <span className="lyl-no-recording">
+                              No Recording
+                            </span>
                           ) : (
                             "-"
                           )}
@@ -3607,8 +4686,28 @@ const RoleAccessLayer = () => {
                         </td>
 
                         <td>
-                          {item?.teachername ||
-                            "-"}
+                          <div className="lyl-teacher-card">
+                            <div className="lyl-teacher-name">
+                              {getMainTeacherText(
+                                item
+                              )}
+                            </div>
+
+                            {isGroupBooking(
+                              item
+                            ) &&
+                            assistantNames.length >
+                              0 ? (
+                              <div className="lyl-assistant-line">
+                                <span className="lyl-assistant-label">
+                                  Assistant:
+                                </span>{" "}
+                                {assistantNames.join(
+                                  ", "
+                                )}
+                              </div>
+                            ) : null}
+                          </div>
                         </td>
 
                         <td>
@@ -3633,7 +4732,9 @@ const RoleAccessLayer = () => {
                               style={{
                                 display:
                                   "flex",
+
                                 gap: "8px",
+
                                 alignItems:
                                   "center",
                               }}
@@ -3649,7 +4750,7 @@ const RoleAccessLayer = () => {
                                 }}
                                 value={
                                   amountDraftMap[
-                                  bookingId
+                                    bookingId
                                   ] ??
                                   getAmountValue(
                                     item
@@ -3659,10 +4760,10 @@ const RoleAccessLayer = () => {
                                   amountSaving
                                 }
                                 onChange={(
-                                  e
+                                  event
                                 ) => {
                                   const value =
-                                    e
+                                    event
                                       .target
                                       .value;
 
@@ -3671,6 +4772,7 @@ const RoleAccessLayer = () => {
                                       previous
                                     ) => ({
                                       ...previous,
+
                                       [bookingId]:
                                         value,
                                     })
@@ -3687,7 +4789,7 @@ const RoleAccessLayer = () => {
                                 onClick={() => {
                                   const value =
                                     amountDraftMap[
-                                    bookingId
+                                      bookingId
                                     ] ??
                                     getAmountValue(
                                       item
@@ -3730,26 +4832,47 @@ const RoleAccessLayer = () => {
                         </td>
 
                         <td>
-                          <DarkSelectEditor
-                            value={
-                              currentPaymentStatus
-                            }
-                            options={
-                              PAYMENT_STATUS_OPTIONS
-                            }
-                            loading={
-                              paymentSaving
-                            }
-                            onChange={(
-                              value
-                            ) =>
-                              openConfirmModal(
-                                item,
-                                "payment_status",
+                          {[
+                            "Pending",
+                            "Failed",
+                            "Refunded",
+                          ].includes(
+                            currentPaymentStatus
+                          ) ? (
+                            <div className="lyl-payment-readonly">
+                              <span
+                                className={`badge ${
+                                  currentPaymentStatus ===
+                                  "Pending"
+                                    ? "bg-warning text-dark"
+                                    : "bg-danger"
+                                }`}
+                              >
+                                {currentPaymentStatus}
+                              </span>
+                            </div>
+                          ) : (
+                            <DarkSelectEditor
+                              value={
+                                currentPaymentStatus
+                              }
+                              options={
+                                PAYMENT_STATUS_OPTIONS
+                              }
+                              loading={
+                                paymentSaving
+                              }
+                              onChange={(
                                 value
-                              )
-                            }
-                          />
+                              ) =>
+                                openConfirmModal(
+                                  item,
+                                  "payment_status",
+                                  value
+                                )
+                              }
+                            />
+                          )}
 
                           {paymentSaving ? (
                             <div className="lyl-cell-note">
@@ -3803,16 +4926,19 @@ const RoleAccessLayer = () => {
 
                         <td>
                           <span
-                            className={`badge ${isGroupBooking(
+                            className={`lyl-class-type-badge ${
+                              isGroupBooking(
+                                item
+                              )
+                                ? "group"
+                                : "one-to-one"
+                            }`}
+                          >
+                            {isGroupBooking(
                               item
                             )
-                              ? "bg-info"
-                              : "bg-secondary"
-                              }`}
-                          >
-                            {getBookingCategory(
-                              item
-                            )}
+                              ? "Group"
+                              : "One-to-One"}
                           </span>
                         </td>
 
@@ -3824,13 +4950,11 @@ const RoleAccessLayer = () => {
                           >
                             {status
                               ? status
-                                .charAt(
-                                  0
+                                  .charAt(0)
+                                  .toUpperCase() +
+                                status.slice(
+                                  1
                                 )
-                                .toUpperCase() +
-                              status.slice(
-                                1
-                              )
                               : "-"}
                           </span>
                         </td>
@@ -3838,35 +4962,49 @@ const RoleAccessLayer = () => {
                         <td>
                           <button
                             type="button"
-                            className={`btn btn-sm ${deleteDisabled
-                              ? "btn-outline-secondary"
-                              : "btn-outline-danger"
-                              }`}
-                            onClick={() => {
-                              if (!deleteDisabled) {
-                                openDeleteModal(item);
-                              }
-                            }}
+                            className={`btn btn-sm ${
+                              deleteDisabled
+                                ? "btn-outline-secondary"
+                                : "btn-outline-danger"
+                            }`}
                             disabled={
                               deleteDisabled ||
                               deleteLoading
                             }
+                            onClick={() => {
+                              if (
+                                !deleteDisabled
+                              ) {
+                                openDeleteModal(
+                                  item
+                                );
+                              }
+                            }}
                             title={
-                              isGroupBooking(item)
+                              isGroupBooking(
+                                item
+                              )
                                 ? "Group bookings cannot be deleted using this action"
                                 : deleteDisabled
-                                  ? "Past completed bookings cannot be deleted"
-                                  : "Permanently delete this booking"
+                                ? "Past completed bookings cannot be deleted"
+                                : "Permanently delete this booking"
                             }
                             style={{
-                              minWidth: "90px",
-                              borderRadius: "8px",
-                              fontWeight: 600,
+                              minWidth:
+                                "90px",
+
+                              borderRadius:
+                                "8px",
+
+                              fontWeight:
+                                600,
+
                               cursor:
                                 deleteDisabled ||
-                                  deleteLoading
+                                deleteLoading
                                   ? "not-allowed"
                                   : "pointer",
+
                               opacity:
                                 deleteDisabled
                                   ? 0.6
@@ -3891,41 +5029,45 @@ const RoleAccessLayer = () => {
           <span>
             Showing{" "}
             {filteredData.length ===
-              0
+            0
               ? 0
               : indexOfFirstItem +
-              1}{" "}
+                1}{" "}
             to{" "}
             {Math.min(
               indexOfLastItem,
               filteredData.length
             )}{" "}
             of{" "}
-            {filteredData.length}{" "}
+            {
+              filteredData.length
+            }{" "}
             entries
           </span>
 
           <ul className="pagination">
             {Array.from({
-              length: totalPages,
+              length:
+                totalPages,
             }).map(
               (_, index) => (
                 <li
                   key={index}
-                  className={`page-item ${safePage ===
+                  className={`page-item ${
+                    safePage ===
                     index + 1
-                    ? "active"
-                    : ""
-                    }`}
+                      ? "active"
+                      : ""
+                  }`}
                 >
                   <button
                     type="button"
+                    className="page-link"
                     onClick={() =>
                       setCurrentPage(
                         index + 1
                       )
                     }
-                    className="page-link"
                   >
                     {index + 1}
                   </button>
@@ -3936,17 +5078,20 @@ const RoleAccessLayer = () => {
         </div>
       </div>
 
-      {isRecordingOpen && (
+      {isRecordingOpen ? (
         <div
           className="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
           style={{
             background:
-              "rgba(0,0,0,0.68)",
+              "rgba(0, 0, 0, 0.68)",
+
             zIndex: 1050,
           }}
           role="dialog"
           aria-modal="true"
-          onClick={closeRecording}
+          onClick={
+            closeRecording
+          }
         >
           <div
             className="lyl-recording-modal"
@@ -3954,8 +5099,8 @@ const RoleAccessLayer = () => {
               width:
                 "min(900px, 92vw)",
             }}
-            onClick={(e) =>
-              e.stopPropagation()
+            onClick={(event) =>
+              event.stopPropagation()
             }
           >
             <div className="d-flex justify-content-between align-items-center mb-2">
@@ -3982,24 +5127,27 @@ const RoleAccessLayer = () => {
                 controls
                 autoPlay
                 style={{
-                  width: "100%",
+                  width:
+                    "100%",
+
                   maxHeight:
                     "70vh",
+
                   background:
                     "#000000",
+
                   borderRadius:
                     "12px",
                 }}
               />
             ) : (
               <div className="text-center py-5 text-white">
-                Recording not
-                available
+                Recording not available
               </div>
             )}
           </div>
         </div>
-      )}
+      ) : null}
 
       <RescheduleBookingModal
         key={
@@ -4022,9 +5170,14 @@ const RoleAccessLayer = () => {
           selectedBooking
         }
         timezone={
-          selectedBooking
-            ?.studentTime_zone ||
-          TZ
+          selectedBooking &&
+          isGroupBooking(
+            selectedBooking
+          )
+            ? TZ
+            : selectedBooking
+                ?.studentTime_zone ||
+              TZ
         }
       />
 

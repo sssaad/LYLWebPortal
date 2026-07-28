@@ -15,6 +15,7 @@ import HomePageSix from "./pages/HomePageSix";
 
 // All Other Pages
 import EmailPage from "./pages/EmailPage";
+import GroupBookingPage from "./pages/GroupBookingPage.jsx";
 import FeedbackPage from "./pages/FeedbackPage";
 import StudentfeedbackPage from "./pages/StudentfeedbackPage";
 import AddUserPage from "./pages/AddUserPage";
@@ -223,9 +224,11 @@ function App() {
           ["/progress", ProgressPage],
           ["/radio", RadioPage],
           ["/bookings", RoleAccessPage],
+          ["/group-bookings", GroupBookingPage],
           ["/group-live-sessions", GroupLiveSessionsPage],
           ["/direct-bookings", DirectBookingPage],
           ["/inperson-bookings", InpersonBookingPage],
+
           ["/leads-centre", LeadCentrePage],
           ["/registration-requests", RegistrationRequestsPage],
           ["/group-class-enquiries", GroupClassInquiriesPage],
