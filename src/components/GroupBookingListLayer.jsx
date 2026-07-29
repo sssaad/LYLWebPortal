@@ -1869,20 +1869,40 @@ const GroupBookingListLayer = () => {
   };
 
   if (loading) {
-    return (
-      <div className="gb-loading">
-        <div
-          className="spinner-border text-primary"
-          role="status"
-        />
+  return (
+    <div
+      className="d-flex justify-content-center align-items-center"
+      style={{
+        height: "300px",
+      }}
+    >
+      <div
+        style={{
+          width: "48px",
+          height: "48px",
+          border: "6px solid #e0e0e0",
+          borderTop: "6px solid #45B369",
+          borderRadius: "50%",
+          animation: "spin 1s linear infinite",
+        }}
+      />
 
-        <p className="mb-0">
-          Loading group
-          bookings...
-        </p>
-      </div>
-    );
-  }
+      <style>
+        {`
+          @keyframes spin {
+            0% {
+              transform: rotate(0deg);
+            }
+
+            100% {
+              transform: rotate(360deg);
+            }
+          }
+        `}
+      </style>
+    </div>
+  );
+}
 
   return (
     <div className="gb-page">
