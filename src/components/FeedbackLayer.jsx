@@ -18,11 +18,8 @@ const API_BASE =
 const RUN_SP_URL = `${API_BASE}runStoredProcedure`;
 const UPDATE_DYNAMIC_URL = `${API_BASE}update_dynamic_data`;
 
-const SEND_ONE_TO_ONE_EMAIL_URL =
-  `${API_BASE}send_progress_report_email`;
-
-const SEND_GROUP_EMAIL_URL =
-  `${API_BASE}send_group_progress_report_email`;
+const SEND_ONE_TO_ONE_EMAIL_URL = `${API_BASE}send_progress_report_email`;
+const SEND_GROUP_EMAIL_URL = `${API_BASE}send_group_progress_report_email`;
 
 const REPORT_TYPES = {
   ONE_TO_ONE: "one_to_one",
@@ -214,56 +211,6 @@ const buildFullName = (
   return fullName || fallback || "";
 };
 
-const detectIsDark = () => {
-  try {
-    const body = document.body;
-
-    const byAttribute =
-      body?.dataset?.theme?.toLowerCase() === "dark" ||
-      body?.getAttribute("data-theme")?.toLowerCase() ===
-        "dark";
-
-    const byClass =
-      body?.classList?.contains("dark") ||
-      body?.classList?.contains("theme-dark") ||
-      body?.classList?.contains("dark-mode") ||
-      body?.classList?.contains("bg-dark");
-
-    if (byAttribute || byClass) {
-      return true;
-    }
-
-    if (
-      window.matchMedia?.(
-        "(prefers-color-scheme: dark)"
-      )?.matches
-    ) {
-      return true;
-    }
-
-    const background =
-      window.getComputedStyle(body).backgroundColor;
-
-    const rgb = background.match(/\d+/g);
-
-    if (rgb?.length >= 3) {
-      const red = Number(rgb[0]);
-      const green = Number(rgb[1]);
-      const blue = Number(rgb[2]);
-
-      const brightness =
-        (red * 299 + green * 587 + blue * 114) /
-        1000;
-
-      return brightness < 128;
-    }
-
-    return false;
-  } catch {
-    return false;
-  }
-};
-
 const mapReportRow = (item, reportType) => {
   const isGroup =
     reportType === REPORT_TYPES.GROUP;
@@ -366,9 +313,11 @@ const mapReportRow = (item, reportType) => {
 
     bookDateRaw: rawBookDate,
 
-    bookDateTs: parseBookDateTs(rawBookDate),
+    bookDateTs:
+      parseBookDateTs(rawBookDate),
 
-    slotStartMin: parseTimeMinutes(rawStart),
+    slotStartMin:
+      parseTimeMinutes(rawStart),
 
     email_status:
       emailStatus || "pending",
@@ -462,24 +411,125 @@ const mapReportRow = (item, reportType) => {
   };
 };
 
-const getRowIdentity = (row, reportType) => {
-  if (reportType === REPORT_TYPES.GROUP) {
-    return `group-${row.feedbackId}`;
+const isRowSent = (row) =>
+  String(
+    row?.email_status || ""
+  ).toLowerCase() === "sent" ||
+  Boolean(row?.isEmailSent);
+
+const isApiSuccess = (response) =>
+  response?.data?.statusCode === 200 ||
+  response?.data?.status === true ||
+  response?.data?.success === true;
+
+const buildGroupSessionRows = (rows) => {
+  const sessionMap = new Map();
+
+  rows.forEach((row) => {
+    const key = row.groupLiveSessionId
+      ? `group-session-${row.groupLiveSessionId}`
+      : `group-feedback-${row.feedbackId}`;
+
+    if (!sessionMap.has(key)) {
+      sessionMap.set(key, []);
+    }
+
+    sessionMap.get(key).push(row);
+  });
+
+  return Array.from(
+    sessionMap.entries()
+  ).map(([groupKey, members]) => {
+    const sortedMembers = [...members].sort(
+      (first, second) =>
+        Number(second.feedbackId || 0) -
+        Number(first.feedbackId || 0)
+    );
+
+    const primary = sortedMembers[0];
+
+    const allSent =
+      sortedMembers.every(isRowSent);
+
+    const anySent =
+      sortedMembers.some(isRowSent);
+
+    const studentNames =
+      sortedMembers
+        .map(
+          (member) =>
+            member.studentName
+        )
+        .filter(Boolean);
+
+    return {
+      ...primary,
+
+      groupKey,
+
+      members: sortedMembers,
+
+      studentNames,
+
+      studentName:
+        studentNames.join(", "),
+
+      memberCount:
+        sortedMembers.length,
+
+      allEmailsSent:
+        allSent,
+
+      hasAnyEmailSent:
+        anySent,
+
+      hasPartialEmailSent:
+        anySent && !allSent,
+
+      email_status: allSent
+        ? "sent"
+        : anySent
+        ? "partial"
+        : "pending",
+
+      isEmailSent:
+        allSent,
+    };
+  });
+};
+
+const getRowIdentity = (
+  row,
+  reportType
+) => {
+  if (
+    reportType === REPORT_TYPES.GROUP
+  ) {
+    return (
+      row.groupKey ||
+      (row.groupLiveSessionId
+        ? `group-session-${row.groupLiveSessionId}`
+        : `group-feedback-${row.feedbackId}`)
+    );
   }
 
   return `one-to-one-${row.sessionid}`;
 };
 
 const FeedbackLayer = () => {
-  const [activeTab, setActiveTab] = useState(
-    REPORT_TYPES.ONE_TO_ONE
-  );
+  const [activeTab, setActiveTab] =
+    useState(
+      REPORT_TYPES.ONE_TO_ONE
+    );
 
-  const [rows, setRows] = useState([]);
+  const [rows, setRows] =
+    useState([]);
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] =
+    useState(true);
 
-  const [reloadKey, setReloadKey] = useState(0);
+  const [reloadKey, setReloadKey] =
+    useState(0);
 
   const [showModal, setShowModal] =
     useState(false);
@@ -497,8 +547,10 @@ const FeedbackLayer = () => {
     setActiveRecordingUrl,
   ] = useState("");
 
-  const [currentPage, setCurrentPage] =
-    useState(1);
+  const [
+    currentPage,
+    setCurrentPage,
+  ] = useState(1);
 
   const perPage = 15;
 
@@ -512,13 +564,13 @@ const FeedbackLayer = () => {
     setSendingRowKey,
   ] = useState("");
 
-  const [isDarkTheme, setIsDarkTheme] =
-    useState(false);
+  const [search, setSearch] =
+    useState("");
 
-  const [search, setSearch] = useState("");
-
-  const [statusFilter, setStatusFilter] =
-    useState("all");
+  const [
+    statusFilter,
+    setStatusFilter,
+  ] = useState("all");
 
   const [dateFrom, setDateFrom] =
     useState("");
@@ -538,55 +590,14 @@ const FeedbackLayer = () => {
   };
 
   useEffect(() => {
-    const updateTheme = () => {
-      setIsDarkTheme(detectIsDark());
-    };
-
-    updateTheme();
-
-    const observer =
-      new MutationObserver(updateTheme);
-
-    observer.observe(document.body, {
-      attributes: true,
-      attributeFilter: [
-        "class",
-        "data-theme",
-      ],
-    });
-
-    const mediaQuery =
-      window.matchMedia?.(
-        "(prefers-color-scheme: dark)"
-      );
-
-    const handleMediaChange = () => {
-      updateTheme();
-    };
-
-    mediaQuery?.addEventListener?.(
-      "change",
-      handleMediaChange
-    );
-
-    return () => {
-      observer.disconnect();
-
-      mediaQuery?.removeEventListener?.(
-        "change",
-        handleMediaChange
-      );
-    };
-  }, []);
-
-  useEffect(() => {
     let mounted = true;
 
     const fetchRows = async () => {
       try {
         setLoading(true);
 
-        const token = await getToken();
+        const token =
+          await getToken();
 
         if (!token) {
           throw new Error(
@@ -675,10 +686,17 @@ const FeedbackLayer = () => {
 
   const filteredSortedRows =
     useMemo(() => {
-      const sourceRows =
+      const rawSourceRows =
         Array.isArray(rows)
           ? [...rows]
           : [];
+
+      const sourceRows =
+        isGroupTab
+          ? buildGroupSessionRows(
+              rawSourceRows
+            )
+          : rawSourceRows;
 
       const fromTs = dateFrom
         ? moment(
@@ -721,7 +739,8 @@ const FeedbackLayer = () => {
           }
 
           if (
-            statusFilter === "pending" &&
+            statusFilter ===
+              "pending" &&
             isSent
           ) {
             return false;
@@ -762,6 +781,9 @@ const FeedbackLayer = () => {
               row.bookingId,
               row.bookDate,
               row.studentName,
+              row.studentNames?.join(
+                " "
+              ),
               row.teacherName,
               row.slotStart,
               row.slotEnd,
@@ -800,26 +822,34 @@ const FeedbackLayer = () => {
               first.bookDateTs || 0
             );
 
-          if (dateDifference !== 0) {
+          if (
+            dateDifference !== 0
+          ) {
             return dateDifference;
           }
 
           const timeDifference =
             Number(
-              second.slotStartMin ?? -1
+              second.slotStartMin ??
+                -1
             ) -
             Number(
-              first.slotStartMin ?? -1
+              first.slotStartMin ??
+                -1
             );
 
-          if (timeDifference !== 0) {
+          if (
+            timeDifference !== 0
+          ) {
             return timeDifference;
           }
 
           const secondId =
             isGroupTab
               ? Number(
-                  second.feedbackId || 0
+                  second.groupLiveSessionId ||
+                    second.feedbackId ||
+                    0
                 )
               : Number(
                   second.sessionid || 0
@@ -828,7 +858,9 @@ const FeedbackLayer = () => {
           const firstId =
             isGroupTab
               ? Number(
-                  first.feedbackId || 0
+                  first.groupLiveSessionId ||
+                    first.feedbackId ||
+                    0
                 )
               : Number(
                   first.sessionid || 0
@@ -909,7 +941,9 @@ const FeedbackLayer = () => {
     setActiveRecordingUrl("");
   };
 
-  const openFeedbackModal = (row) => {
+  const openFeedbackModal = (
+    row
+  ) => {
     setCurrentRow({
       ...row,
     });
@@ -940,10 +974,11 @@ const FeedbackLayer = () => {
       if (!currentRow) return;
 
       const isSent =
-        String(
-          currentRow.email_status || ""
-        ).toLowerCase() === "sent" ||
-        currentRow.isEmailSent;
+        isGroupTab
+          ? Boolean(
+              currentRow.hasAnyEmailSent
+            )
+          : isRowSent(currentRow);
 
       if (isSent) {
         return Swal.fire(
@@ -980,8 +1015,12 @@ const FeedbackLayer = () => {
           title:
             "Save Progress Report?",
 
-          text:
-            "The report will remain editable until its email is sent.",
+          text: isGroupTab
+            ? `This report will be updated for all ${
+                currentRow.memberCount ||
+                1
+              } students in this group session.`
+            : "The report will remain editable until its email is sent.",
 
           icon: "question",
 
@@ -1107,55 +1146,71 @@ const FeedbackLayer = () => {
                   "",
               };
 
-        const conditions =
+        const targetRows =
           isGroupTab
-            ? {
-                id: Number(
-                  currentRow.feedbackId
-                ),
+            ? currentRow.members || [
+                currentRow,
+              ]
+            : [currentRow];
 
-                deleted: 0,
+        const saveResponses =
+          await Promise.all(
+            targetRows.map(
+              (target) => {
+                const conditions =
+                  isGroupTab
+                    ? {
+                        id: Number(
+                          target.feedbackId
+                        ),
+
+                        deleted: 0,
+                      }
+                    : {
+                        sessionid:
+                          Number(
+                            target.sessionid
+                          ),
+                      };
+
+                return axios.post(
+                  UPDATE_DYNAMIC_URL,
+                  {
+                    token,
+
+                    tablename:
+                      isGroupTab
+                        ? "group_session_feedback"
+                        : "performance",
+
+                    conditions: [
+                      conditions,
+                    ],
+
+                    updatedata: [
+                      updatedData,
+                    ],
+                  },
+                  {
+                    headers: {
+                      ...BASE_HEADERS,
+                      token,
+                    },
+                  }
+                );
               }
-            : {
-                sessionid: Number(
-                  currentRow.sessionid
-                ),
-              };
-
-        const response =
-          await axios.post(
-            UPDATE_DYNAMIC_URL,
-            {
-              token,
-
-              tablename:
-                isGroupTab
-                  ? "group_session_feedback"
-                  : "performance",
-
-              conditions: [
-                conditions,
-              ],
-
-              updatedata: [
-                updatedData,
-              ],
-            },
-            {
-              headers: {
-                ...BASE_HEADERS,
-                token,
-              },
-            }
+            )
           );
 
         if (
-          response?.data
-            ?.statusCode !== 200
+          saveResponses.some(
+            (response) =>
+              response?.data
+                ?.statusCode !== 200
+          )
         ) {
           throw new Error(
-            response?.data?.message ||
-              "Unable to save the report."
+            "Unable to save one or more group reports."
           );
         }
 
@@ -1221,35 +1276,57 @@ const FeedbackLayer = () => {
 
   const handleSendEmail =
     async (row) => {
-      const isSent =
-        String(
-          row.email_status || ""
-        ).toLowerCase() === "sent" ||
-        row.isEmailSent;
-
-      if (isSent) {
-        return Swal.fire(
-          "Already Sent",
-          "This progress report has already been emailed.",
-          "info"
-        );
-      }
-
       if (isGroupTab) {
-        if (!row.feedbackId) {
+        const members =
+          Array.isArray(row.members)
+            ? row.members
+            : [row];
+
+        const pendingMembers =
+          members.filter(
+            (member) =>
+              !isRowSent(member)
+          );
+
+        if (
+          pendingMembers.length === 0
+        ) {
+          return Swal.fire(
+            "Already Sent",
+            "This group report has already been emailed to all students.",
+            "info"
+          );
+        }
+
+        if (
+          pendingMembers.some(
+            (member) =>
+              !Number(
+                member.feedbackId
+              )
+          )
+        ) {
           return Swal.fire(
             "Error",
-            "Group feedback ID is missing.",
+            "One or more group feedback IDs are missing.",
             "error"
           );
         }
 
-        const missingFields =
-          getMissingGroupFields(row);
+        const incompleteMember =
+          pendingMembers.find(
+            (member) =>
+              getMissingGroupFields(
+                member
+              ).length > 0
+          );
 
-        if (
-          missingFields.length > 0
-        ) {
+        if (incompleteMember) {
+          const missingFields =
+            getMissingGroupFields(
+              incompleteMember
+            );
+
           return Swal.fire({
             title:
               "Complete the Report",
@@ -1265,7 +1342,228 @@ const FeedbackLayer = () => {
             icon: "warning",
           });
         }
-      } else if (!row.sessionid) {
+
+        const confirmation =
+          await Swal.fire({
+            title:
+              row.hasPartialEmailSent
+                ? "Retry Pending Reports?"
+                : "Send Group Reports?",
+
+            text: `Send this report separately to ${
+              pendingMembers.length
+            } pending student${
+              pendingMembers.length ===
+              1
+                ? ""
+                : "s"
+            } in this group session?`,
+
+            icon: "question",
+
+            showCancelButton: true,
+
+            confirmButtonText:
+              row.hasPartialEmailSent
+                ? "Yes, Retry Pending"
+                : "Yes, Send All",
+
+            cancelButtonText:
+              "Cancel",
+          });
+
+        if (
+          !confirmation.isConfirmed
+        ) {
+          return;
+        }
+
+        const rowKey =
+          getRowIdentity(
+            row,
+            activeTab
+          );
+
+        try {
+          setSendingRowKey(rowKey);
+
+          const token =
+            await getToken();
+
+          if (!token) {
+            throw new Error(
+              "Token not found"
+            );
+          }
+
+          const successfulUpdates =
+            new Map();
+
+          const failedStudents = [];
+
+          for (
+            const member of pendingMembers
+          ) {
+            try {
+              const response =
+                await axios.post(
+                  SEND_GROUP_EMAIL_URL,
+                  {
+                    feedback_id:
+                      Number(
+                        member.feedbackId
+                      ),
+                  },
+                  {
+                    headers: {
+                      ...BASE_HEADERS,
+                      token,
+                    },
+                  }
+                );
+
+              if (
+                !isApiSuccess(response)
+              ) {
+                throw new Error(
+                  response?.data
+                    ?.message ||
+                    "Email delivery failed."
+                );
+              }
+
+              successfulUpdates.set(
+                Number(
+                  member.feedbackId
+                ),
+                {
+                  email_status:
+                    "sent",
+
+                  student_email_status:
+                    response?.data
+                      ?.data
+                      ?.student_email_status ??
+                    member
+                      .student_email_status,
+
+                  parent_email_status:
+                    response?.data
+                      ?.data
+                      ?.parent_email_status ??
+                    member
+                      .parent_email_status,
+
+                  isEmailSent: true,
+                }
+              );
+            } catch (error) {
+              console.error(error);
+
+              failedStudents.push(
+                member.studentName ||
+                  `Feedback #${member.feedbackId}`
+              );
+            }
+          }
+
+          if (
+            successfulUpdates.size >
+            0
+          ) {
+            setRows(
+              (previousRows) =>
+                previousRows.map(
+                  (current) => {
+                    const update =
+                      successfulUpdates.get(
+                        Number(
+                          current.feedbackId
+                        )
+                      );
+
+                    return update
+                      ? {
+                          ...current,
+                          ...update,
+                        }
+                      : current;
+                  }
+                )
+            );
+          }
+
+          if (
+            failedStudents.length ===
+            0
+          ) {
+            await Swal.fire({
+              icon: "success",
+
+              title:
+                "All Reports Sent",
+
+              text: `The group report was sent successfully for all ${pendingMembers.length} pending students.`,
+
+              timer: 2200,
+
+              showConfirmButton:
+                false,
+            });
+          } else {
+            await Swal.fire({
+              icon:
+                successfulUpdates.size >
+                0
+                  ? "warning"
+                  : "error",
+
+              title:
+                successfulUpdates.size >
+                0
+                  ? "Partially Sent"
+                  : "Email Not Sent",
+
+              text: `${
+                successfulUpdates.size
+              } sent, ${
+                failedStudents.length
+              } failed. Failed: ${failedStudents.join(
+                ", "
+              )}`,
+            });
+
+            setReloadKey(
+              (value) => value + 1
+            );
+          }
+        } catch (error) {
+          console.error(error);
+
+          Swal.fire(
+            "Email Not Sent",
+            error?.response?.data
+              ?.message ||
+              error?.message ||
+              "Something went wrong while sending the group emails.",
+            "error"
+          );
+        } finally {
+          setSendingRowKey("");
+        }
+
+        return;
+      }
+
+      if (isRowSent(row)) {
+        return Swal.fire(
+          "Already Sent",
+          "This progress report has already been emailed.",
+          "info"
+        );
+      }
+
+      if (!row.sessionid) {
         return Swal.fire(
           "Error",
           "Session ID is missing.",
@@ -1278,9 +1576,7 @@ const FeedbackLayer = () => {
           title:
             "Send Progress Report?",
 
-          text: isGroupTab
-            ? `Send ${row.studentName}'s group progress report to the available student and parent email addresses?`
-            : `Send ${row.studentName}'s one-to-one progress report?`,
+          text: `Send ${row.studentName}'s one-to-one progress report?`,
 
           icon: "question",
 
@@ -1317,28 +1613,14 @@ const FeedbackLayer = () => {
           );
         }
 
-        const url =
-          isGroupTab
-            ? SEND_GROUP_EMAIL_URL
-            : SEND_ONE_TO_ONE_EMAIL_URL;
-
-        const payload =
-          isGroupTab
-            ? {
-                feedback_id: Number(
-                  row.feedbackId
-                ),
-              }
-            : {
-                sessionid: Number(
-                  row.sessionid
-                ),
-              };
-
         const response =
           await axios.post(
-            url,
-            payload,
+            SEND_ONE_TO_ONE_EMAIL_URL,
+            {
+              sessionid: Number(
+                row.sessionid
+              ),
+            },
             {
               headers: {
                 ...BASE_HEADERS,
@@ -1347,15 +1629,9 @@ const FeedbackLayer = () => {
             }
           );
 
-        const success =
-          response?.data
-            ?.statusCode === 200 ||
-          response?.data?.status ===
-            true ||
-          response?.data?.success ===
-            true;
-
-        if (!success) {
+        if (
+          !isApiSuccess(response)
+        ) {
           throw new Error(
             response?.data?.message ||
               "Email delivery failed."
@@ -1365,29 +1641,15 @@ const FeedbackLayer = () => {
         setRows((previousRows) =>
           previousRows.map(
             (current) =>
-              getRowIdentity(
-                current,
-                activeTab
-              ) === rowKey
+              Number(
+                current.sessionid
+              ) ===
+              Number(row.sessionid)
                 ? {
                     ...current,
 
                     email_status:
                       "sent",
-
-                    student_email_status:
-                      response?.data
-                        ?.data
-                        ?.student_email_status ??
-                      current
-                        .student_email_status,
-
-                    parent_email_status:
-                      response?.data
-                        ?.data
-                        ?.parent_email_status ??
-                      current
-                        .parent_email_status,
 
                     isEmailSent:
                       true,
@@ -1396,33 +1658,13 @@ const FeedbackLayer = () => {
           )
         );
 
-        setCurrentRow(
-          (previous) =>
-            previous &&
-            getRowIdentity(
-              previous,
-              activeTab
-            ) === rowKey
-              ? {
-                  ...previous,
-
-                  email_status:
-                    "sent",
-
-                  isEmailSent:
-                    true,
-                }
-              : previous
-        );
-
         Swal.fire({
           icon: "success",
 
           title: "Sent",
 
-          text: isGroupTab
-            ? "The group progress report was emailed successfully."
-            : "The progress report was emailed successfully.",
+          text:
+            "The progress report was emailed successfully.",
 
           timer: 1900,
 
@@ -1440,21 +1682,13 @@ const FeedbackLayer = () => {
             "Something went wrong while sending the email.",
           "error"
         );
-
-        if (isGroupTab) {
-          setReloadKey(
-            (value) => value + 1
-          );
-        }
       } finally {
         setSendingRowKey("");
       }
     };
 
   const modalThemeClass =
-    isDarkTheme
-      ? "pf-dark"
-      : "pf-light";
+    "pf-dark";
 
   const tableColumnCount =
     isGroupTab ? 10 : 9;
@@ -1549,39 +1783,29 @@ const FeedbackLayer = () => {
           margin-bottom: 6px;
         }
 
-        .pf-modal-card.pf-light {
-          background: #ffffff;
-          color: rgba(0, 0, 0, 0.88);
-          border-color: rgba(0, 0, 0, 0.08);
-        }
-
-        .pf-modal-card.pf-light .modal-header {
-          border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-        }
-
-        .pf-modal-card.pf-light .pf-meta {
-          background: rgba(0, 0, 0, 0.03);
-        }
-
-        .pf-modal-card.pf-light .form-select,
-        .pf-modal-card.pf-light .form-control {
-          background: #ffffff;
-          color: rgba(0, 0, 0, 0.88);
-          border-color: rgba(0, 0, 0, 0.12);
-        }
-
         .pf-modal-card.pf-dark {
-          background: #1f2a3a;
-          color: rgba(255, 255, 255, 0.92);
-          border-color: rgba(255, 255, 255, 0.08);
+          background: #1f2a3a !important;
+          color: rgba(255, 255, 255, 0.92) !important;
+          border-color: rgba(255, 255, 255, 0.08) !important;
+        }
+
+        .pf-modal-card.pf-dark .modal-header,
+        .pf-modal-card.pf-dark .modal-body,
+        .pf-modal-card.pf-dark .modal-footer {
+          background: #1f2a3a !important;
+          color: rgba(255, 255, 255, 0.92) !important;
         }
 
         .pf-modal-card.pf-dark .modal-header {
-          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+        }
+
+        .pf-modal-card.pf-dark .modal-footer {
+          border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
         }
 
         .pf-modal-card.pf-dark .modal-title {
-          color: rgba(255, 255, 255, 0.95);
+          color: rgba(255, 255, 255, 0.95) !important;
         }
 
         .pf-modal-card.pf-dark .btn-close {
@@ -1590,26 +1814,51 @@ const FeedbackLayer = () => {
         }
 
         .pf-modal-card.pf-dark .pf-meta {
-          background: rgba(255, 255, 255, 0.04);
-          border-color: rgba(255, 255, 255, 0.08);
+          background: #263345 !important;
+          color: rgba(255, 255, 255, 0.92) !important;
+          border-color: rgba(255, 255, 255, 0.08) !important;
         }
 
         .pf-modal-card.pf-dark .pf-box {
-          border-color: rgba(255, 255, 255, 0.1);
+          background: #202c3d !important;
+          color: rgba(255, 255, 255, 0.92) !important;
+          border-color: rgba(255, 255, 255, 0.1) !important;
+        }
+
+        .pf-modal-card.pf-dark small,
+        .pf-modal-card.pf-dark label,
+        .pf-modal-card.pf-dark .form-label,
+        .pf-modal-card.pf-dark .fw-semibold {
+          color: rgba(255, 255, 255, 0.92) !important;
         }
 
         .pf-modal-card.pf-dark .form-select,
         .pf-modal-card.pf-dark .form-control {
-          background: rgba(255, 255, 255, 0.06);
-          color: rgba(255, 255, 255, 0.92);
-          border-color: rgba(255, 255, 255, 0.12);
+          background: #2a374a !important;
+          color: #ffffff !important;
+          -webkit-text-fill-color: #ffffff !important;
+          border-color: rgba(255, 255, 255, 0.14) !important;
+        }
+
+        .pf-modal-card.pf-dark .form-control::placeholder {
+          color: rgba(255, 255, 255, 0.55) !important;
+          -webkit-text-fill-color: rgba(255, 255, 255, 0.55) !important;
+        }
+
+        .pf-modal-card.pf-dark .form-select:disabled,
+        .pf-modal-card.pf-dark .form-control:disabled,
+        .pf-modal-card.pf-dark textarea:disabled,
+        .pf-modal-card.pf-dark input:disabled {
+          background: #2a374a !important;
+          color: #ffffff !important;
+          -webkit-text-fill-color: #ffffff !important;
+          opacity: 1 !important;
         }
 
         .pf-modal-card .form-select:disabled,
         .pf-modal-card .form-control:disabled,
         .pf-modal-card textarea:disabled,
         .pf-modal-card input:disabled {
-          opacity: 0.75 !important;
           cursor: not-allowed;
         }
 
@@ -1844,7 +2093,9 @@ const FeedbackLayer = () => {
                     </th>
 
                     <th className="text-center">
-                      Student Name
+                      {isGroupTab
+                        ? "Students"
+                        : "Student Name"}
                     </th>
 
                     <th className="text-center">
@@ -1980,8 +2231,30 @@ const FeedbackLayer = () => {
                             </td>
 
                             <td className="text-center">
-                              {row.studentName ||
-                                "-"}
+                              {isGroupTab ? (
+                                <>
+                                  <strong>
+                                    {
+                                      row.memberCount
+                                    }{" "}
+                                    Student
+                                    {row.memberCount ===
+                                    1
+                                      ? ""
+                                      : "s"}
+                                  </strong>
+
+                                  <small className="d-block mt-1 opacity-75">
+                                    {row.studentNames?.join(
+                                      ", "
+                                    ) ||
+                                      "-"}
+                                  </small>
+                                </>
+                              ) : (
+                                row.studentName ||
+                                "-"
+                              )}
                             </td>
 
                             <td className="text-center">
@@ -2036,7 +2309,11 @@ const FeedbackLayer = () => {
                             <td className="text-center">
                               <button
                                 type="button"
-                                className="btn btn-sm btn-success"
+                                className={`btn btn-sm ${
+                                  row.hasPartialEmailSent
+                                    ? "btn-warning"
+                                    : "btn-success"
+                                }`}
                                 onClick={() =>
                                   handleSendEmail(
                                     row
@@ -2048,7 +2325,13 @@ const FeedbackLayer = () => {
                                 }
                                 title={
                                   isSent
-                                    ? "Already sent"
+                                    ? isGroupTab
+                                      ? "Already sent to all students"
+                                      : "Already sent"
+                                    : row.hasPartialEmailSent
+                                    ? "Retry pending students"
+                                    : isGroupTab
+                                    ? "Send to all students in this group session"
                                     : "Send progress report"
                                 }
                               >
@@ -2056,6 +2339,10 @@ const FeedbackLayer = () => {
                                   ? "Sent"
                                   : isSending
                                   ? "Sending..."
+                                  : row.hasPartialEmailSent
+                                  ? "Retry Pending"
+                                  : isGroupTab
+                                  ? "Send All"
                                   : "Send"}
                               </button>
                             </td>
@@ -2181,7 +2468,8 @@ const FeedbackLayer = () => {
                 autoPlay
                 style={{
                   width: "100%",
-                  maxHeight: "70vh",
+                  maxHeight:
+                    "70vh",
                   background: "#000",
                 }}
               >
@@ -2245,12 +2533,13 @@ const FeedbackLayer = () => {
               <div className="modal-body">
                 {(() => {
                   const isSent =
-                    String(
-                      currentRow.email_status ||
-                        ""
-                    ).toLowerCase() ===
-                      "sent" ||
-                    currentRow.isEmailSent;
+                    isGroupTab
+                      ? Boolean(
+                          currentRow.hasAnyEmailSent
+                        )
+                      : isRowSent(
+                          currentRow
+                        );
 
                   return (
                     <>
@@ -2258,7 +2547,9 @@ const FeedbackLayer = () => {
                         <div className="row g-2">
                           <div className="col-md-6">
                             <small>
-                              Student
+                              {isGroupTab
+                                ? "Students"
+                                : "Student"}
                             </small>
 
                             <div className="fw-semibold">
@@ -2315,11 +2606,15 @@ const FeedbackLayer = () => {
                           <span
                             className={`badge ${
                               isSent
-                                ? "bg-success"
+                                ? currentRow.hasPartialEmailSent
+                                  ? "bg-warning text-dark"
+                                  : "bg-success"
                                 : "bg-warning text-dark"
                             }`}
                           >
-                            {isSent
+                            {currentRow.hasPartialEmailSent
+                              ? "Partially Sent"
+                              : isSent
                               ? "Sent"
                               : "Pending"}
                           </span>
@@ -2337,63 +2632,77 @@ const FeedbackLayer = () => {
                               </label>
 
                               <div className="d-flex align-items-center gap-1 mt-2">
-  {[1, 2, 3, 4, 5].map(
-    (rating) => {
-      const isSelected =
-        rating <=
-        Number(
-          currentRow.group_rating || 0
-        );
+                                {[
+                                  1, 2, 3, 4,
+                                  5,
+                                ].map(
+                                  (
+                                    rating
+                                  ) => {
+                                    const isSelected =
+                                      rating <=
+                                      Number(
+                                        currentRow.group_rating ||
+                                          0
+                                      );
 
-      return (
-        <button
-          key={rating}
-          type="button"
-          className="btn border-0 bg-transparent p-0 shadow-none"
-          disabled={isSent}
-          onClick={() =>
-            handleFeedbackChange(
-              "group_rating",
-              String(rating)
-            )
-          }
-          aria-label={`${rating} out of 5 stars`}
-          title={`${rating} out of 5`}
-          style={{
-            lineHeight: 1,
-            opacity: 1,
-            cursor: isSent
-              ? "default"
-              : "pointer",
-          }}
-        >
-          <Icon
-            icon={
-              isSelected
-                ? "material-symbols:star-rounded"
-                : "material-symbols:star-outline-rounded"
-            }
-            width="35"
-            height="35"
-            style={{
-              color: isSelected
-                ? "#fbbf24"
-                : "#64748b",
-            }}
-          />
-        </button>
-      );
-    }
-  )}
-</div>
+                                    return (
+                                      <button
+                                        key={
+                                          rating
+                                        }
+                                        type="button"
+                                        className="btn border-0 bg-transparent p-0 shadow-none"
+                                        disabled={
+                                          isSent
+                                        }
+                                        onClick={() =>
+                                          handleFeedbackChange(
+                                            "group_rating",
+                                            String(
+                                              rating
+                                            )
+                                          )
+                                        }
+                                        aria-label={`${rating} out of 5 stars`}
+                                        title={`${rating} out of 5`}
+                                        style={{
+                                          lineHeight: 1,
+                                          opacity: 1,
+
+                                          cursor:
+                                            isSent
+                                              ? "default"
+                                              : "pointer",
+                                        }}
+                                      >
+                                        <Icon
+                                          icon={
+                                            isSelected
+                                              ? "material-symbols:star-rounded"
+                                              : "material-symbols:star-outline-rounded"
+                                          }
+                                          width="35"
+                                          height="35"
+                                          style={{
+                                            color:
+                                              isSelected
+                                                ? "#fbbf24"
+                                                : "#64748b",
+                                          }}
+                                        />
+                                      </button>
+                                    );
+                                  }
+                                )}
+                              </div>
                             </div>
                           </div>
 
                           <div className="col-md-8">
                             <div className="pf-box">
                               <label className="form-label">
-                                Topic
-                                Covered
+                                Topic Covered
                               </label>
 
                               <textarea
@@ -2546,8 +2855,7 @@ const FeedbackLayer = () => {
                           <div className="col-md-6">
                             <div className="pf-box">
                               <label className="form-label">
-                                Looking
-                                Ahead
+                                Looking Ahead
                               </label>
 
                               <textarea
@@ -2586,9 +2894,7 @@ const FeedbackLayer = () => {
                                 className={
                                   className
                                 }
-                                key={
-                                  field
-                                }
+                                key={field}
                               >
                                 <div className="pf-box">
                                   <label className="form-label">
@@ -2654,9 +2960,7 @@ const FeedbackLayer = () => {
                             }) => (
                               <div
                                 className="col-12"
-                                key={
-                                  field
-                                }
+                                key={field}
                               >
                                 <div className="pf-box">
                                   <label className="form-label">
@@ -2720,12 +3024,13 @@ const FeedbackLayer = () => {
                   }
                   disabled={
                     savingFeedback ||
-                    String(
-                      currentRow.email_status ||
-                        ""
-                    ).toLowerCase() ===
-                      "sent" ||
-                    currentRow.isEmailSent
+                    (isGroupTab
+                      ? Boolean(
+                          currentRow.hasAnyEmailSent
+                        )
+                      : isRowSent(
+                          currentRow
+                        ))
                   }
                 >
                   {savingFeedback

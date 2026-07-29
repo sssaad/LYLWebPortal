@@ -8,23 +8,14 @@ import autoTable from "jspdf-autotable";
 import { getToken } from "../api/getToken";
 import { getDashboardCounts } from "../api/getDashboardCounts";
 
-/**
- * ✅ GET API:
- * https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=get_lookup_data
- *
- * ✅ SAVE API:
- * https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=update_dynamic_data
- *
- * Token BODY me jayega (getToken se).
- * Single-row Save (prefer unique teacher_payout_id).
- * Swal alerts on save success/fail.
- */
-
 const GET_URL =
   "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=get_lookup_data";
 
+const RUN_SP_URL =
+  "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=runStoredProcedure";
+
 const SAVE_URL =
-  "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=update_dynamic_data";
+  "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=save_teacher_payout";
 
 const headers = {
   projectid: "1",
@@ -39,12 +30,10 @@ const TeacherPayoutListPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // ✅ Dashboard API values
   const [totalRevenue, setTotalRevenue] = useState(0);
   const [totalProfitApi, setTotalProfitApi] = useState(0);
   const [totalTutorPayout, setTotalTutorPayout] = useState(0);
 
-  // filters
   const [searchTerm, setSearchTerm] = useState("");
   const [paidFilter, setPaidFilter] = useState("");
   const [methodFilter, setMethodFilter] = useState("");
@@ -54,10 +43,7 @@ const TeacherPayoutListPage = () => {
 
   const itemsPerPage = 10;
 
-  // token cache
   const tokenRef = useRef("");
-
-  // avoid setState after unmount + cancel requests
   const isMountedRef = useRef(true);
   const fetchAbortRef = useRef(null);
 
@@ -66,178 +52,290 @@ const TeacherPayoutListPage = () => {
 
     return () => {
       isMountedRef.current = false;
-      if (fetchAbortRef.current) fetchAbortRef.current.abort();
+
+      if (fetchAbortRef.current) {
+        fetchAbortRef.current.abort();
+      }
     };
   }, []);
 
   const ensureToken = async () => {
-    if (tokenRef.current) return tokenRef.current;
+    if (tokenRef.current) {
+      return tokenRef.current;
+    }
 
     try {
-      const t = await getToken();
-      tokenRef.current = t || "";
+      const token = await getToken();
+
+      tokenRef.current = token || "";
+
       return tokenRef.current;
-    } catch (e) {
+    } catch (error) {
       tokenRef.current = "";
+
       return "";
     }
   };
 
-  const clearTokenIfLooksInvalid = (msg) => {
-    const m = String(msg || "").toLowerCase();
+  const clearTokenIfLooksInvalid = (message) => {
+    const normalizedMessage = String(
+      message || "",
+    ).toLowerCase();
 
     if (
-      m.includes("token") ||
-      m.includes("unauthorized") ||
-      m.includes("invalid") ||
-      m.includes("expired")
+      normalizedMessage.includes("token") ||
+      normalizedMessage.includes("unauthorized") ||
+      normalizedMessage.includes("invalid") ||
+      normalizedMessage.includes("expired")
     ) {
       tokenRef.current = "";
     }
   };
 
-  // ========= helpers =========
-  const safeId = (v) => String(v ?? "").trim();
+  const safeId = (value) =>
+    String(value ?? "").trim();
 
   const makeFallbackKey = () =>
-    `row_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    `row_${Date.now()}_${Math.random()
+      .toString(16)
+      .slice(2)}`;
 
-  const parseSqlLikeDateTime = (s) => {
-    if (!s) return null;
+  const parseSqlLikeDateTime = (value) => {
+    if (!value) {
+      return null;
+    }
 
-    const str = String(s).trim();
-    if (!str) return null;
+    const stringValue = String(value).trim();
 
-    const normalized = str.includes(" ") ? str.replace(" ", "T") : str;
-    const d = new Date(normalized);
+    if (!stringValue) {
+      return null;
+    }
 
-    return Number.isNaN(d.getTime()) ? null : d;
+    const normalizedValue =
+      stringValue.includes(" ")
+        ? stringValue.replace(" ", "T")
+        : stringValue;
+
+    const parsedDate = new Date(normalizedValue);
+
+    return Number.isNaN(parsedDate.getTime())
+      ? null
+      : parsedDate;
   };
 
-  const ymdLocalStart = (ymd) => {
-    if (!ymd) return null;
+  const ymdLocalStart = (value) => {
+    if (!value) {
+      return null;
+    }
 
-    const d = new Date(`${ymd}T00:00:00`);
-    return Number.isNaN(d.getTime()) ? null : d;
+    const parsedDate = new Date(
+      `${value}T00:00:00`,
+    );
+
+    return Number.isNaN(parsedDate.getTime())
+      ? null
+      : parsedDate;
   };
 
-  const ymdLocalEnd = (ymd) => {
-    if (!ymd) return null;
+  const ymdLocalEnd = (value) => {
+    if (!value) {
+      return null;
+    }
 
-    const d = new Date(`${ymd}T23:59:59.999`);
-    return Number.isNaN(d.getTime()) ? null : d;
+    const parsedDate = new Date(
+      `${value}T23:59:59.999`,
+    );
+
+    return Number.isNaN(parsedDate.getTime())
+      ? null
+      : parsedDate;
   };
 
-  const fmtDate = (d) => {
-    if (!d) return "—";
+  const fmtDate = (value) => {
+    if (!value) {
+      return "—";
+    }
 
-    const dd = parseSqlLikeDateTime(d);
-    if (!dd) return "—";
+    const parsedDate =
+      parseSqlLikeDateTime(value);
+
+    if (!parsedDate) {
+      return "—";
+    }
 
     return new Intl.DateTimeFormat("en-GB", {
       day: "2-digit",
       month: "short",
       year: "numeric",
-    }).format(dd);
+    }).format(parsedDate);
   };
 
-  const fmtTime = (t) => {
-    if (!t) return "—";
-
-    const s = String(t).trim();
-    if (!s) return "—";
-
-    const m = moment(s, ["HH:mm:ss", "HH:mm", "h:mm A", "hh:mm A"], true);
-
-    if (m.isValid()) {
-      return m.format("hh:mm A");
+  const fmtTime = (value) => {
+    if (!value) {
+      return "—";
     }
 
-    if (s.length >= 5) return s.slice(0, 5);
+    const stringValue = String(value).trim();
 
-    return s;
+    if (!stringValue) {
+      return "—";
+    }
+
+    const parsedTime = moment(
+      stringValue,
+      [
+        "HH:mm:ss",
+        "HH:mm",
+        "h:mm A",
+        "hh:mm A",
+      ],
+      true,
+    );
+
+    if (parsedTime.isValid()) {
+      return parsedTime.format("hh:mm A");
+    }
+
+    if (stringValue.length >= 5) {
+      return stringValue.slice(0, 5);
+    }
+
+    return stringValue;
   };
 
-  const parseAmount = (v) => {
-    const n = Number(String(v ?? "").replace(/,/g, "").trim());
-    return Number.isFinite(n) ? n : 0;
+  const parseAmount = (value) => {
+    const amount = Number(
+      String(value ?? "")
+        .replace(/,/g, "")
+        .trim(),
+    );
+
+    return Number.isFinite(amount)
+      ? amount
+      : 0;
   };
 
-  const money = (n) => `AED ${Number(n || 0).toFixed(2)}`;
+  const money = (amount) =>
+    `AED ${Number(amount || 0).toFixed(2)}`;
 
-  const toYMD = (v) => {
-    if (!v) return "";
+  const toYMD = (value) => {
+    if (!value) {
+      return "";
+    }
 
-    const s = String(v).trim();
-    if (!s) return "";
+    const stringValue = String(value).trim();
 
-    if (s.includes(" ")) return s.split(" ")[0];
+    if (!stringValue) {
+      return "";
+    }
 
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    if (stringValue.includes(" ")) {
+      return stringValue.split(" ")[0];
+    }
 
-    const d = new Date(s);
-    if (Number.isNaN(d.getTime())) return "";
+    if (
+      /^\d{4}-\d{2}-\d{2}$/.test(
+        stringValue,
+      )
+    ) {
+      return stringValue;
+    }
 
-    return d.toISOString().slice(0, 10);
+    const parsedDate = new Date(stringValue);
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      return "";
+    }
+
+    return parsedDate
+      .toISOString()
+      .slice(0, 10);
   };
 
-  const ymdToSqlDatetime = (ymd) => {
-    if (!ymd) return null;
-    return `${ymd} 00:00:00`;
-  };
-
-  const todayYMD = () => new Date().toISOString().slice(0, 10);
+  const todayYMD = () =>
+    new Date().toISOString().slice(0, 10);
 
   const getPaidStatus = (row) =>
-    String(row?.paid_status).toLowerCase() === "paid" ? "Paid" : "Unpaid";
+    String(row?.paid_status).toLowerCase() ===
+    "paid"
+      ? "Paid"
+      : "Unpaid";
 
   const badgeClassByStatus = (status) =>
-    String(status).toLowerCase() === "paid" ? "bg-success" : "bg-secondary";
+    String(status).toLowerCase() === "paid"
+      ? "bg-success"
+      : "bg-secondary";
 
-  const toAmountString2dpOrNull = (v) => {
-    if (v === null || v === undefined) return null;
+  const toAmountString2dpOrNull = (
+    value,
+  ) => {
+    if (
+      value === null ||
+      value === undefined
+    ) {
+      return null;
+    }
 
-    const s = String(v).trim();
-    if (!s) return null;
+    const stringValue = String(value).trim();
 
-    const n = parseAmount(s);
+    if (!stringValue) {
+      return null;
+    }
 
-    return Number.isFinite(n) ? n.toFixed(2) : null;
+    const amount = parseAmount(stringValue);
+
+    return Number.isFinite(amount)
+      ? amount.toFixed(2)
+      : null;
   };
 
   const formatExportStatus = (value) =>
-    String(value || "").toLowerCase() === "paid" ? "Paid" : "Unpaid";
+    String(value || "").toLowerCase() ===
+    "paid"
+      ? "Paid"
+      : "Unpaid";
 
-  // ========= Dashboard Total Revenue + Total Profit + Tutor Payout =========
   const fetchTotalRevenue = async () => {
     try {
-      const res = await getDashboardCounts();
+      const response =
+        await getDashboardCounts();
 
-      const counts = res?.get_dashboardcounts || res;
+      const counts =
+        response?.get_dashboardcounts ||
+        response;
 
-      const rev = parseAmount(counts?.totalpayments);
+      const revenue = parseAmount(
+        counts?.totalpayments,
+      );
 
-      // ✅ Direct API profit
       const profit = parseAmount(
         counts?.totalprofit ??
           counts?.total_profit ??
           counts?.profit ??
           counts?.totalProfit ??
-          0
+          0,
       );
 
-      // ✅ Direct API tutor payout amount
-      const tutorPayout = parseAmount(counts?.total_tutor_payout_aed);
+      const tutorPayout = parseAmount(
+        counts?.total_tutor_payout_aed,
+      );
 
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current) {
+        return;
+      }
 
-      setTotalRevenue(rev);
+      setTotalRevenue(revenue);
       setTotalProfitApi(profit);
       setTotalTutorPayout(tutorPayout);
-    } catch (e) {
-      console.error("Total revenue/profit/payout fetch error:", e);
+    } catch (error) {
+      console.error(
+        "Total revenue/profit/payout fetch error:",
+        error,
+      );
 
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current) {
+        return;
+      }
 
       setTotalRevenue(0);
       setTotalProfitApi(0);
@@ -245,12 +343,15 @@ const TeacherPayoutListPage = () => {
     }
   };
 
-  // ========= GET API =========
   const fetchTeacherPayouts = async () => {
     try {
-      if (fetchAbortRef.current) fetchAbortRef.current.abort();
+      if (fetchAbortRef.current) {
+        fetchAbortRef.current.abort();
+      }
 
-      const controller = new AbortController();
+      const controller =
+        new AbortController();
+
       fetchAbortRef.current = controller;
 
       setLoading(true);
@@ -259,84 +360,391 @@ const TeacherPayoutListPage = () => {
       const token = await ensureToken();
 
       if (!token) {
-        if (!isMountedRef.current) return;
+        if (!isMountedRef.current) {
+          return;
+        }
 
         setRows([]);
         setError("Token missing");
+
         return;
       }
 
-      const body = {
+      const lookupBody = {
         token,
         tablename: "teacher_payouts",
       };
 
-      const res = await axios.post(GET_URL, body, {
-        headers,
-        signal: controller.signal,
+      const groupMapBody = {
+        procedureName:
+          "get_teacher_payout_group_map",
+        parameters: [],
+      };
+
+      const [
+        lookupResponse,
+        groupMapResponse,
+      ] = await Promise.all([
+        axios.post(
+          GET_URL,
+          lookupBody,
+          {
+            headers,
+            signal: controller.signal,
+          },
+        ),
+
+        axios.post(
+          RUN_SP_URL,
+          groupMapBody,
+          {
+            headers: {
+              ...headers,
+              token,
+            },
+            signal: controller.signal,
+          },
+        ),
+      ]);
+
+      const lookupData = Array.isArray(
+        lookupResponse?.data?.data,
+      )
+        ? lookupResponse.data.data
+        : [];
+
+      const groupMapData = Array.isArray(
+        groupMapResponse?.data?.data,
+      )
+        ? groupMapResponse.data.data
+        : [];
+
+      const splitIds = (value) =>
+        String(value || "")
+          .split(",")
+          .map((id) => safeId(id))
+          .filter(Boolean);
+
+      const lookupByBookingId = new Map(
+        lookupData.map((item) => [
+          safeId(item?.booking_id),
+          item,
+        ]),
+      );
+
+      const allGroupBookingIds =
+        new Set();
+
+      groupMapData.forEach((group) => {
+        splitIds(
+          group?.all_group_booking_ids,
+        ).forEach((bookingId) => {
+          allGroupBookingIds.add(
+            bookingId,
+          );
+        });
       });
 
-      const data = Array.isArray(res?.data?.data) ? res.data.data : [];
+      /*
+       * Existing direct/one-to-one rows
+       * remain unchanged.
+       */
+      const directRows = lookupData.filter(
+        (item) =>
+          !allGroupBookingIds.has(
+            safeId(item?.booking_id),
+          ),
+      );
 
-      const mapped = data.map((x) => {
-        const teacher_payout_id = safeId(x?.teacher_payout_id);
-        const booking_id = safeId(x?.booking_id);
+      /*
+       * One frontend row per
+       * group_live_session_id.
+       */
+      const groupRows = groupMapData
+        .map((group) => {
+          const canonicalBookingId =
+            safeId(
+              group?.canonical_booking_id,
+            );
 
-        const _key = teacher_payout_id || booking_id || makeFallbackKey();
+          const mainBookingIds = splitIds(
+            group?.main_booking_ids,
+          );
 
-        const isTutorPaid = String(x?.is_tutor_paid ?? "0") === "1";
+          const baseRow =
+            lookupByBookingId.get(
+              canonicalBookingId,
+            ) ||
+            mainBookingIds
+              .map((bookingId) =>
+                lookupByBookingId.get(
+                  bookingId,
+                ),
+              )
+              .find(Boolean);
 
-        return {
-          _key,
+          if (
+            !baseRow ||
+            !safeId(
+              group
+                ?.canonical_teacher_payout_id,
+            )
+          ) {
+            return null;
+          }
 
-          teacher_payout_id,
-          booking_id,
+          return {
+            ...baseRow,
 
-          teacher_name: x?.teacher_name ?? "—",
-          student_name: x?.student_name ?? "—",
-          subject_name: x?.subject_name ?? "—",
+            teacher_payout_id: safeId(
+              group
+                .canonical_teacher_payout_id,
+            ),
 
-          booking_date: x?.session_date ?? "",
-          slot_start: x?.start_time ?? "",
-          slot_end: x?.end_time ?? "",
+            booking_id:
+              canonicalBookingId ||
+              safeId(baseRow?.booking_id),
 
-          session_fee_aed: x?.session_fee_aed ?? "0",
+            booking_display_id:
+              `Group #${safeId(
+                group
+                  ?.group_live_session_id,
+              )}`,
 
-          payment_amount_aed:
-            x?.tutor_payout_aed !== null &&
-            x?.tutor_payout_aed !== undefined &&
-            String(x?.tutor_payout_aed).trim() !== ""
-              ? String(x?.tutor_payout_aed)
-              : "",
+            teacher_name:
+              group?.teacher_name ||
+              baseRow?.teacher_name ||
+              "—",
 
-          paid_status: isTutorPaid ? "Paid" : "Unpaid",
-          paid_on: toYMD(x?.tutor_paid_on) || "",
-          payout_method: x?.payout_method ? String(x.payout_method) : "",
+            student_name:
+              group?.student_names ||
+              baseRow?.student_name ||
+              "—",
 
-          _dirty: false,
-          _saving: false,
-          _rowError: "",
-        };
-      });
+            subject_name:
+              group?.subject_name ||
+              baseRow?.subject_name ||
+              "—",
 
-      if (!isMountedRef.current) return;
+            session_date:
+              group?.session_date ||
+              baseRow?.session_date ||
+              "",
 
-      setRows(mapped);
+            start_time:
+              group?.slot_start ||
+              baseRow?.start_time ||
+              "",
+
+            end_time:
+              group?.slot_end ||
+              baseRow?.end_time ||
+              "",
+
+            session_fee_aed:
+              group
+                ?.group_session_fee_aed ??
+              baseRow?.session_fee_aed ??
+              "0",
+
+            is_group_booking: 1,
+
+            group_live_session_id:
+              safeId(
+                group
+                  ?.group_live_session_id,
+              ),
+
+            group_batch_id: safeId(
+              group?.group_batch_id,
+            ),
+
+            student_count: Number(
+              group?.student_count || 0,
+            ),
+
+            all_group_booking_ids:
+              splitIds(
+                group
+                  ?.all_group_booking_ids,
+              ),
+
+            main_booking_ids:
+              mainBookingIds,
+          };
+        })
+        .filter(Boolean);
+
+      const combinedData = [
+        ...directRows,
+        ...groupRows,
+      ];
+
+      const mappedRows =
+        combinedData.map((item) => {
+          const teacherPayoutId =
+            safeId(
+              item?.teacher_payout_id,
+            );
+
+          const bookingId = safeId(
+            item?.booking_id,
+          );
+
+          const isGroupBooking =
+            Number(
+              item?.is_group_booking || 0,
+            ) === 1;
+
+          const rowKey = isGroupBooking
+            ? `group_${safeId(
+                item
+                  ?.group_live_session_id,
+              )}`
+            : teacherPayoutId ||
+              bookingId ||
+              makeFallbackKey();
+
+          const isTutorPaid =
+            String(
+              item?.is_tutor_paid ?? "0",
+            ) === "1";
+
+          return {
+            _key: rowKey,
+
+            teacher_payout_id:
+              teacherPayoutId,
+
+            booking_id: bookingId,
+
+            booking_display_id:
+              item?.booking_display_id ||
+              bookingId,
+
+            teacher_name:
+              item?.teacher_name ?? "—",
+
+            student_name:
+              item?.student_name ?? "—",
+
+            subject_name:
+              item?.subject_name ?? "—",
+
+            booking_date:
+              item?.session_date ?? "",
+
+            slot_start:
+              item?.start_time ?? "",
+
+            slot_end:
+              item?.end_time ?? "",
+
+            session_fee_aed:
+              item?.session_fee_aed ??
+              "0",
+
+            payment_amount_aed:
+              item?.tutor_payout_aed !==
+                null &&
+              item?.tutor_payout_aed !==
+                undefined &&
+              String(
+                item?.tutor_payout_aed,
+              ).trim() !== ""
+                ? String(
+                    item
+                      ?.tutor_payout_aed,
+                  )
+                : "",
+
+            paid_status: isTutorPaid
+              ? "Paid"
+              : "Unpaid",
+
+            paid_on:
+              toYMD(
+                item?.tutor_paid_on,
+              ) || "",
+
+            payout_method:
+              item?.payout_method
+                ? String(
+                    item.payout_method,
+                  )
+                : "",
+
+            is_group_booking:
+              isGroupBooking ? 1 : 0,
+
+            group_live_session_id:
+              safeId(
+                item
+                  ?.group_live_session_id,
+              ),
+
+            group_batch_id: safeId(
+              item?.group_batch_id,
+            ),
+
+            student_count: Number(
+              item?.student_count || 0,
+            ),
+
+            all_group_booking_ids:
+              Array.isArray(
+                item
+                  ?.all_group_booking_ids,
+              )
+                ? item
+                    .all_group_booking_ids
+                : [],
+
+            main_booking_ids:
+              Array.isArray(
+                item?.main_booking_ids,
+              )
+                ? item.main_booking_ids
+                : [],
+
+            _dirty: false,
+            _saving: false,
+            _rowError: "",
+          };
+        });
+
+      if (!isMountedRef.current) {
+        return;
+      }
+
+      setRows(mappedRows);
       setCurrentPage(1);
-    } catch (err) {
-      if (err?.name === "CanceledError" || err?.code === "ERR_CANCELED") return;
+    } catch (error) {
+      if (
+        error?.name ===
+          "CanceledError" ||
+        error?.code === "ERR_CANCELED"
+      ) {
+        return;
+      }
 
-      const msg =
-        err?.response?.data?.message || err?.message || "Internal API error";
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        "Internal API error";
 
-      clearTokenIfLooksInvalid(msg);
+      clearTokenIfLooksInvalid(message);
 
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current) {
+        return;
+      }
 
       setRows([]);
-      setError(msg);
+      setError(message);
     } finally {
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current) {
+        return;
+      }
 
       setLoading(false);
     }
@@ -345,184 +753,268 @@ const TeacherPayoutListPage = () => {
   useEffect(() => {
     fetchTeacherPayouts();
     fetchTotalRevenue();
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ========= EDIT =========
-  const markDirty = (r) => ({
-    ...r,
+  const markDirty = (row) => ({
+    ...row,
     _dirty: true,
     _rowError: "",
   });
 
-  const updatePaymentAmount = (_key, val) => {
-    setRows((prev) =>
-      prev.map((r) =>
-        r._key === _key ? markDirty({ ...r, payment_amount_aed: val }) : r
-      )
+  const updatePaymentAmount = (
+    rowKey,
+    value,
+  ) => {
+    setRows((previousRows) =>
+      previousRows.map((row) =>
+        row._key === rowKey
+          ? markDirty({
+              ...row,
+              payment_amount_aed:
+                value,
+            })
+          : row,
+      ),
     );
   };
 
-  const updatePaidStatus = (_key, status) => {
-    setRows((prev) =>
-      prev.map((r) => {
-        if (r._key !== _key) return r;
+  const updatePaidStatus = (
+    rowKey,
+    status,
+  ) => {
+    setRows((previousRows) =>
+      previousRows.map((row) => {
+        if (row._key !== rowKey) {
+          return row;
+        }
 
         if (status === "Paid") {
           return markDirty({
-            ...r,
+            ...row,
             paid_status: "Paid",
-            paid_on: r.paid_on || todayYMD(),
+
+            paid_on:
+              row.paid_on ||
+              todayYMD(),
           });
         }
 
         return markDirty({
-          ...r,
+          ...row,
           paid_status: "Unpaid",
           paid_on: "",
         });
-      })
+      }),
     );
   };
 
-  const updatePaidOn = (_key, val) => {
-    setRows((prev) =>
-      prev.map((r) => (r._key === _key ? markDirty({ ...r, paid_on: val }) : r))
+  const updatePaidOn = (
+    rowKey,
+    value,
+  ) => {
+    setRows((previousRows) =>
+      previousRows.map((row) =>
+        row._key === rowKey
+          ? markDirty({
+              ...row,
+              paid_on: value,
+            })
+          : row,
+      ),
     );
   };
 
-  const updateMethod = (_key, val) => {
-    setRows((prev) =>
-      prev.map((r) =>
-        r._key === _key ? markDirty({ ...r, payout_method: val }) : r
-      )
+  const updateMethod = (
+    rowKey,
+    value,
+  ) => {
+    setRows((previousRows) =>
+      previousRows.map((row) =>
+        row._key === rowKey
+          ? markDirty({
+              ...row,
+              payout_method: value,
+            })
+          : row,
+      ),
     );
   };
 
-  const setRowError = (_key, msg) => {
-    setRows((prev) =>
-      prev.map((r) => (r._key === _key ? { ...r, _rowError: msg } : r))
+  const setRowError = (
+    rowKey,
+    message,
+  ) => {
+    setRows((previousRows) =>
+      previousRows.map((row) =>
+        row._key === rowKey
+          ? {
+              ...row,
+              _rowError: message,
+            }
+          : row,
+      ),
     );
-  };
-
-  // ========= SAVE =========
-  const buildConditions = (row) => {
-    const conditions = [];
-
-    if (safeId(row?.teacher_payout_id)) {
-      conditions.push({
-        teacher_payout_id: String(row.teacher_payout_id),
-      });
-    }
-
-    if (safeId(row?.booking_id)) {
-      conditions.push({
-        booking_id: String(row.booking_id),
-      });
-    }
-
-    return conditions;
   };
 
   const saveRow = async (row) => {
-    const isPaid = getPaidStatus(row) === "Paid";
+    const isPaid =
+      getPaidStatus(row) === "Paid";
 
-    const hasTeacherPayoutId = !!safeId(row?.teacher_payout_id);
-    const hasBookingId = !!safeId(row?.booking_id);
-
-    if (!hasTeacherPayoutId && !hasBookingId) {
-      setRowError(
-        row._key,
-        "No unique id found (teacher_payout_id / booking_id). Cannot update."
+    const hasTeacherPayoutId =
+      Boolean(
+        safeId(
+          row?.teacher_payout_id,
+        ),
       );
+
+    const hasBookingId = Boolean(
+      safeId(row?.booking_id),
+    );
+
+    if (
+      !hasTeacherPayoutId &&
+      !hasBookingId
+    ) {
+      const message =
+        "No unique id found (teacher_payout_id / booking_id). Cannot update.";
+
+      setRowError(row._key, message);
 
       Swal.fire({
         icon: "error",
         title: "Save Failed",
-        text: "No unique id found (teacher_payout_id / booking_id). Cannot update.",
+        text: message,
       });
 
       return;
     }
 
-    if (!hasTeacherPayoutId && hasBookingId) {
+    if (
+      !hasTeacherPayoutId &&
+      hasBookingId
+    ) {
       Swal.fire({
         icon: "warning",
         title: "Warning",
-        text: "teacher_payout_id missing. Saving with booking_id only may update multiple rows if duplicates exist.",
+        text: "teacher_payout_id missing. Saving with booking_id only.",
         timer: 2200,
         showConfirmButton: false,
       });
     }
 
     if (isPaid && !row.paid_on) {
-      setRowError(row._key, "Paid on date is required when status is Paid.");
+      const message =
+        "Paid on date is required when status is Paid.";
+
+      setRowError(row._key, message);
 
       Swal.fire({
         icon: "warning",
         title: "Missing Paid Date",
-        text: "Paid on date is required when status is Paid.",
+        text: message,
       });
 
       return;
     }
 
-    const controller = new AbortController();
+    const controller =
+      new AbortController();
 
     try {
-      setRows((prev) =>
-        prev.map((r) =>
-          r._key === row._key ? { ...r, _saving: true, _rowError: "" } : r
-        )
+      setRows((previousRows) =>
+        previousRows.map(
+          (currentRow) =>
+            currentRow._key ===
+            row._key
+              ? {
+                  ...currentRow,
+                  _saving: true,
+                  _rowError: "",
+                }
+              : currentRow,
+        ),
       );
 
       const token = await ensureToken();
 
-      if (!token) throw new Error("Token missing");
-
-      const conditions = buildConditions(row);
-
-      if (!conditions.length) throw new Error("No valid conditions to update");
+      if (!token) {
+        throw new Error(
+          "Token missing",
+        );
+      }
 
       const payload = {
         token,
-        tablename: "teacher_payouts",
-        conditions,
-        updatedata: [
-          {
-            tutor_payout_aed: toAmountString2dpOrNull(row.payment_amount_aed),
-            is_tutor_paid: isPaid ? "1" : "0",
-            tutor_paid_on: isPaid ? ymdToSqlDatetime(row.paid_on) : null,
-            payout_method: row.payout_method ? String(row.payout_method) : null,
-          },
-        ],
+
+        teacher_payout_id: safeId(
+          row.teacher_payout_id,
+        ),
+
+        booking_id: safeId(
+          row.booking_id,
+        ),
+
+        group_live_session_id:
+          row.is_group_booking
+            ? safeId(
+                row
+                  .group_live_session_id,
+              )
+            : null,
+
+        tutor_payout_aed:
+          toAmountString2dpOrNull(
+            row.payment_amount_aed,
+          ) || "0.00",
+
+        is_tutor_paid: isPaid ? 1 : 0,
+
+        tutor_paid_on: isPaid
+          ? row.paid_on
+          : null,
+
+        payout_method:
+          row.payout_method
+            ? String(
+                row.payout_method,
+              )
+            : null,
       };
 
-      const res = await axios.post(SAVE_URL, payload, {
-        headers,
-        signal: controller.signal,
-      });
-
-      const ok =
-        res?.data?.statusCode === 200 ||
-        String(res?.data?.message || "").toLowerCase().includes("successful");
-
-      if (!ok) throw new Error(res?.data?.message || "Save failed");
-
-      if (!isMountedRef.current) return;
-
-      setRows((prev) =>
-        prev.map((r) =>
-          r._key === row._key
-            ? {
-                ...r,
-                _saving: false,
-                _dirty: false,
-                _rowError: "",
-              }
-            : r
-        )
+      const response = await axios.post(
+        SAVE_URL,
+        payload,
+        {
+          headers,
+          signal: controller.signal,
+        },
       );
+
+      const successful =
+        response?.data?.statusCode ===
+          200 ||
+        String(
+          response?.data?.message ||
+            "",
+        )
+          .toLowerCase()
+          .includes("successful");
+
+      if (!successful) {
+        throw new Error(
+          response?.data?.message ||
+            "Save failed",
+        );
+      }
+
+      if (!isMountedRef.current) {
+        return;
+      }
+
+      await fetchTeacherPayouts();
+      await fetchTotalRevenue();
 
       Swal.fire({
         icon: "success",
@@ -531,39 +1023,48 @@ const TeacherPayoutListPage = () => {
         timer: 1400,
         showConfirmButton: false,
       });
+    } catch (error) {
+      if (
+        error?.name ===
+          "CanceledError" ||
+        error?.code === "ERR_CANCELED"
+      ) {
+        return;
+      }
 
-      // ✅ Save ke baad dashboard API refresh taake Total Paid Amount update ho jaye
-      fetchTotalRevenue();
-    } catch (err) {
-      if (err?.name === "CanceledError" || err?.code === "ERR_CANCELED") return;
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        "Save failed";
 
-      const msg = err?.response?.data?.message || err?.message || "Save failed";
+      clearTokenIfLooksInvalid(message);
 
-      clearTokenIfLooksInvalid(msg);
+      if (!isMountedRef.current) {
+        return;
+      }
 
-      if (!isMountedRef.current) return;
-
-      setRows((prev) =>
-        prev.map((r) =>
-          r._key === row._key
-            ? {
-                ...r,
-                _saving: false,
-                _rowError: msg,
-              }
-            : r
-        )
+      setRows((previousRows) =>
+        previousRows.map(
+          (currentRow) =>
+            currentRow._key ===
+            row._key
+              ? {
+                  ...currentRow,
+                  _saving: false,
+                  _rowError: message,
+                }
+              : currentRow,
+        ),
       );
 
       Swal.fire({
         icon: "error",
         title: "Save Failed",
-        text: msg,
+        text: message,
       });
     }
   };
 
-  // ========= filtering =========
   const resetFilters = () => {
     setSearchTerm("");
     setPaidFilter("");
@@ -574,70 +1075,158 @@ const TeacherPayoutListPage = () => {
   };
 
   const filteredData = useMemo(() => {
-    const term = (searchTerm || "").toLowerCase().trim();
-    const fromD = startDate ? ymdLocalStart(startDate) : null;
-    const toD = endDate ? ymdLocalEnd(endDate) : null;
+    const term = String(
+      searchTerm || "",
+    )
+      .toLowerCase()
+      .trim();
 
-    const filtered = (rows || []).filter((x) => {
-      const fullText = `${x?.booking_id ?? ""} ${x?.teacher_name ?? ""} ${
-        x?.student_name ?? ""
-      } ${x?.subject_name ?? ""} ${x?.booking_date ?? ""} ${
-        x?.slot_start ?? ""
-      } ${x?.slot_end ?? ""} ${x?.paid_status ?? ""} ${
-        x?.payout_method ?? ""
+    const fromDate = startDate
+      ? ymdLocalStart(startDate)
+      : null;
+
+    const toDate = endDate
+      ? ymdLocalEnd(endDate)
+      : null;
+
+    const filteredRows = (
+      rows || []
+    ).filter((row) => {
+      const searchableText = `${
+        row?.booking_id ?? ""
+      } ${
+        row?.booking_display_id ?? ""
+      } ${
+        row?.group_live_session_id ??
+        ""
+      } ${
+        row?.teacher_name ?? ""
+      } ${
+        row?.student_name ?? ""
+      } ${
+        row?.subject_name ?? ""
+      } ${
+        row?.booking_date ?? ""
+      } ${
+        row?.slot_start ?? ""
+      } ${
+        row?.slot_end ?? ""
+      } ${
+        row?.paid_status ?? ""
+      } ${
+        row?.payout_method ?? ""
       }`
         .toLowerCase()
         .trim();
 
-      const matchesSearch = term ? fullText.includes(term) : true;
+      const matchesSearch = term
+        ? searchableText.includes(
+            term,
+          )
+        : true;
 
-      const matchesPaid =
+      const matchesPaidStatus =
         paidFilter === ""
           ? true
-          : String(x?.paid_status || "").toLowerCase() ===
-            String(paidFilter).toLowerCase();
+          : String(
+                row?.paid_status ||
+                  "",
+              ).toLowerCase() ===
+            String(
+              paidFilter,
+            ).toLowerCase();
 
       const matchesMethod =
         methodFilter === ""
           ? true
-          : String(x?.payout_method || "").toLowerCase() ===
-            String(methodFilter).toLowerCase();
+          : String(
+                row?.payout_method ||
+                  "",
+              ).toLowerCase() ===
+            String(
+              methodFilter,
+            ).toLowerCase();
 
-      const itemDate = parseSqlLikeDateTime(x?.booking_date);
+      const itemDate =
+        parseSqlLikeDateTime(
+          row?.booking_date,
+        );
 
-      const fromMatch = fromD ? (itemDate ? itemDate >= fromD : false) : true;
-      const toMatch = toD ? (itemDate ? itemDate <= toD : false) : true;
+      const matchesFromDate = fromDate
+        ? itemDate
+          ? itemDate >= fromDate
+          : false
+        : true;
+
+      const matchesToDate = toDate
+        ? itemDate
+          ? itemDate <= toDate
+          : false
+        : true;
 
       return (
-        matchesSearch && matchesPaid && matchesMethod && fromMatch && toMatch
+        matchesSearch &&
+        matchesPaidStatus &&
+        matchesMethod &&
+        matchesFromDate &&
+        matchesToDate
       );
     });
 
-    return filtered.slice().sort((a, b) => {
-      const da = parseSqlLikeDateTime(a?.booking_date);
-      const db = parseSqlLikeDateTime(b?.booking_date);
+    return filteredRows
+      .slice()
+      .sort((firstRow, secondRow) => {
+        const firstDate =
+          parseSqlLikeDateTime(
+            firstRow?.booking_date,
+          );
 
-      const ta = da ? da.getTime() : -Infinity;
-      const tb = db ? db.getTime() : -Infinity;
+        const secondDate =
+          parseSqlLikeDateTime(
+            secondRow?.booking_date,
+          );
 
-      return tb - ta;
-    });
-  }, [rows, searchTerm, paidFilter, methodFilter, startDate, endDate]);
+        const firstTimestamp =
+          firstDate
+            ? firstDate.getTime()
+            : -Infinity;
+
+        const secondTimestamp =
+          secondDate
+            ? secondDate.getTime()
+            : -Infinity;
+
+        return (
+          secondTimestamp -
+          firstTimestamp
+        );
+      });
+  }, [
+    rows,
+    searchTerm,
+    paidFilter,
+    methodFilter,
+    startDate,
+    endDate,
+  ]);
 
   const summary = useMemo(() => {
     const total = filteredData.length;
 
     const paid = filteredData.filter(
-      (x) => String(x?.paid_status).toLowerCase() === "paid"
+      (row) =>
+        String(
+          row?.paid_status,
+        ).toLowerCase() === "paid",
     ).length;
 
     const unpaid = total - paid;
 
-    // ✅ Total Paid Amount direct dashboard API se aa raha hai
-    const totalPayment = Number(totalTutorPayout) || 0;
+    const totalPayment =
+      Number(totalTutorPayout) || 0;
 
-    // ✅ Profit direct dashboard API se aa raha hai
-    const totalProfit = Number(totalProfitApi) || 0;
+    const totalProfit =
+      Number(totalProfitApi) || 0;
 
     return {
       total,
@@ -646,29 +1235,74 @@ const TeacherPayoutListPage = () => {
       totalProfit,
       totalPayment,
     };
-  }, [filteredData, totalProfitApi, totalTutorPayout]);
+  }, [
+    filteredData,
+    totalProfitApi,
+    totalTutorPayout,
+  ]);
 
-  // ========= EXPORT EXCEL / PDF =========
-  const getExportRows = () => {
-    return filteredData.map((item, i) => ({
-      "S.L": i + 1,
-      "Booking ID": item?.booking_id || "—",
-      "Teacher Name": item?.teacher_name || "—",
-      "Student Name": item?.student_name || "—",
-      "Subject Name": item?.subject_name || "—",
-      "Booking Date": fmtDate(item?.booking_date),
-      "Slot Start": fmtTime(item?.slot_start),
-      "Slot End": fmtTime(item?.slot_end),
-      "Grade Wise Session Fee": money(parseAmount(item?.session_fee_aed)),
-      "Payment Amount (AED)": money(parseAmount(item?.payment_amount_aed)),
-      "Paid Status": formatExportStatus(item?.paid_status),
-      "Paid On": item?.paid_on ? fmtDate(item?.paid_on) : "—",
-      "Payout Method": item?.payout_method || "—",
-    }));
-  };
+  const getExportRows = () =>
+    filteredData.map(
+      (item, index) => ({
+        "S.L": index + 1,
+
+        "Booking ID":
+          item?.booking_display_id ||
+          item?.booking_id ||
+          "—",
+
+        "Teacher Name":
+          item?.teacher_name || "—",
+
+        "Student Name":
+          item?.student_name || "—",
+
+        "Subject Name":
+          item?.subject_name || "—",
+
+        "Booking Date": fmtDate(
+          item?.booking_date,
+        ),
+
+        "Slot Start": fmtTime(
+          item?.slot_start,
+        ),
+
+        "Slot End": fmtTime(
+          item?.slot_end,
+        ),
+
+        "Grade Wise Session Fee":
+          money(
+            parseAmount(
+              item?.session_fee_aed,
+            ),
+          ),
+
+        "Payment Amount (AED)":
+          money(
+            parseAmount(
+              item?.payment_amount_aed,
+            ),
+          ),
+
+        "Paid Status":
+          formatExportStatus(
+            item?.paid_status,
+          ),
+
+        "Paid On": item?.paid_on
+          ? fmtDate(item.paid_on)
+          : "—",
+
+        "Payout Method":
+          item?.payout_method || "—",
+      }),
+    );
 
   const exportToExcel = () => {
-    const exportRows = getExportRows();
+    const exportRows =
+      getExportRows();
 
     if (!exportRows.length) {
       Swal.fire({
@@ -676,13 +1310,30 @@ const TeacherPayoutListPage = () => {
         title: "No Data",
         text: "No records available to export.",
       });
+
       return;
     }
 
-    const heading = [["Teacher Payout List"]];
-    const worksheet = XLSX.utils.json_to_sheet(exportRows, { origin: "A3" });
+    const heading = [
+      ["Teacher Payout List"],
+    ];
 
-    XLSX.utils.sheet_add_aoa(worksheet, heading, { origin: "A1" });
+    const worksheet =
+      XLSX.utils.json_to_sheet(
+        exportRows,
+        {
+          origin: "A3",
+        },
+      );
+
+    XLSX.utils.sheet_add_aoa(
+      worksheet,
+      heading,
+      {
+        origin: "A1",
+      },
+    );
+
     XLSX.utils.sheet_add_aoa(
       worksheet,
       [
@@ -690,19 +1341,27 @@ const TeacherPayoutListPage = () => {
           `Total: ${summary.total}`,
           `Paid: ${summary.paid}`,
           `Unpaid: ${summary.unpaid}`,
-          `Total Revenue: ${money(totalRevenue)}`,
-          `Total Profit: ${money(summary.totalProfit)}`,
-          `Total Paid Amount: ${money(summary.totalPayment)}`,
+          `Total Revenue: ${money(
+            totalRevenue,
+          )}`,
+          `Total Profit: ${money(
+            summary.totalProfit,
+          )}`,
+          `Total Paid Amount: ${money(
+            summary.totalPayment,
+          )}`,
         ],
       ],
-      { origin: "A2" }
+      {
+        origin: "A2",
+      },
     );
 
     worksheet["!cols"] = [
       { wch: 8 },
-      { wch: 14 },
+      { wch: 16 },
       { wch: 24 },
-      { wch: 24 },
+      { wch: 35 },
       { wch: 22 },
       { wch: 16 },
       { wch: 14 },
@@ -714,13 +1373,24 @@ const TeacherPayoutListPage = () => {
       { wch: 16 },
     ];
 
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Teacher Payouts");
-    XLSX.writeFile(workbook, "teacher-payout-list.xlsx");
+    const workbook =
+      XLSX.utils.book_new();
+
+    XLSX.utils.book_append_sheet(
+      workbook,
+      worksheet,
+      "Teacher Payouts",
+    );
+
+    XLSX.writeFile(
+      workbook,
+      "teacher-payout-list.xlsx",
+    );
   };
 
   const exportToPDF = () => {
-    const exportRows = getExportRows();
+    const exportRows =
+      getExportRows();
 
     if (!exportRows.length) {
       Swal.fire({
@@ -728,23 +1398,38 @@ const TeacherPayoutListPage = () => {
         title: "No Data",
         text: "No records available to export.",
       });
+
       return;
     }
 
-    const doc = new jsPDF("l", "mm", "a4");
+    const document = new jsPDF(
+      "l",
+      "mm",
+      "a4",
+    );
 
-    doc.setFontSize(16);
-    doc.text("Teacher Payout List", 14, 16);
+    document.setFontSize(16);
 
-    doc.setFontSize(9);
-    doc.text(
-      `Total: ${summary.total} | Paid: ${summary.paid} | Unpaid: ${summary.unpaid} | Total Revenue: ${money(
-        totalRevenue
-      )} | Total Profit: ${money(summary.totalProfit)} | Total Paid Amount: ${money(
-        summary.totalPayment
+    document.text(
+      "Teacher Payout List",
+      14,
+      16,
+    );
+
+    document.setFontSize(9);
+
+    document.text(
+      `Total: ${summary.total} | Paid: ${summary.paid} | Unpaid: ${
+        summary.unpaid
+      } | Total Revenue: ${money(
+        totalRevenue,
+      )} | Total Profit: ${money(
+        summary.totalProfit,
+      )} | Total Paid Amount: ${money(
+        summary.totalPayment,
       )}`,
       14,
-      23
+      23,
     );
 
     const columns = [
@@ -763,41 +1448,68 @@ const TeacherPayoutListPage = () => {
       "Method",
     ];
 
-    const body = filteredData.map((item, i) => [
-      i + 1,
-      item?.booking_id || "—",
-      item?.teacher_name || "—",
-      item?.student_name || "—",
-      item?.subject_name || "—",
-      fmtDate(item?.booking_date),
-      fmtTime(item?.slot_start),
-      fmtTime(item?.slot_end),
-      money(parseAmount(item?.session_fee_aed)),
-      money(parseAmount(item?.payment_amount_aed)),
-      formatExportStatus(item?.paid_status),
-      item?.paid_on ? fmtDate(item?.paid_on) : "—",
-      item?.payout_method || "—",
-    ]);
+    const body = filteredData.map(
+      (item, index) => [
+        index + 1,
 
-    autoTable(doc, {
+        item?.booking_display_id ||
+          item?.booking_id ||
+          "—",
+
+        item?.teacher_name || "—",
+        item?.student_name || "—",
+        item?.subject_name || "—",
+
+        fmtDate(item?.booking_date),
+        fmtTime(item?.slot_start),
+        fmtTime(item?.slot_end),
+
+        money(
+          parseAmount(
+            item?.session_fee_aed,
+          ),
+        ),
+
+        money(
+          parseAmount(
+            item?.payment_amount_aed,
+          ),
+        ),
+
+        formatExportStatus(
+          item?.paid_status,
+        ),
+
+        item?.paid_on
+          ? fmtDate(item.paid_on)
+          : "—",
+
+        item?.payout_method || "—",
+      ],
+    );
+
+    autoTable(document, {
       startY: 28,
       head: [columns],
       body,
+
       styles: {
         fontSize: 7,
         cellPadding: 2,
         overflow: "linebreak",
       },
+
       headStyles: {
         fontSize: 7,
         fontStyle: "bold",
       },
+
       columnStyles: {
         0: { cellWidth: 9 },
-        1: { cellWidth: 16 },
-        2: { cellWidth: 28 },
-        3: { cellWidth: 28 },
-        4: { cellWidth: 25 },
+        1: { cellWidth: 18 },
+        2: { cellWidth: 26 },
+        3: { cellWidth: 34 },
+        4: { cellWidth: 24 },
         5: { cellWidth: 18 },
         6: { cellWidth: 16 },
         7: { cellWidth: 16 },
@@ -807,67 +1519,110 @@ const TeacherPayoutListPage = () => {
         11: { cellWidth: 18 },
         12: { cellWidth: 16 },
       },
-      margin: { top: 28, left: 8, right: 8 },
+
+      margin: {
+        top: 28,
+        left: 8,
+        right: 8,
+      },
     });
 
-    doc.save("teacher-payout-list.pdf");
+    document.save(
+      "teacher-payout-list.pdf",
+    );
   };
 
-  // ========= pagination =========
-  const totalPages = Math.max(1, Math.ceil(filteredData.length / itemsPerPage));
+  const totalPages = Math.max(
+    1,
+    Math.ceil(
+      filteredData.length /
+        itemsPerPage,
+    ),
+  );
 
   useEffect(() => {
-    setCurrentPage((p) => Math.min(Math.max(1, p), totalPages));
+    setCurrentPage((page) =>
+      Math.min(
+        Math.max(1, page),
+        totalPages,
+      ),
+    );
   }, [totalPages]);
 
-  const indexOfLastItem = currentPage * itemsPerPage;
-  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-  const currentItems = filteredData.slice(indexOfFirstItem, indexOfLastItem);
+  const indexOfLastItem =
+    currentPage * itemsPerPage;
+
+  const indexOfFirstItem =
+    indexOfLastItem -
+    itemsPerPage;
+
+  const currentItems =
+    filteredData.slice(
+      indexOfFirstItem,
+      indexOfLastItem,
+    );
 
   return (
     <div className="card h-100 p-0 radius-12">
       <style>{`
-        .sub-muted { opacity: 0.75; font-size: 12px; }
+        .sub-muted {
+          opacity: 0.75;
+          font-size: 12px;
+        }
+
         .sub-card {
-          border: 1px solid rgba(0,0,0,0.08);
+          border: 1px solid rgba(0, 0, 0, 0.08);
           border-radius: 12px;
           padding: 14px 16px;
-          background: rgba(0,0,0,0.02);
+          background: rgba(0, 0, 0, 0.02);
           height: 100%;
         }
+
         [data-bs-theme="dark"] .sub-card,
         [data-theme="dark"] .sub-card,
         .dark .sub-card {
-          border-color: rgba(255,255,255,0.12);
-          background: rgba(255,255,255,0.04);
+          border-color: rgba(255, 255, 255, 0.12);
+          background: rgba(255, 255, 255, 0.04);
         }
 
-        .cell-strong { font-weight: 600; }
+        .cell-strong {
+          font-weight: 600;
+        }
+
         .mono {
-          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+            "Liberation Mono", "Courier New", monospace;
         }
 
-        .amount-input { min-width: 170px; }
-        .date-input { min-width: 160px; }
-        .method-select { min-width: 140px; }
+        .amount-input {
+          min-width: 170px;
+        }
+
+        .date-input {
+          min-width: 160px;
+        }
+
+        .method-select {
+          min-width: 140px;
+        }
 
         [data-bs-theme="dark"] .date-input,
         [data-theme="dark"] .date-input,
         .dark .date-input {
-          background-color: rgba(255,255,255,0.04) !important;
-          border-color: rgba(255,255,255,0.12) !important;
-          color: rgba(255,255,255,0.92) !important;
+          background-color: rgba(255, 255, 255, 0.04) !important;
+          border-color: rgba(255, 255, 255, 0.12) !important;
+          color: rgba(255, 255, 255, 0.92) !important;
           color-scheme: dark;
         }
 
         [data-bs-theme="dark"] .date-input:disabled,
         [data-theme="dark"] .date-input:disabled,
         .dark .date-input:disabled {
-          background-color: rgba(255,255,255,0.06) !important;
-          border-color: rgba(255,255,255,0.12) !important;
-          color: rgba(255,255,255,0.45) !important;
+          background-color: rgba(255, 255, 255, 0.06) !important;
+          border-color: rgba(255, 255, 255, 0.12) !important;
+          color: rgba(255, 255, 255, 0.45) !important;
           opacity: 1 !important;
-          -webkit-text-fill-color: rgba(255,255,255,0.45) !important;
+          -webkit-text-fill-color: rgba(255, 255, 255, 0.45) !important;
         }
 
         [data-bs-theme="dark"] .date-input::-webkit-calendar-picker-indicator,
@@ -884,7 +1639,6 @@ const TeacherPayoutListPage = () => {
         }
       `}</style>
 
-      {/* Header */}
       <div className="card-header border-bottom bg-base py-16 px-24 d-flex align-items-center flex-wrap gap-3 justify-content-between">
         <div className="d-flex align-items-center flex-wrap gap-3">
           <input
@@ -892,8 +1646,11 @@ const TeacherPayoutListPage = () => {
             className="form-control w-auto"
             placeholder="Search booking / teacher / student / subject"
             value={searchTerm}
-            onChange={(e) => {
-              setSearchTerm(e.target.value);
+            onChange={(event) => {
+              setSearchTerm(
+                event.target.value,
+              );
+
               setCurrentPage(1);
             }}
           />
@@ -902,8 +1659,11 @@ const TeacherPayoutListPage = () => {
             type="date"
             className="form-control w-auto"
             value={startDate}
-            onChange={(e) => {
-              setStartDate(e.target.value);
+            onChange={(event) => {
+              setStartDate(
+                event.target.value,
+              );
+
               setCurrentPage(1);
             }}
             title="From booking date"
@@ -913,8 +1673,11 @@ const TeacherPayoutListPage = () => {
             type="date"
             className="form-control w-auto"
             value={endDate}
-            onChange={(e) => {
-              setEndDate(e.target.value);
+            onChange={(event) => {
+              setEndDate(
+                event.target.value,
+              );
+
               setCurrentPage(1);
             }}
             title="To booking date"
@@ -923,30 +1686,57 @@ const TeacherPayoutListPage = () => {
           <select
             className="form-select form-select-sm w-auto"
             value={paidFilter}
-            onChange={(e) => {
-              setPaidFilter(e.target.value);
+            onChange={(event) => {
+              setPaidFilter(
+                event.target.value,
+              );
+
               setCurrentPage(1);
             }}
           >
-            <option value="">Paid: All</option>
-            <option value="Paid">Paid</option>
-            <option value="Unpaid">Unpaid</option>
+            <option value="">
+              Paid: All
+            </option>
+
+            <option value="Paid">
+              Paid
+            </option>
+
+            <option value="Unpaid">
+              Unpaid
+            </option>
           </select>
 
           <select
             className="form-select form-select-sm w-auto"
             value={methodFilter}
-            onChange={(e) => {
-              setMethodFilter(e.target.value);
+            onChange={(event) => {
+              setMethodFilter(
+                event.target.value,
+              );
+
               setCurrentPage(1);
             }}
           >
-            <option value="">Method: All</option>
-            <option value="Cash">Cash</option>
-            <option value="Online">Online</option>
+            <option value="">
+              Method: All
+            </option>
+
+            <option value="Cash">
+              Cash
+            </option>
+
+            <option value="Bank">
+              Bank
+            </option>
+
+            <option value="Online">
+              Online
+            </option>
           </select>
 
           <button
+            type="button"
             onClick={resetFilters}
             className="btn btn-outline-secondary btn-sm"
           >
@@ -954,6 +1744,7 @@ const TeacherPayoutListPage = () => {
           </button>
 
           <button
+            type="button"
             onClick={exportToExcel}
             className="btn btn-success btn-sm"
             disabled={loading}
@@ -962,6 +1753,7 @@ const TeacherPayoutListPage = () => {
           </button>
 
           <button
+            type="button"
             onClick={exportToPDF}
             className="btn btn-danger btn-sm"
             disabled={loading}
@@ -971,6 +1763,7 @@ const TeacherPayoutListPage = () => {
         </div>
 
         <button
+          type="button"
           onClick={() => {
             fetchTeacherPayouts();
             fetchTotalRevenue();
@@ -978,20 +1771,32 @@ const TeacherPayoutListPage = () => {
           className="btn btn-outline-primary btn-sm"
           disabled={loading}
         >
-          {loading ? "Refreshing..." : "Refresh"}
+          {loading
+            ? "Refreshing..."
+            : "Refresh"}
         </button>
       </div>
 
-      {/* Body */}
       <div className="card-body p-24">
-        {error ? <div className="alert alert-danger mb-3">{error}</div> : null}
+        {error ? (
+          <div className="alert alert-danger mb-3">
+            {error}
+          </div>
+        ) : null}
 
-        {/* Summary */}
         <div className="row g-3 mb-3">
           <div className="col-12 col-md-3">
             <div className="sub-card">
-              <div className="sub-muted">Total</div>
-              <div style={{ fontSize: 22, fontWeight: 700 }}>
+              <div className="sub-muted">
+                Total
+              </div>
+
+              <div
+                style={{
+                  fontSize: 22,
+                  fontWeight: 700,
+                }}
+              >
                 {summary.total}
               </div>
             </div>
@@ -999,17 +1804,34 @@ const TeacherPayoutListPage = () => {
 
           <div className="col-12 col-md-3">
             <div className="sub-card">
-              <div className="sub-muted">Paid / Unpaid</div>
-              <div style={{ fontSize: 22, fontWeight: 700 }}>
-                {summary.paid} / {summary.unpaid}
+              <div className="sub-muted">
+                Paid / Unpaid
+              </div>
+
+              <div
+                style={{
+                  fontSize: 22,
+                  fontWeight: 700,
+                }}
+              >
+                {summary.paid} /{" "}
+                {summary.unpaid}
               </div>
             </div>
           </div>
 
           <div className="col-12 col-md-3">
             <div className="sub-card">
-              <div className="sub-muted">Total Revenue</div>
-              <div style={{ fontSize: 22, fontWeight: 700 }}>
+              <div className="sub-muted">
+                Total Revenue
+              </div>
+
+              <div
+                style={{
+                  fontSize: 22,
+                  fontWeight: 700,
+                }}
+              >
                 {money(totalRevenue)}
               </div>
             </div>
@@ -1017,29 +1839,51 @@ const TeacherPayoutListPage = () => {
 
           <div className="col-12 col-md-3">
             <div className="sub-card">
-              <div className="sub-muted">Total Profit</div>
-              <div style={{ fontSize: 22, fontWeight: 700 }}>
-                {money(summary.totalProfit)}
+              <div className="sub-muted">
+                Total Profit
+              </div>
+
+              <div
+                style={{
+                  fontSize: 22,
+                  fontWeight: 700,
+                }}
+              >
+                {money(
+                  summary.totalProfit,
+                )}
               </div>
             </div>
           </div>
 
           <div className="col-12 col-md-3">
             <div className="sub-card">
-              <div className="sub-muted">Total Paid Amount</div>
-              <div style={{ fontSize: 22, fontWeight: 700 }}>
-                {money(summary.totalPayment)}
+              <div className="sub-muted">
+                Total Paid Amount
+              </div>
+
+              <div
+                style={{
+                  fontSize: 22,
+                  fontWeight: 700,
+                }}
+              >
+                {money(
+                  summary.totalPayment,
+                )}
               </div>
             </div>
           </div>
         </div>
 
-        {/* Table */}
         <div className="table-responsive">
           <table className="table bordered-table sm-table mb-0">
             <thead>
               <tr>
-                <th style={{ width: 70 }}>S.L</th>
+                <th style={{ width: 70 }}>
+                  S.L
+                </th>
+
                 <th>Booking ID</th>
                 <th>Teacher Name</th>
                 <th>Student Name</th>
@@ -1047,190 +1891,380 @@ const TeacherPayoutListPage = () => {
                 <th>Booking Date</th>
                 <th>Slot Start</th>
                 <th>Slot End</th>
-                <th>Grade Wise Session Fee</th>
-                <th>Payment Amount (AED)</th>
+
+                <th>
+                  Grade Wise Session Fee
+                </th>
+
+                <th>
+                  Payment Amount (AED)
+                </th>
+
                 <th>Paid?</th>
                 <th>Paid on</th>
                 <th>Payout Method</th>
-                <th style={{ width: 120 }}>Action</th>
+
+                <th style={{ width: 120 }}>
+                  Action
+                </th>
               </tr>
             </thead>
 
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={14} className="text-center">
-                    <div className="py-4">Loading...</div>
+                  <td
+                    colSpan={14}
+                    className="text-center"
+                  >
+                    <div className="py-4">
+                      Loading...
+                    </div>
                   </td>
                 </tr>
-              ) : currentItems.length === 0 ? (
+              ) : currentItems.length ===
+                0 ? (
                 <tr>
-                  <td colSpan={14} className="text-center">
+                  <td
+                    colSpan={14}
+                    className="text-center"
+                  >
                     <div className="py-4">
-                      <div style={{ fontWeight: 700 }}>No records found.</div>
+                      <div
+                        style={{
+                          fontWeight: 700,
+                        }}
+                      >
+                        No records found.
+                      </div>
+
                       <div className="sub-muted">
-                        Try clearing filters or search.
+                        Try clearing filters
+                        or search.
                       </div>
                     </div>
                   </td>
                 </tr>
               ) : (
-                currentItems.map((x, index) => {
-                  const isPaid = getPaidStatus(x) === "Paid";
-                  const radioName = `paid-${x._key}`;
+                currentItems.map(
+                  (row, index) => {
+                    const isPaid =
+                      getPaidStatus(
+                        row,
+                      ) === "Paid";
 
-                  return (
-                    <tr key={x._key}>
-                      <td>{indexOfFirstItem + index + 1}</td>
+                    const radioName =
+                      `paid-${row._key}`;
 
-                      <td className="mono cell-strong">
-                        {x.booking_id || "—"}
-                      </td>
+                    return (
+                      <tr key={row._key}>
+                        <td>
+                          {indexOfFirstItem +
+                            index +
+                            1}
+                        </td>
 
-                      <td className="cell-strong">{x.teacher_name}</td>
-                      <td>{x.student_name}</td>
-                      <td>{x.subject_name}</td>
-                      <td>{fmtDate(x.booking_date)}</td>
-                      <td className="mono">{fmtTime(x.slot_start)}</td>
-                      <td className="mono">{fmtTime(x.slot_end)}</td>
-                      <td>{money(parseAmount(x.session_fee_aed))}</td>
+                        <td className="mono cell-strong">
+                          {row.booking_display_id ||
+                            row.booking_id ||
+                            "—"}
+                        </td>
 
-                      <td>
-                        <input
-                          className="form-control form-control-sm amount-input"
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          placeholder="Enter amount"
-                          value={x.payment_amount_aed}
-                          onChange={(e) =>
-                            updatePaymentAmount(x._key, e.target.value)
+                        <td className="cell-strong">
+                          {
+                            row.teacher_name
                           }
-                        />
+                        </td>
 
-                        {x._rowError ? (
-                          <div className="row-error">{x._rowError}</div>
-                        ) : null}
-                      </td>
+                        <td
+                          style={{
+                            whiteSpace:
+                              "normal",
 
-                      <td>
-                        <div className="d-flex gap-3 flex-wrap">
-                          <div className="form-check">
-                            <input
-                              className="form-check-input"
-                              type="radio"
-                              name={radioName}
-                              id={`paid-yes-${x._key}`}
-                              checked={isPaid}
-                              onChange={() => updatePaidStatus(x._key, "Paid")}
-                            />
+                            minWidth:
+                              row.is_group_booking
+                                ? 220
+                                : undefined,
+                          }}
+                        >
+                          {
+                            row.student_name
+                          }
 
-                            <label
-                              className="form-check-label"
-                              htmlFor={`paid-yes-${x._key}`}
-                            >
-                              Paid
-                            </label>
-                          </div>
-
-                          <div className="form-check">
-                            <input
-                              className="form-check-input"
-                              type="radio"
-                              name={radioName}
-                              id={`paid-no-${x._key}`}
-                              checked={!isPaid}
-                              onChange={() =>
-                                updatePaidStatus(x._key, "Unpaid")
-                              }
-                            />
-
-                            <label
-                              className="form-check-label"
-                              htmlFor={`paid-no-${x._key}`}
-                            >
-                              Unpaid
-                            </label>
-                          </div>
-                        </div>
-
-                        <div className="mt-2">
-                          <span
-                            className={`badge ${badgeClassByStatus(
-                              x.paid_status
-                            )}`}
-                          >
-                            {x.paid_status}
-                          </span>
-
-                          {x._dirty ? (
-                            <span className="badge bg-warning text-dark ms-2">
-                              Unsaved
-                            </span>
+                          {row.is_group_booking ? (
+                            <div className="sub-muted mt-1">
+                              {
+                                row.student_count
+                              }{" "}
+                              student
+                              {row.student_count ===
+                              1
+                                ? ""
+                                : "s"}
+                            </div>
                           ) : null}
-                        </div>
-                      </td>
+                        </td>
 
-                      <td>
-                        <input
-                          className="form-control form-control-sm date-input"
-                          type="date"
-                          value={x.paid_on || ""}
-                          disabled={!isPaid}
-                          onChange={(e) => updatePaidOn(x._key, e.target.value)}
-                        />
-                      </td>
+                        <td>
+                          {
+                            row.subject_name
+                          }
+                        </td>
 
-                      <td>
-                        <select
-                          className="form-select form-select-sm method-select"
-                          value={x.payout_method || ""}
-                          onChange={(e) => updateMethod(x._key, e.target.value)}
-                        >
-                          <option value="">Select</option>
-                          <option value="Cash">Cash</option>
-                          <option value="Online">Online</option>
-                        </select>
-                      </td>
+                        <td>
+                          {fmtDate(
+                            row.booking_date,
+                          )}
+                        </td>
 
-                      <td>
-                        <button
-                          className="btn btn-primary btn-sm"
-                          disabled={!x._dirty || x._saving}
-                          onClick={() => saveRow(x)}
-                        >
-                          {x._saving ? "Saving..." : "Save"}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })
+                        <td className="mono">
+                          {fmtTime(
+                            row.slot_start,
+                          )}
+                        </td>
+
+                        <td className="mono">
+                          {fmtTime(
+                            row.slot_end,
+                          )}
+                        </td>
+
+                        <td>
+                          {money(
+                            parseAmount(
+                              row.session_fee_aed,
+                            ),
+                          )}
+                        </td>
+
+                        <td>
+                          <input
+                            className="form-control form-control-sm amount-input"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder="Enter amount"
+                            value={
+                              row.payment_amount_aed
+                            }
+                            onChange={(
+                              event,
+                            ) =>
+                              updatePaymentAmount(
+                                row._key,
+                                event.target
+                                  .value,
+                              )
+                            }
+                          />
+
+                          {row._rowError ? (
+                            <div className="row-error">
+                              {
+                                row._rowError
+                              }
+                            </div>
+                          ) : null}
+                        </td>
+
+                        <td>
+                          <div className="d-flex gap-3 flex-wrap">
+                            <div className="form-check">
+                              <input
+                                className="form-check-input"
+                                type="radio"
+                                name={
+                                  radioName
+                                }
+                                id={`paid-yes-${row._key}`}
+                                checked={
+                                  isPaid
+                                }
+                                onChange={() =>
+                                  updatePaidStatus(
+                                    row._key,
+                                    "Paid",
+                                  )
+                                }
+                              />
+
+                              <label
+                                className="form-check-label"
+                                htmlFor={`paid-yes-${row._key}`}
+                              >
+                                Paid
+                              </label>
+                            </div>
+
+                            <div className="form-check">
+                              <input
+                                className="form-check-input"
+                                type="radio"
+                                name={
+                                  radioName
+                                }
+                                id={`paid-no-${row._key}`}
+                                checked={
+                                  !isPaid
+                                }
+                                onChange={() =>
+                                  updatePaidStatus(
+                                    row._key,
+                                    "Unpaid",
+                                  )
+                                }
+                              />
+
+                              <label
+                                className="form-check-label"
+                                htmlFor={`paid-no-${row._key}`}
+                              >
+                                Unpaid
+                              </label>
+                            </div>
+                          </div>
+
+                          <div className="mt-2">
+                            <span
+                              className={`badge ${badgeClassByStatus(
+                                row.paid_status,
+                              )}`}
+                            >
+                              {
+                                row.paid_status
+                              }
+                            </span>
+
+                            {row._dirty ? (
+                              <span className="badge bg-warning text-dark ms-2">
+                                Unsaved
+                              </span>
+                            ) : null}
+                          </div>
+                        </td>
+
+                        <td>
+                          <input
+                            className="form-control form-control-sm date-input"
+                            type="date"
+                            value={
+                              row.paid_on ||
+                              ""
+                            }
+                            disabled={
+                              !isPaid
+                            }
+                            onChange={(
+                              event,
+                            ) =>
+                              updatePaidOn(
+                                row._key,
+                                event.target
+                                  .value,
+                              )
+                            }
+                          />
+                        </td>
+
+                        <td>
+                          <select
+                            className="form-select form-select-sm method-select"
+                            value={
+                              row.payout_method ||
+                              ""
+                            }
+                            onChange={(
+                              event,
+                            ) =>
+                              updateMethod(
+                                row._key,
+                                event.target
+                                  .value,
+                              )
+                            }
+                          >
+                            <option value="">
+                              Select
+                            </option>
+
+                            <option value="Cash">
+                              Cash
+                            </option>
+
+                            <option value="Bank">
+                              Bank
+                            </option>
+
+                            <option value="Online">
+                              Online
+                            </option>
+                          </select>
+                        </td>
+
+                        <td>
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-sm"
+                            disabled={
+                              !row._dirty ||
+                              row._saving
+                            }
+                            onClick={() =>
+                              saveRow(row)
+                            }
+                          >
+                            {row._saving
+                              ? "Saving..."
+                              : "Save"}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  },
+                )
               )}
             </tbody>
           </table>
         </div>
 
-        {/* Pagination */}
         <div className="d-flex justify-content-between mt-3 flex-wrap gap-2">
           <span>
-            Showing {filteredData.length === 0 ? 0 : indexOfFirstItem + 1} to{" "}
-            {Math.min(indexOfLastItem, filteredData.length)} of{" "}
-            {filteredData.length} entries
+            Showing{" "}
+            {filteredData.length === 0
+              ? 0
+              : indexOfFirstItem + 1}{" "}
+            to{" "}
+            {Math.min(
+              indexOfLastItem,
+              filteredData.length,
+            )}{" "}
+            of {filteredData.length}{" "}
+            entries
           </span>
 
           <ul className="pagination mb-0">
-            {Array.from({ length: totalPages }).map((_, i) => (
+            {Array.from({
+              length: totalPages,
+            }).map((_, index) => (
               <li
-                key={i}
+                key={index}
                 className={`page-item ${
-                  currentPage === i + 1 ? "active" : ""
+                  currentPage ===
+                  index + 1
+                    ? "active"
+                    : ""
                 }`}
               >
                 <button
-                  onClick={() => setCurrentPage(i + 1)}
+                  type="button"
+                  onClick={() =>
+                    setCurrentPage(
+                      index + 1,
+                    )
+                  }
                   className="page-link"
                 >
-                  {i + 1}
+                  {index + 1}
                 </button>
               </li>
             ))}
