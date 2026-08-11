@@ -21,7 +21,7 @@ const headers = {
 };
 
 const FETCH_PROFILE_URL =
-  API_URL+"teacher_profile";
+  API_URL + "teacher_profile";
 const UPDATE_PROFILE_URL =
   "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=update_user_profile";
 const ADD_PROFILE_URL =
@@ -232,8 +232,8 @@ const TeacherDetailsModal = ({ show, onClose, userid, seed, onSave }) => {
       title: cat.label,
       value: `${cat.key}`,
       key: `cat-${cat.key}`,
-      disabled: cat.children.length !==0,// ✅ category not selectable
-      selectable: cat.children.length ==0,
+      disabled: cat.children.length !== 0,// ✅ category not selectable
+      selectable: cat.children.length == 0,
       children: (cat.children || []).map((sub) => ({
         title: sub.label,
         value: sub?.key, // ✅ leaf value = subjectId
@@ -402,7 +402,7 @@ const TeacherDetailsModal = ({ show, onClose, userid, seed, onSave }) => {
   useEffect(() => {
     if (!savedSubjectKeysForRestore) return;
     if (!subjectTreeNodes?.length) return;
-console.log({savedSubjectKeysForRestore});
+    console.log({ savedSubjectKeysForRestore });
     // saved could be:
     // 1) array ["12","15"] (new)
     // 2) old PrimeReact selectionKeys object (legacy)
@@ -411,8 +411,8 @@ console.log({savedSubjectKeysForRestore});
       : safeJsonParseArray(savedSubjectKeysForRestore);
 
     if (Array.isArray(maybeArr) && maybeArr.length) {
-      const clean = Object.keys(savedSubjectKeysForRestore).filter(c=>c.includes("-"))//maybeArr.map(String).filter((v) => v && v !== "null");
-      setSelectedSubjectIds(Object.keys(savedSubjectKeysForRestore).filter(c=>c.includes("-")));
+      const clean = Object.keys(savedSubjectKeysForRestore).filter(c => c.includes("-"))//maybeArr.map(String).filter((v) => v && v !== "null");
+      setSelectedSubjectIds(Object.keys(savedSubjectKeysForRestore).filter(c => c.includes("-")));
       //setSelectedSubjectIds(clean);
       setForm((p) => ({
         ...p,
@@ -424,7 +424,7 @@ console.log({savedSubjectKeysForRestore});
 
     // legacy object
     if (typeof savedSubjectKeysForRestore === "object") {
-      const idsArr = Object.keys(savedSubjectKeysForRestore).filter(c=>c.includes("-"));//computeSelectedSubjectIds(savedSubjectKeysForRestore, subjectTreeNodes);
+      const idsArr = Object.keys(savedSubjectKeysForRestore).filter(c => c.includes("-"));//computeSelectedSubjectIds(savedSubjectKeysForRestore, subjectTreeNodes);
       setSelectedSubjectIds(idsArr);
       setForm((p) => ({
         ...p,
@@ -888,8 +888,10 @@ console.log({savedSubjectKeysForRestore});
       if (!token) throw new Error("Token not found");
 
       const tzIdResolved =
+        (timezones || []).find(
+          (t) => String(t.timezone) === String(availability.timezone)
+        )?.id ||
         form.timezoneid ||
-        (timezones || []).find((t) => t.timezone === availability.timezone)?.id ||
         "";
 
       const teacherIdNum = Number(form.userid || seedUserId || userid);
@@ -930,11 +932,11 @@ console.log({savedSubjectKeysForRestore});
       // ✅ education deleted (UPDATE only)
       const educationDeleted = !isAddMode
         ? (deletedEducationIds || [])
-            .filter(Boolean)
-            .map((id) => ({
-              id,
-              deleted: "1",
-            }))
+          .filter(Boolean)
+          .map((id) => ({
+            id,
+            deleted: "1",
+          }))
         : [];
 
       // ✅ availability active (skip empty)
@@ -970,11 +972,11 @@ console.log({savedSubjectKeysForRestore});
       // ✅ availability deleted (UPDATE only)
       const availabilityDeleted = !isAddMode
         ? (deletedAvailabilityIds || [])
-            .filter((x) => x?.id)
-            .map((x) => ({
-              id: x.id,
-              deleted: "1",
-            }))
+          .filter((x) => x?.id)
+          .map((x) => ({
+            id: x.id,
+            deleted: "1",
+          }))
         : [];
 
       // ✅ teachingprofile OPTIONAL
@@ -988,29 +990,29 @@ console.log({savedSubjectKeysForRestore});
 
       const teachingprofileArr = teachingHasAny
         ? [
-            {
-              ...(isAddMode ? {} : { id: ids.teachingProfileId }),
-              teacherid: teacherIdNum,
-              subjectid: String(form.subjectid || ""),
-              intro: form.introduceyourself || "",
-              teachexp: form.teachexp || "",
-              motivedesc: form.motivate || "",
-              headline: form.headline || "",
-              subjects: form.subjects || "",
-            },
-          ]
+          {
+            ...(isAddMode ? {} : { id: ids.teachingProfileId }),
+            teacherid: teacherIdNum,
+            subjectid: String(form.subjectid || ""),
+            intro: form.introduceyourself || "",
+            teachexp: form.teachexp || "",
+            motivedesc: form.motivate || "",
+            headline: form.headline || "",
+            subjects: form.subjects || "",
+          },
+        ]
         : [];
-        teachingprofileArr.forEach(tpa=>{
-          let __subjects = {};
-          let __subjectsStr = tpa.subjects;
-          JSON.parse(__subjectsStr).forEach(e=>{
-              __subjects[e] = {"checked":true}
-            })
-            tpa.subjects = JSON.stringify(__subjects);
+      teachingprofileArr.forEach(tpa => {
+        let __subjects = {};
+        let __subjectsStr = tpa.subjects;
+        JSON.parse(__subjectsStr).forEach(e => {
+          __subjects[e] = { "checked": true }
         })
-        console.clear();
-        console.log({teachingprofileArr})
-        //return;
+        tpa.subjects = JSON.stringify(__subjects);
+      })
+      console.clear();
+      console.log({ teachingprofileArr })
+      //return;
       // ✅ video OPTIONAL
       const videoHasAny =
         String(form.videofile || "").trim() ||
@@ -1028,15 +1030,15 @@ console.log({savedSubjectKeysForRestore});
 
       const videoArr = videoHasAny
         ? [
-            {
-              ...(isAddMode ? {} : { id: ids.videoId }),
-              teacherid: teacherIdNum,
-              videopath: form.videofile ? String(form.videofile) : "",
-              videolink: form.videolink ? String(form.videolink) : "",
-              thumbnails: form.thumbnails ? String(form.thumbnails) : "",
-              description: form.videodesc ? String(form.videodesc) : "",
-            },
-          ]
+          {
+            ...(isAddMode ? {} : { id: ids.videoId }),
+            teacherid: teacherIdNum,
+            videopath: form.videofile ? String(form.videofile) : "",
+            videolink: form.videolink ? String(form.videolink) : "",
+            thumbnails: form.thumbnails ? String(form.thumbnails) : "",
+            description: form.videodesc ? String(form.videodesc) : "",
+          },
+        ]
         : [];
 
       // ✅ userdetail: match API keys

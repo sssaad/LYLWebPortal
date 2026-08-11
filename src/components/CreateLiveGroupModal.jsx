@@ -151,12 +151,12 @@ const normalizeAssistantTeacherIds = (value) => {
     if (typeof item === "object") {
       return String(
         item.teacherid ||
-          item.teacher_id ||
-          item.userid ||
-          item.userId ||
-          item.id ||
-          item.value ||
-          ""
+        item.teacher_id ||
+        item.userid ||
+        item.userId ||
+        item.id ||
+        item.value ||
+        ""
       ).trim();
     }
 
@@ -437,11 +437,11 @@ const getProgrammeBookedCount = (programme) => {
 
   const sessionBooked = Array.isArray(programme?.sessions)
     ? Math.max(
-        ...programme.sessions.map((session) =>
-          Number(session?.booked_count || 0)
-        ),
-        0
-      )
+      ...programme.sessions.map((session) =>
+        Number(session?.booked_count || 0)
+      ),
+      0
+    )
     : 0;
 
   return Math.max(programmeBooked, sessionBooked);
@@ -620,9 +620,8 @@ const SearchableAssistantTeachersSelect = ({
 
   const selectedLabel =
     selectedTeachers.length > 0
-      ? `${selectedTeachers.length} assistant teacher${
-          selectedTeachers.length > 1 ? "s" : ""
-        } selected`
+      ? `${selectedTeachers.length} assistant teacher${selectedTeachers.length > 1 ? "s" : ""
+      } selected`
       : "";
 
   return (
@@ -695,9 +694,8 @@ const SearchableAssistantTeachersSelect = ({
                   <button
                     type="button"
                     key={teacherId}
-                    className={`gl-teacher-option ${
-                      isSelected ? "active" : ""
-                    }`}
+                    className={`gl-teacher-option ${isSelected ? "active" : ""
+                      }`}
                     onClick={() => toggleTeacher(teacherId)}
                   >
                     <span className="gl-assistant-check">
@@ -780,8 +778,8 @@ const generateGroupBatchId = () => {
 const getSafeNumberOfWeeks = (value) => {
   const weeks = Number(value || 1);
 
-  if (!Number.isFinite(weeks) || weeks < 1) return 1;
-  if (weeks > 4) return 4;
+  if (!Number.isInteger(weeks) || weeks < 1) return 1;
+  if (weeks > 10) return 10;
 
   return weeks;
 };
@@ -811,11 +809,11 @@ const addWeeksDeltaToDate = (dateValue, weeksDelta = 0) => {
 const getSessionWeekNo = (session) => {
   const weekNo = Number(
     session?.week_no ||
-      session?.actual_week_no ||
-      session?.group_week_no ||
-      session?.group_batch_week_no ||
-      session?.recurrence_week_no ||
-      1
+    session?.actual_week_no ||
+    session?.group_week_no ||
+    session?.group_batch_week_no ||
+    session?.recurrence_week_no ||
+    1
   );
 
   return Number.isFinite(weekNo) && weekNo > 0 ? weekNo : 1;
@@ -824,9 +822,9 @@ const getSessionWeekNo = (session) => {
 const getSessionClassOrder = (session, fallbackIndex = 0) => {
   const classOrder = Number(
     session?.class_order ||
-      session?.recurrence_day_no ||
-      session?.class_no ||
-      fallbackIndex + 1
+    session?.recurrence_day_no ||
+    session?.class_no ||
+    fallbackIndex + 1
   );
 
   return Number.isFinite(classOrder) && classOrder > 0
@@ -1121,9 +1119,9 @@ const CreateLiveGroupModal = ({
 
         assistant_teacher_ids: cleanAssistantTeacherIds(
           session?.assistant_teacher_ids ||
-            session?.assistant_teacherids ||
-            session?.assistant_teachers ||
-            "",
+          session?.assistant_teacherids ||
+          session?.assistant_teachers ||
+          "",
           mainTeacherId
         ),
 
@@ -1217,8 +1215,8 @@ const CreateLiveGroupModal = ({
           ),
           number_of_weeks: String(
             preselectedProgramme.number_of_weeks ||
-              prev.number_of_weeks ||
-              1
+            prev.number_of_weeks ||
+            1
           ),
         }));
       }
@@ -1266,9 +1264,9 @@ const CreateLiveGroupModal = ({
       ...prev,
       capacity: String(
         selectedProgramme?.capacity ??
-          selectedProgramme?.class_capacity ??
-          prev.capacity ??
-          "10"
+        selectedProgramme?.class_capacity ??
+        prev.capacity ??
+        "10"
       ),
     }));
 
@@ -1754,10 +1752,15 @@ const CreateLiveGroupModal = ({
   const validateForm = () => {
     if (!form.programme_id) return "Please select a curriculum.";
 
-    const numberOfWeeks = getSafeNumberOfWeeks(form.number_of_weeks);
+    const numberOfWeeks = Number(form.number_of_weeks);
 
-    if (!isTeacherOnlyEdit && (numberOfWeeks < 1 || numberOfWeeks > 4)) {
-      return "Number of weeks must be between 1 and 4.";
+    if (
+      !isTeacherOnlyEdit &&
+      (!Number.isInteger(numberOfWeeks) ||
+        numberOfWeeks < 1 ||
+        numberOfWeeks > 10)
+    ) {
+      return "Number of weeks must be between 1 and 10.";
     }
 
     if (isTeacherOnlyEdit) {
@@ -1858,9 +1861,9 @@ const CreateLiveGroupModal = ({
 
     const existingGroupBatchId = Number(
       editProgramme?.group_batch_id ||
-        firstEditSession?.group_batch_id ||
-        classes?.[0]?.group_batch_id ||
-        0
+      firstEditSession?.group_batch_id ||
+      classes?.[0]?.group_batch_id ||
+      0
     );
 
     const groupBatchId =
@@ -1888,8 +1891,7 @@ const CreateLiveGroupModal = ({
   }) => {
     if (!Number(groupBatchWeekId)) {
       throw new Error(
-        `Week ${weekNo} - Class ${
-          index + 1
+        `Week ${weekNo} - Class ${index + 1
         }: group_batch_week_id is missing before session insert.`
       );
     }
@@ -1998,8 +2000,8 @@ const CreateLiveGroupModal = ({
     if (!isSuccessResponse(response)) {
       throw new Error(
         response?.data?.message ||
-          response?.data?.error ||
-          "Live group session could not be created."
+        response?.data?.error ||
+        "Live group session could not be created."
       );
     }
 
@@ -2031,8 +2033,8 @@ const CreateLiveGroupModal = ({
     if (!isSuccessResponse(response)) {
       throw new Error(
         response?.data?.message ||
-          response?.data?.error ||
-          "Live group session could not be updated."
+        response?.data?.error ||
+        "Live group session could not be updated."
       );
     }
 
@@ -2109,8 +2111,8 @@ const CreateLiveGroupModal = ({
     if (!isSuccessResponse(response)) {
       throw new Error(
         response?.data?.message ||
-          response?.data?.error ||
-          `${tablename} could not be updated.`
+        response?.data?.error ||
+        `${tablename} could not be updated.`
       );
     }
 
@@ -2129,9 +2131,9 @@ const CreateLiveGroupModal = ({
 
       const weekId = Number(
         session?.group_batch_week_id ||
-          session?.week_id ||
-          session?.groupBatchWeekId ||
-          0
+        session?.week_id ||
+        session?.groupBatchWeekId ||
+        0
       );
 
       if (weekNo > 0 && weekId > 0) {
@@ -2152,16 +2154,16 @@ const CreateLiveGroupModal = ({
 
     const existingWeekClasses = isEditMode
       ? safeClasses.filter(
-          (item) => item?.id && getSessionWeekNo(item) === targetWeekNo
-        )
+        (item) => item?.id && getSessionWeekNo(item) === targetWeekNo
+      )
       : [];
 
     const sourceClasses = existingWeekClasses.length
       ? existingWeekClasses
       : safeClasses.filter((item) => {
-          if (!item?.id) return true;
-          return getSessionWeekNo(item) === getBaseWeekNoFromSessions(safeClasses);
-        });
+        if (!item?.id) return true;
+        return getSessionWeekNo(item) === getBaseWeekNoFromSessions(safeClasses);
+      });
 
     const weekDates = sourceClasses
       .map((item) => {
@@ -2232,9 +2234,9 @@ const CreateLiveGroupModal = ({
 
     const insertedWeekId = Number(
       firstRow?.group_batch_week_id ||
-        firstRow?.id ||
-        firstRow?.week_id ||
-        0
+      firstRow?.id ||
+      firstRow?.week_id ||
+      0
     );
 
     if (!insertedWeekId) {
@@ -2302,8 +2304,8 @@ const CreateLiveGroupModal = ({
     if (!isSuccessResponse(response)) {
       throw new Error(
         response?.data?.message ||
-          response?.data?.error ||
-          `Teacher setup could not be updated for session ${sessionId}.`
+        response?.data?.error ||
+        `Teacher setup could not be updated for session ${sessionId}.`
       );
     }
 
@@ -2478,8 +2480,7 @@ const CreateLiveGroupModal = ({
             console.error("GROUP SESSION INSERT RESPONSE ID MISSING =>", res);
 
             throw new Error(
-              `Week ${weekNo} - Class ${
-                i + 1
+              `Week ${weekNo} - Class ${i + 1
               }: Session created but inserted ID was not returned.`
             );
           }
@@ -2529,8 +2530,7 @@ const CreateLiveGroupModal = ({
           }
         } catch (insertErr) {
           throw new Error(
-            `Week ${weekNo} - Class ${i + 1} insert failed: ${
-              insertErr?.message || "Unknown error"
+            `Week ${weekNo} - Class ${i + 1} insert failed: ${insertErr?.message || "Unknown error"
             }`
           );
         }
@@ -2585,7 +2585,7 @@ const CreateLiveGroupModal = ({
     const teacherSetupWarnings = [];
     const cancelledRemovedSessions = [];
 
-        const safeNumberOfWeeks = Number(numberOfWeeks || 1);
+    const safeNumberOfWeeks = Number(numberOfWeeks || 1);
 
     const allEditableClasses = (classes || [])
       .filter(Boolean)
@@ -2718,7 +2718,7 @@ const CreateLiveGroupModal = ({
      */
     const baseAssistantIdsByClassOrder = new Map();
 
-        baseTemplates.forEach((template, index) => {
+    baseTemplates.forEach((template, index) => {
       const classOrder = getResolvedClassOrderForEditItem(template, index);
 
       const assistantIds = cleanAssistantTeacherIds(
@@ -2761,7 +2761,7 @@ const CreateLiveGroupModal = ({
         continue;
       }
 
-            const classOrder = getResolvedClassOrderForEditItem(item, i);
+      const classOrder = getResolvedClassOrderForEditItem(item, i);
       const itemForSave = withInheritedAssistants(item, classOrder - 1);
       const updatePayload = buildExistingSessionUpdateData(
         itemForSave,
@@ -2772,7 +2772,7 @@ const CreateLiveGroupModal = ({
       updatedSessions.push({
         id: item.id,
         week_no: weekNo,
-                class_order: classOrder,
+        class_order: classOrder,
         response: res,
       });
 
@@ -2813,7 +2813,7 @@ const CreateLiveGroupModal = ({
       });
 
       for (let templateIndex = 0; templateIndex < baseTemplates.length; templateIndex += 1) {
-                const template = baseTemplates[templateIndex];
+        const template = baseTemplates[templateIndex];
 
         const classOrder = getResolvedClassOrderForEditItem(
           template,
@@ -2835,7 +2835,7 @@ const CreateLiveGroupModal = ({
           weekNo === templateWeekNo
             ? null
             : baseParentSessionByClassOrder.get(classOrder) ||
-              (Number(templateForSave?.id || 0) > 0 ? Number(templateForSave.id) : null);
+            (Number(templateForSave?.id || 0) > 0 ? Number(templateForSave.id) : null);
 
         const row = buildSingleInsertRow({
           item: {
@@ -2908,8 +2908,7 @@ const CreateLiveGroupModal = ({
           }
         } catch (insertErr) {
           throw new Error(
-            `Week ${weekNo} - Class ${classOrder} insert failed: ${
-              insertErr?.message || "Unknown error"
+            `Week ${weekNo} - Class ${classOrder} insert failed: ${insertErr?.message || "Unknown error"
             }`
           );
         }
@@ -3000,9 +2999,8 @@ const CreateLiveGroupModal = ({
       const successText = isTeacherOnlyEdit
         ? "Teachers and assistant teachers updated successfully."
         : isEditMode
-        ? "Live group sessions updated successfully."
-        : `${totalGeneratedSessions} live group session${
-            totalGeneratedSessions > 1 ? "s" : ""
+          ? "Live group sessions updated successfully."
+          : `${totalGeneratedSessions} live group session${totalGeneratedSessions > 1 ? "s" : ""
           } created successfully.`;
 
       setSuccessMsg(successText);
@@ -3050,8 +3048,8 @@ const CreateLiveGroupModal = ({
         adminTime: convertedTime.isValid
           ? convertedTime.portal_time_label
           : item.slot_start && item.slot_end
-          ? `${item.slot_start} - ${item.slot_end}`
-          : "-",
+            ? `${item.slot_start} - ${item.slot_end}`
+            : "-",
 
         teacherDate: convertedTime.isValid
           ? convertedTime.teacher_date_label
@@ -3844,16 +3842,16 @@ const CreateLiveGroupModal = ({
               {isTeacherOnlyEdit
                 ? "Update Teachers & Assistants"
                 : isEditMode
-                ? "Edit Live Group Sessions"
-                : "Create Live Group Sessions"}
+                  ? "Edit Live Group Sessions"
+                  : "Create Live Group Sessions"}
             </h4>
 
             <div className="gl-create-subtitle">
               {isTeacherOnlyEdit
                 ? "This batch already has bookings, so only main teachers and assistant teachers can be updated."
                 : isEditMode
-                ? "Update curriculum classes, teacher, subject, timezone, date and time."
-                : "Select curriculum and create one or more live classes."}
+                  ? "Update curriculum classes, teacher, subject, timezone, date and time."
+                  : "Select curriculum and create one or more live classes."}
             </div>
           </div>
 
@@ -3953,16 +3951,22 @@ const CreateLiveGroupModal = ({
 
                 <div className="col-lg-3 col-md-6">
                   <label className="form-label">Number of Weeks</label>
+
                   <select
                     className="form-select"
                     value={form.number_of_weeks}
                     onChange={(e) => setField("number_of_weeks", e.target.value)}
                     disabled={loading || isCurriculumLocked || isTeacherOnlyEdit}
                   >
-                    <option value="1">1 Week</option>
-                    <option value="2">2 Weeks</option>
-                    <option value="3">3 Weeks</option>
-                    <option value="4">4 Weeks</option>
+                    {Array.from({ length: 10 }, (_, index) => {
+                      const week = index + 1;
+
+                      return (
+                        <option key={week} value={String(week)}>
+                          {week} {week === 1 ? "Week" : "Weeks"}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
@@ -3982,11 +3986,10 @@ const CreateLiveGroupModal = ({
                         </div>
 
                         <span
-                          className={`gl-visibility-badge-text ${
-                            Number(form.show_on_web ?? 1) === 1
-                              ? "gl-visibility-badge-public"
-                              : "gl-visibility-badge-private"
-                          }`}
+                          className={`gl-visibility-badge-text ${Number(form.show_on_web ?? 1) === 1
+                            ? "gl-visibility-badge-public"
+                            : "gl-visibility-badge-private"
+                            }`}
                         >
                           {Number(form.show_on_web ?? 1) === 1
                             ? "Public Batch"
@@ -4045,9 +4048,8 @@ const CreateLiveGroupModal = ({
                     <div>
                       <h6 className="gl-class-title">
                         {isEditMode
-                          ? `Week ${item.week_no || getSessionWeekNo(item)} • Class ${
-                              item.class_order || getSessionClassOrder(item, index)
-                            }`
+                          ? `Week ${item.week_no || getSessionWeekNo(item)} • Class ${item.class_order || getSessionClassOrder(item, index)
+                          }`
                           : `Class ${index + 1}`}
                       </h6>
 
@@ -4081,8 +4083,8 @@ const CreateLiveGroupModal = ({
                         {isTeacherOnlyEdit
                           ? "Teachers Only"
                           : isEditMode
-                          ? "Editable Session"
-                          : "Required"}
+                            ? "Editable Session"
+                            : "Required"}
                       </span>
 
                       {!isCurriculumLocked && classes.length > 1 ? (
@@ -4150,8 +4152,8 @@ const CreateLiveGroupModal = ({
                             {item.subjectLoading
                               ? "Loading subjects..."
                               : item.teacherid
-                              ? "Select Subject"
-                              : "Select teacher first"}
+                                ? "Select Subject"
+                                : "Select teacher first"}
                           </option>
 
                           {(item.subjectOptions || []).map((s) => (
@@ -4306,13 +4308,12 @@ const CreateLiveGroupModal = ({
               <div className="gl-preview-line">
                 <strong>Group Session Price:</strong>{" "}
                 {selectedProgramme?.weekly_price ||
-                editProgramme?.weekly_price ||
-                preselectedProgramme?.weekly_price
-                  ? `AED ${
-                      selectedProgramme?.weekly_price ||
-                      editProgramme?.weekly_price ||
-                      preselectedProgramme?.weekly_price
-                    }`
+                  editProgramme?.weekly_price ||
+                  preselectedProgramme?.weekly_price
+                  ? `AED ${selectedProgramme?.weekly_price ||
+                  editProgramme?.weekly_price ||
+                  preselectedProgramme?.weekly_price
+                  }`
                   : "-"}
               </div>
 
@@ -4393,13 +4394,13 @@ const CreateLiveGroupModal = ({
                 ? isTeacherOnlyEdit
                   ? "Updating Teachers..."
                   : isEditMode
-                  ? "Updating..."
-                  : "Creating..."
+                    ? "Updating..."
+                    : "Creating..."
                 : isTeacherOnlyEdit
-                ? "Update Teachers & Assistants"
-                : isEditMode
-                ? "Update Sessions"
-                : "Create Sessions"}
+                  ? "Update Teachers & Assistants"
+                  : isEditMode
+                    ? "Update Sessions"
+                    : "Create Sessions"}
             </button>
           </div>
         </form>

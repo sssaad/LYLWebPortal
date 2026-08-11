@@ -1908,8 +1908,8 @@ const GroupLiveSessionsLayer = () => {
 
                           <div
                             className={`gl-visibility-badge ${Number(programme.show_on_web ?? 1) === 1
-                                ? "gl-visibility-public"
-                                : "gl-visibility-private"
+                              ? "gl-visibility-public"
+                              : "gl-visibility-private"
                               }`}
                           >
                             <Icon
@@ -2049,8 +2049,8 @@ const GroupLiveSessionsLayer = () => {
                                 className="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1 gl-copy-link-btn"
                                 onClick={async () => {
                                   const link = `https://gostudy.ae/group-tuition/${programme.programme_id}${programme.group_batch_id
-                                      ? `?group_batch_id=${programme.group_batch_id}`
-                                      : ""
+                                    ? `?group_batch_id=${programme.group_batch_id}`
+                                    : ""
                                     }`;
 
                                   try {
