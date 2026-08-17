@@ -65,6 +65,41 @@ const GroupBookingListLayer = () => {
       .replace(/\\\//g, "/")
       .trim();
 
+  const cleanTimezone = (
+  value
+) =>
+  String(value || "")
+    .replace(/\\\//g, "/")
+    .trim();
+
+const getStudentTimezone = (
+  item
+) => {
+  const timezone =
+    cleanTimezone(
+      item?.studentTime_zone
+    ) ||
+    cleanTimezone(
+      item?.student_timezone
+    ) ||
+    cleanTimezone(
+      item?.studentTimezone
+    ) ||
+    cleanTimezone(
+      item?.timezone_location
+    ) ||
+    cleanTimezone(
+      item?.timezone
+    ) ||
+    TZ;
+
+  return moment.tz.zone(
+    timezone
+  )
+    ? timezone
+    : TZ;
+};
+
   const getRole = (item) =>
     norm(
       item?.group_user_role
@@ -142,71 +177,96 @@ const GroupBookingListLayer = () => {
     );
   };
 
-  const parseSessionDateTime = (
-    item,
-    type = "start"
-  ) => {
-    /*
-     * Group session date/time is already
-     * saved in Asia/Dubai timezone.
-     */
-    const date =
-      item?.group_session_date ||
-      item?.bookdate ||
-      item?.booking_date ||
-      "";
+ const parseSessionDateTime = (
+  item,
+  type = "start"
+) => {
+  /*
+   * First preference:
+   * bookteacher date/time.
+   *
+   * These values are stored in the
+   * student's booking timezone.
+   */
+  const bookingDate =
+    item?.bookdate || "";
 
-    const time =
-      type === "end"
-        ? item?.group_session_end ||
-          item?.slot_end ||
-          item?.booking_end_time ||
-          "00:00:00"
-        : item?.group_session_start ||
-          item?.slot_start ||
-          item?.booking_start_time ||
-          "00:00:00";
+  const bookingTime =
+    type === "end"
+      ? item?.slot_end || ""
+      : item?.slot_start || "";
 
-    if (!date) {
-      return null;
-    }
+  const hasBookteacherDateTime =
+    Boolean(bookingDate) &&
+    Boolean(bookingTime);
 
-    const formats = [
-      "YYYY-MM-DD HH:mm:ss",
-      "YYYY-MM-DD HH:mm",
-      "YYYY/MM/DD HH:mm:ss",
-      "YYYY/MM/DD HH:mm",
-      "DD-MM-YYYY HH:mm:ss",
-      "DD-MM-YYYY HH:mm",
-      "DD/MM/YYYY HH:mm:ss",
-      "DD/MM/YYYY HH:mm",
-      moment.ISO_8601,
-    ];
+  /*
+   * Fallback:
+   * official group session fields.
+   */
+  const date =
+    hasBookteacherDateTime
+      ? bookingDate
+      : item?.group_session_date ||
+        item?.booking_date ||
+        "";
 
-    let parsed =
-      moment.tz(
-        `${date} ${time}`,
-        formats,
-        true,
-        TZ
-      );
+  const time =
+    hasBookteacherDateTime
+      ? bookingTime
+      : type === "end"
+      ? item?.group_session_end ||
+        item?.booking_end_time ||
+        "00:00:00"
+      : item?.group_session_start ||
+        item?.booking_start_time ||
+        "00:00:00";
 
-    if (
-      !parsed.isValid()
-    ) {
-      parsed =
-        moment.tz(
-          `${date} ${time}`,
-          formats,
-          TZ
-        );
-    }
+  if (!date) {
+    return null;
+  }
 
-    return parsed.isValid()
-      ? parsed
-      : null;
-  };
+  const sourceTimezone =
+    hasBookteacherDateTime
+      ? getStudentTimezone(item)
+      : TZ;
 
+  const formats = [
+    "YYYY-MM-DD HH:mm:ss",
+    "YYYY-MM-DD HH:mm",
+    "YYYY/MM/DD HH:mm:ss",
+    "YYYY/MM/DD HH:mm",
+    "DD-MM-YYYY HH:mm:ss",
+    "DD-MM-YYYY HH:mm",
+    "DD/MM/YYYY HH:mm:ss",
+    "DD/MM/YYYY HH:mm",
+    moment.ISO_8601,
+  ];
+
+  let parsed = moment.tz(
+    `${date} ${time}`,
+    formats,
+    true,
+    sourceTimezone
+  );
+
+  if (!parsed.isValid()) {
+    parsed = moment.tz(
+      `${date} ${time}`,
+      formats,
+      sourceTimezone
+    );
+  }
+
+  if (!parsed.isValid()) {
+    return null;
+  }
+
+  /*
+   * Portal always displays Asia/Dubai.
+   */
+  return parsed.tz(TZ);
+};
   const getRecordingUrl = (
     sessionRows
   ) => {

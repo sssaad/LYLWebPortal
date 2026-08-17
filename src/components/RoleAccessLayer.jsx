@@ -371,78 +371,47 @@ const RoleAccessLayer = () => {
       : TZ;
   };
 
-  const getBookDateValue = (
-    item
-  ) => {
-    if (
-      Number(
-        item?.is_group_booking ||
-          0
-      ) === 1
-    ) {
-      return (
-        item?.group_session_date ||
-        item?.bookdate ||
-        item?.booking_date ||
-        ""
-      );
-    }
+const getBookDateValue = (
+  item
+) => {
+  /*
+   * Prefer bookteacher date.
+   *
+   * bookteacher date/time belongs to
+   * the student's booking timezone.
+   *
+   * Group session fields are fallback
+   * only.
+   */
+  return (
+    item?.bookdate ||
+    item?.booking_date ||
+    item?.group_session_date ||
+    ""
+  );
+};
 
-    return (
-      item?.bookdate ||
-      item?.booking_date ||
-      ""
-    );
-  };
+const getSlotStartValue = (
+  item
+) => {
+  return (
+    item?.slot_start ||
+    item?.booking_start_time ||
+    item?.group_session_start ||
+    ""
+  );
+};
 
-  const getSlotStartValue = (
-    item
-  ) => {
-    if (
-      Number(
-        item?.is_group_booking ||
-          0
-      ) === 1
-    ) {
-      return (
-        item?.group_session_start ||
-        item?.slot_start ||
-        item?.booking_start_time ||
-        ""
-      );
-    }
-
-    return (
-      item?.slot_start ||
-      item?.booking_start_time ||
-      ""
-    );
-  };
-
-  const getSlotEndValue = (
-    item
-  ) => {
-    if (
-      Number(
-        item?.is_group_booking ||
-          0
-      ) === 1
-    ) {
-      return (
-        item?.group_session_end ||
-        item?.slot_end ||
-        item?.booking_end_time ||
-        ""
-      );
-    }
-
-    return (
-      item?.slot_end ||
-      item?.booking_end_time ||
-      ""
-    );
-  };
-
+const getSlotEndValue = (
+  item
+) => {
+  return (
+    item?.slot_end ||
+    item?.booking_end_time ||
+    item?.group_session_end ||
+    ""
+  );
+};
   const getBookingId = (
     item
   ) =>
@@ -471,19 +440,37 @@ const RoleAccessLayer = () => {
      * Official group session date and time
      * are already stored in Asia/Dubai.
      */
-    const sourceTimezone =
-      Number(
-        item?.is_group_booking ||
-          0
-      ) === 1 &&
-      Boolean(
-        item?.group_session_date
-      )
-        ? TZ
-        : getStudentTimezone(
-            item
-          );
+   /*
+ * bookteacher.slot_start / slot_end are
+ * stored in the student's booking timezone.
+ *
+ * Convert that source timezone to Dubai.
+ *
+ * Only use Dubai directly when there is no
+ * bookteacher date/time and we have fallen
+ * back to official group session fields.
+ */
+const hasBookteacherDateTime =
+  Boolean(item?.bookdate) &&
+  Boolean(
+    type === "end"
+      ? item?.slot_end
+      : item?.slot_start
+  );
 
+const isGroup =
+  Number(
+    item?.is_group_booking ||
+      0
+  ) === 1;
+
+const sourceTimezone =
+  isGroup &&
+  !hasBookteacherDateTime
+    ? TZ
+    : getStudentTimezone(
+        item
+      );
     const dateTimeValue =
       timeValue
         ? `${dateValue} ${timeValue}`
