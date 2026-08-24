@@ -17,8 +17,8 @@ import { hardDeleteUser } from "../api/hardDeleteUser";
 
 const FALLBACK_AVATAR = "https://gostudy.ae/assets/invalid-square.png";
 
-const SET_PASSWORD_URL =
-  "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=set_password";
+const PORTAL_RESET_PASSWORD_URL =
+  "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=portal_reset_user_password";
 
 const API_HEADERS = {
   "Content-Type": "application/json",
@@ -142,8 +142,8 @@ const StudentListLayer = () => {
   const getRowKey = (s) =>
     String(
       s?.id ??
-        getUD(s)?.userid ??
-        `${s?.email ?? ""}-${s?.phonenumber ?? ""}-${s?.createddate ?? ""}`
+      getUD(s)?.userid ??
+      `${s?.email ?? ""}-${s?.phonenumber ?? ""}-${s?.createddate ?? ""}`
     );
 
   const getFirstName = (s) => getUD(s).firstname ?? s.firstname ?? "";
@@ -196,9 +196,8 @@ const StudentListLayer = () => {
     const city = ud.city ?? s.city ?? "";
     const postcode = ud.postcode ?? s.postcode ?? "";
 
-    return `${street ? street + ", " : ""}${area ? area + ", " : ""}${
-      city ? city + " " : ""
-    }${postcode}`
+    return `${street ? street + ", " : ""}${area ? area + ", " : ""}${city ? city + " " : ""
+      }${postcode}`
       .replace(/, ,/g, ",")
       .replace(/,\s*$/, "");
   };
@@ -283,8 +282,8 @@ const StudentListLayer = () => {
         const list = Array.isArray(res)
           ? res
           : Array.isArray(res?.data)
-          ? res.data
-          : [];
+            ? res.data
+            : [];
         setNationalities(list || []);
       } catch (e) {
         console.error("getNationalities error:", e);
@@ -468,8 +467,15 @@ const StudentListLayer = () => {
           return false;
         }
 
-        if (newPassword.length < 6) {
-          Swal.showValidationMessage("Password must be at least 6 characters.");
+        if (
+          newPassword.length < 8 ||
+          !/[A-Z]/.test(newPassword) ||
+          !/\d/.test(newPassword) ||
+          !/[a-zA-Z]/.test(newPassword)
+        ) {
+          Swal.showValidationMessage(
+            "Password must be at least 8 characters long and include an uppercase letter and a number."
+          );
           return false;
         }
 
@@ -559,11 +565,12 @@ const StudentListLayer = () => {
 
       const payload = {
         token,
-        email: resetEmail,
+        target_user_id: getUID(student),
         newpassword: newPassword,
+        admin_user_id: Number(localStorage.getItem("user_id")),
+        session_version: localStorage.getItem("session_version"),
       };
-
-      const res = await axios.post(SET_PASSWORD_URL, payload, {
+      const res = await axios.post(PORTAL_RESET_PASSWORD_URL, payload, {
         headers: API_HEADERS,
       });
 
@@ -683,11 +690,9 @@ const StudentListLayer = () => {
 
     const yearVal = getStudentYear(student);
     const fullText =
-      `${fullName} ${getEmail(student)} ${getUsername(student)} ${
-        getParentEmail(student) || ""
-      } ${address} ${getNationalityName(student)} ${
-        yearVal ? `year ${yearVal}` : ""
-      }`.toLowerCase();
+      `${fullName} ${getEmail(student)} ${getUsername(student)} ${getParentEmail(student) || ""
+        } ${address} ${getNationalityName(student)} ${yearVal ? `year ${yearVal}` : ""
+        }`.toLowerCase();
 
     const matchesSearch = fullText.includes((searchTerm || "").toLowerCase());
 
@@ -1305,9 +1310,8 @@ const StudentListLayer = () => {
                             e.currentTarget.src = FALLBACK_AVATAR;
                           }}
                           alt="User"
-                          className={`w-40-px h-40-px rounded-circle me-12 ${
-                            incomplete ? "avatar-ring-danger" : ""
-                          }`}
+                          className={`w-40-px h-40-px rounded-circle me-12 ${incomplete ? "avatar-ring-danger" : ""
+                            }`}
                           style={{ objectFit: "cover" }}
                         />
                         <span>{name}</span>
@@ -1322,9 +1326,8 @@ const StudentListLayer = () => {
                     <td className="text-center">
                       <div className="d-flex justify-content-center gap-2">
                         <button
-                          className={`btn btn-sm ${
-                            incomplete ? "btn-outline-danger" : "btn-primary"
-                          }`}
+                          className={`btn btn-sm ${incomplete ? "btn-outline-danger" : "btn-primary"
+                            }`}
                           onClick={() => openStudent(s)}
                           title={incomplete ? "Add Details" : "View / Edit"}
                         >
@@ -1386,7 +1389,7 @@ const StudentListLayer = () => {
           }}
           userid={selectedStudentId}
           seed={seedRow}
-          onSave={() => {}}
+          onSave={() => { }}
         />
       )}
 

@@ -257,7 +257,7 @@ const TeacherPayoutListPage = () => {
 
   const getPaidStatus = (row) =>
     String(row?.paid_status).toLowerCase() ===
-    "paid"
+      "paid"
       ? "Paid"
       : "Unpaid";
 
@@ -291,7 +291,7 @@ const TeacherPayoutListPage = () => {
 
   const formatExportStatus = (value) =>
     String(value || "").toLowerCase() ===
-    "paid"
+      "paid"
       ? "Paid"
       : "Unpaid";
 
@@ -310,10 +310,10 @@ const TeacherPayoutListPage = () => {
 
       const profit = parseAmount(
         counts?.totalprofit ??
-          counts?.total_profit ??
-          counts?.profit ??
-          counts?.totalProfit ??
-          0,
+        counts?.total_profit ??
+        counts?.profit ??
+        counts?.totalProfit ??
+        0,
       );
 
       const tutorPayout = parseAmount(
@@ -527,18 +527,18 @@ const TeacherPayoutListPage = () => {
               "—",
 
             session_date:
-              group?.session_date ||
               baseRow?.session_date ||
+              group?.session_date ||
               "",
 
             start_time:
-              group?.slot_start ||
               baseRow?.start_time ||
+              group?.slot_start ||
               "",
 
             end_time:
-              group?.slot_end ||
               baseRow?.end_time ||
+              group?.slot_end ||
               "",
 
             session_fee_aed:
@@ -598,12 +598,12 @@ const TeacherPayoutListPage = () => {
 
           const rowKey = isGroupBooking
             ? `group_${safeId(
-                item
-                  ?.group_live_session_id,
-              )}`
+              item
+                ?.group_live_session_id,
+            )}`
             : teacherPayoutId ||
-              bookingId ||
-              makeFallbackKey();
+            bookingId ||
+            makeFallbackKey();
 
           const isTutorPaid =
             String(
@@ -647,15 +647,15 @@ const TeacherPayoutListPage = () => {
             payment_amount_aed:
               item?.tutor_payout_aed !==
                 null &&
-              item?.tutor_payout_aed !==
+                item?.tutor_payout_aed !==
                 undefined &&
-              String(
-                item?.tutor_payout_aed,
-              ).trim() !== ""
+                String(
+                  item?.tutor_payout_aed,
+                ).trim() !== ""
                 ? String(
-                    item
-                      ?.tutor_payout_aed,
-                  )
+                  item
+                    ?.tutor_payout_aed,
+                )
                 : "",
 
             paid_status: isTutorPaid
@@ -670,8 +670,8 @@ const TeacherPayoutListPage = () => {
             payout_method:
               item?.payout_method
                 ? String(
-                    item.payout_method,
-                  )
+                  item.payout_method,
+                )
                 : "",
 
             is_group_booking:
@@ -697,7 +697,7 @@ const TeacherPayoutListPage = () => {
                   ?.all_group_booking_ids,
               )
                 ? item
-                    .all_group_booking_ids
+                  .all_group_booking_ids
                 : [],
 
             main_booking_ids:
@@ -722,7 +722,7 @@ const TeacherPayoutListPage = () => {
     } catch (error) {
       if (
         error?.name ===
-          "CanceledError" ||
+        "CanceledError" ||
         error?.code === "ERR_CANCELED"
       ) {
         return;
@@ -771,10 +771,10 @@ const TeacherPayoutListPage = () => {
       previousRows.map((row) =>
         row._key === rowKey
           ? markDirty({
-              ...row,
-              payment_amount_aed:
-                value,
-            })
+            ...row,
+            payment_amount_aed:
+              value,
+          })
           : row,
       ),
     );
@@ -818,9 +818,9 @@ const TeacherPayoutListPage = () => {
       previousRows.map((row) =>
         row._key === rowKey
           ? markDirty({
-              ...row,
-              paid_on: value,
-            })
+            ...row,
+            paid_on: value,
+          })
           : row,
       ),
     );
@@ -834,9 +834,9 @@ const TeacherPayoutListPage = () => {
       previousRows.map((row) =>
         row._key === rowKey
           ? markDirty({
-              ...row,
-              payout_method: value,
-            })
+            ...row,
+            payout_method: value,
+          })
           : row,
       ),
     );
@@ -850,9 +850,9 @@ const TeacherPayoutListPage = () => {
       previousRows.map((row) =>
         row._key === rowKey
           ? {
-              ...row,
-              _rowError: message,
-            }
+            ...row,
+            _rowError: message,
+          }
           : row,
       ),
     );
@@ -927,12 +927,12 @@ const TeacherPayoutListPage = () => {
         previousRows.map(
           (currentRow) =>
             currentRow._key ===
-            row._key
+              row._key
               ? {
-                  ...currentRow,
-                  _saving: true,
-                  _rowError: "",
-                }
+                ...currentRow,
+                _saving: true,
+                _rowError: "",
+              }
               : currentRow,
         ),
       );
@@ -959,9 +959,9 @@ const TeacherPayoutListPage = () => {
         group_live_session_id:
           row.is_group_booking
             ? safeId(
-                row
-                  .group_live_session_id,
-              )
+              row
+                .group_live_session_id,
+            )
             : null,
 
         tutor_payout_aed:
@@ -978,8 +978,8 @@ const TeacherPayoutListPage = () => {
         payout_method:
           row.payout_method
             ? String(
-                row.payout_method,
-              )
+              row.payout_method,
+            )
             : null,
       };
 
@@ -994,10 +994,10 @@ const TeacherPayoutListPage = () => {
 
       const successful =
         response?.data?.statusCode ===
-          200 ||
+        200 ||
         String(
           response?.data?.message ||
-            "",
+          "",
         )
           .toLowerCase()
           .includes("successful");
@@ -1005,7 +1005,7 @@ const TeacherPayoutListPage = () => {
       if (!successful) {
         throw new Error(
           response?.data?.message ||
-            "Save failed",
+          "Save failed",
         );
       }
 
@@ -1026,7 +1026,7 @@ const TeacherPayoutListPage = () => {
     } catch (error) {
       if (
         error?.name ===
-          "CanceledError" ||
+        "CanceledError" ||
         error?.code === "ERR_CANCELED"
       ) {
         return;
@@ -1047,12 +1047,12 @@ const TeacherPayoutListPage = () => {
         previousRows.map(
           (currentRow) =>
             currentRow._key ===
-            row._key
+              row._key
               ? {
-                  ...currentRow,
-                  _saving: false,
-                  _rowError: message,
-                }
+                ...currentRow,
+                _saving: false,
+                _rowError: message,
+              }
               : currentRow,
         ),
       );
@@ -1092,60 +1092,49 @@ const TeacherPayoutListPage = () => {
     const filteredRows = (
       rows || []
     ).filter((row) => {
-      const searchableText = `${
-        row?.booking_id ?? ""
-      } ${
-        row?.booking_display_id ?? ""
-      } ${
-        row?.group_live_session_id ??
+      const searchableText = `${row?.booking_id ?? ""
+        } ${row?.booking_display_id ?? ""
+        } ${row?.group_live_session_id ??
         ""
-      } ${
-        row?.teacher_name ?? ""
-      } ${
-        row?.student_name ?? ""
-      } ${
-        row?.subject_name ?? ""
-      } ${
-        row?.booking_date ?? ""
-      } ${
-        row?.slot_start ?? ""
-      } ${
-        row?.slot_end ?? ""
-      } ${
-        row?.paid_status ?? ""
-      } ${
-        row?.payout_method ?? ""
-      }`
+        } ${row?.teacher_name ?? ""
+        } ${row?.student_name ?? ""
+        } ${row?.subject_name ?? ""
+        } ${row?.booking_date ?? ""
+        } ${row?.slot_start ?? ""
+        } ${row?.slot_end ?? ""
+        } ${row?.paid_status ?? ""
+        } ${row?.payout_method ?? ""
+        }`
         .toLowerCase()
         .trim();
 
       const matchesSearch = term
         ? searchableText.includes(
-            term,
-          )
+          term,
+        )
         : true;
 
       const matchesPaidStatus =
         paidFilter === ""
           ? true
           : String(
-                row?.paid_status ||
-                  "",
-              ).toLowerCase() ===
-            String(
-              paidFilter,
-            ).toLowerCase();
+            row?.paid_status ||
+            "",
+          ).toLowerCase() ===
+          String(
+            paidFilter,
+          ).toLowerCase();
 
       const matchesMethod =
         methodFilter === ""
           ? true
           : String(
-                row?.payout_method ||
-                  "",
-              ).toLowerCase() ===
-            String(
-              methodFilter,
-            ).toLowerCase();
+            row?.payout_method ||
+            "",
+          ).toLowerCase() ===
+          String(
+            methodFilter,
+          ).toLowerCase();
 
       const itemDate =
         parseSqlLikeDateTime(
@@ -1419,8 +1408,7 @@ const TeacherPayoutListPage = () => {
     document.setFontSize(9);
 
     document.text(
-      `Total: ${summary.total} | Paid: ${summary.paid} | Unpaid: ${
-        summary.unpaid
+      `Total: ${summary.total} | Paid: ${summary.paid} | Unpaid: ${summary.unpaid
       } | Total Revenue: ${money(
         totalRevenue,
       )} | Total Profit: ${money(
@@ -1453,8 +1441,8 @@ const TeacherPayoutListPage = () => {
         index + 1,
 
         item?.booking_display_id ||
-          item?.booking_id ||
-          "—",
+        item?.booking_id ||
+        "—",
 
         item?.teacher_name || "—",
         item?.student_name || "—",
@@ -1536,7 +1524,7 @@ const TeacherPayoutListPage = () => {
     1,
     Math.ceil(
       filteredData.length /
-        itemsPerPage,
+      itemsPerPage,
     ),
   );
 
@@ -1998,7 +1986,7 @@ const TeacherPayoutListPage = () => {
                               }{" "}
                               student
                               {row.student_count ===
-                              1
+                                1
                                 ? ""
                                 : "s"}
                             </div>
@@ -2248,12 +2236,11 @@ const TeacherPayoutListPage = () => {
             }).map((_, index) => (
               <li
                 key={index}
-                className={`page-item ${
-                  currentPage ===
-                  index + 1
+                className={`page-item ${currentPage ===
+                    index + 1
                     ? "active"
                     : ""
-                }`}
+                  }`}
               >
                 <button
                   type="button"

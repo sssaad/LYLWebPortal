@@ -19,8 +19,8 @@ import BankDetailModal from "../components/BankDetailModal";
 
 const FALLBACK_AVATAR = "https://gostudy.ae/assets/invalid-square.png";
 
-const SET_PASSWORD_URL =
-  "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=set_password";
+const PORTAL_RESET_PASSWORD_URL =
+  "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=portal_reset_user_password";
 
 const TEACHER_PUBLIC_PROFILE_BASE_URL = "https://gostudy.ae/teachersdetails";
 
@@ -253,20 +253,20 @@ const TeacherListLayer = () => {
   };
 
   const handleCopyTeacherLink = async (teacher) => {
-  const teacherId = teacher?.userid;
-  const teacherName = displayName(teacher);
+    const teacherId = teacher?.userid;
+    const teacherName = displayName(teacher);
 
-  if (!teacherId) {
-    Swal.fire("Error", "Incomplete teacher. Userid missing hai.", "error");
-    return;
-  }
+    if (!teacherId) {
+      Swal.fire("Error", "Incomplete teacher. Userid missing hai.", "error");
+      return;
+    }
 
-  const publicLink = `${TEACHER_PUBLIC_PROFILE_BASE_URL}/${teacherId}`;
-  const theme = getSwalTheme();
+    const publicLink = `${TEACHER_PUBLIC_PROFILE_BASE_URL}/${teacherId}`;
+    const theme = getSwalTheme();
 
-  const confirm = await Swal.fire({
-    title: "Copy Teacher Link?",
-    html: `
+    const confirm = await Swal.fire({
+      title: "Copy Teacher Link?",
+      html: `
       <div style="text-align:left;">
         <div style="font-weight:700; margin-bottom:8px;">
           ${escapeHtml(teacherName)}
@@ -283,73 +283,73 @@ const TeacherListLayer = () => {
         </div>
       </div>
     `,
-    icon: "question",
-    showCancelButton: true,
-    confirmButtonText: "Copy Link",
-    cancelButtonText: "Cancel",
-    buttonsStyling: false,
-    background: theme.background,
-    color: theme.color,
-    customClass: {
-      popup: theme.popupClass,
-      title: "reset-pass-title",
-      htmlContainer: "reset-pass-html",
-      confirmButton: "btn btn-primary px-20 py-10 radius-8",
-      cancelButton: "btn btn-outline-secondary px-20 py-10 radius-8 ms-2",
-    },
-  });
+      icon: "question",
+      showCancelButton: true,
+      confirmButtonText: "Copy Link",
+      cancelButtonText: "Cancel",
+      buttonsStyling: false,
+      background: theme.background,
+      color: theme.color,
+      customClass: {
+        popup: theme.popupClass,
+        title: "reset-pass-title",
+        htmlContainer: "reset-pass-html",
+        confirmButton: "btn btn-primary px-20 py-10 radius-8",
+        cancelButton: "btn btn-outline-secondary px-20 py-10 radius-8 ms-2",
+      },
+    });
 
-  if (!confirm.isConfirmed) return;
+    if (!confirm.isConfirmed) return;
 
-  try {
-    if (navigator?.clipboard?.writeText) {
-      await navigator.clipboard.writeText(publicLink);
-    } else {
-      copyTextFallback(publicLink);
-    }
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(publicLink);
+      } else {
+        copyTextFallback(publicLink);
+      }
 
-    const successTheme = getSwalTheme();
+      const successTheme = getSwalTheme();
 
-    Swal.fire({
-      title: "Link Copied",
-      html: `
+      Swal.fire({
+        title: "Link Copied",
+        html: `
         <div class="reset-success-text">
           Teacher profile link copied successfully.
           <br />
           <span style="word-break:break-all;">${escapeHtml(publicLink)}</span>
         </div>
       `,
-      icon: "success",
-      confirmButtonText: "Done",
-      buttonsStyling: false,
-      background: successTheme.background,
-      color: successTheme.color,
-      customClass: {
-        popup: successTheme.popupClass,
-        title: "reset-pass-title",
-        htmlContainer: "reset-pass-html",
-        confirmButton: "btn btn-primary px-20 py-10 radius-8",
-      },
-    });
-  } catch (error) {
-    console.error("Copy link error:", error);
+        icon: "success",
+        confirmButtonText: "Done",
+        buttonsStyling: false,
+        background: successTheme.background,
+        color: successTheme.color,
+        customClass: {
+          popup: successTheme.popupClass,
+          title: "reset-pass-title",
+          htmlContainer: "reset-pass-html",
+          confirmButton: "btn btn-primary px-20 py-10 radius-8",
+        },
+      });
+    } catch (error) {
+      console.error("Copy link error:", error);
 
-    const errorTheme = getSwalTheme();
+      const errorTheme = getSwalTheme();
 
-    Swal.fire({
-      title: "Copy Failed",
-      text: "Link copy nahi ho saka. Please try again.",
-      icon: "error",
-      buttonsStyling: false,
-      background: errorTheme.background,
-      color: errorTheme.color,
-      customClass: {
-        popup: errorTheme.popupClass,
-        confirmButton: "btn btn-primary px-20 py-10 radius-8",
-      },
-    });
-  }
-};
+      Swal.fire({
+        title: "Copy Failed",
+        text: "Link copy nahi ho saka. Please try again.",
+        icon: "error",
+        buttonsStyling: false,
+        background: errorTheme.background,
+        color: errorTheme.color,
+        customClass: {
+          popup: errorTheme.popupClass,
+          confirmButton: "btn btn-primary px-20 py-10 radius-8",
+        },
+      });
+    }
+  };
 
   const openSubjectsModal = (teacher) => {
     const subjects = getTeacherSubjectsArray(teacher);
@@ -441,6 +441,16 @@ const TeacherListLayer = () => {
     const accountLabel = getAccountLabel(teacher);
     const profileImage = getRawImage(teacher);
     const theme = getSwalTheme();
+    const targetUserId = getSeedUserId(teacher);
+
+    if (!targetUserId) {
+      Swal.fire({
+        title: "Update Failed",
+        text: "Teacher user ID is missing.",
+        icon: "error",
+      });
+      return;
+    }
 
     if (!resetEmail || resetEmail === "-") {
       Swal.fire({
@@ -579,8 +589,15 @@ const TeacherListLayer = () => {
           return false;
         }
 
-        if (newPassword.length < 6) {
-          Swal.showValidationMessage("Password must be at least 6 characters.");
+        if (
+          newPassword.length < 8 ||
+          !/[A-Z]/.test(newPassword) ||
+          !/\d/.test(newPassword) ||
+          !/[a-zA-Z]/.test(newPassword)
+        ) {
+          Swal.showValidationMessage(
+            "Password must be at least 8 characters long and include an uppercase letter and a number."
+          );
           return false;
         }
 
@@ -670,11 +687,13 @@ const TeacherListLayer = () => {
 
       const payload = {
         token,
-        email: resetEmail,
+        target_user_id: targetUserId,
         newpassword: newPassword,
+        admin_user_id: Number(localStorage.getItem("user_id")),
+        session_version: localStorage.getItem("session_version"),
       };
 
-      const res = await axios.post(SET_PASSWORD_URL, payload, {
+      const res = await axios.post(PORTAL_RESET_PASSWORD_URL, payload, {
         headers: API_HEADERS,
       });
 

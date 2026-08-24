@@ -15,8 +15,8 @@ import { getToken } from "../api/getToken";
 import { hardDeleteUser } from '../api/hardDeleteUser';
 
 const API_URL = 'https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=get_profiles';
-const SET_PASSWORD_URL =
-  "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=set_password";
+const PORTAL_RESET_PASSWORD_URL =
+  "https://api.learnyourlanguage.org/RestController_Thirdparty.php?view=portal_reset_user_password";
 
 const API_HEADERS = {
   'Content-Type': 'application/json',
@@ -401,6 +401,16 @@ const ParentListLayer = ({ useApi = true }) => {
     const accountLabel = resetEmail || "-";
     const profileImage = getRawParentImage(row);
     const theme = getSwalTheme();
+    const targetUserId = getHardDeleteId(row);
+
+    if (!targetUserId) {
+      Swal.fire({
+        title: "Update Failed",
+        text: "Parent user ID is missing.",
+        icon: "error",
+      });
+      return;
+    }
 
     if (!resetEmail || resetEmail === "-") {
       Swal.fire({
@@ -539,8 +549,15 @@ const ParentListLayer = ({ useApi = true }) => {
           return false;
         }
 
-        if (newPassword.length < 6) {
-          Swal.showValidationMessage("Password must be at least 6 characters.");
+        if (
+          newPassword.length < 8 ||
+          !/[A-Z]/.test(newPassword) ||
+          !/\d/.test(newPassword) ||
+          !/[a-zA-Z]/.test(newPassword)
+        ) {
+          Swal.showValidationMessage(
+            "Password must be at least 8 characters long and include an uppercase letter and a number."
+          );
           return false;
         }
 
@@ -630,11 +647,13 @@ const ParentListLayer = ({ useApi = true }) => {
 
       const payload = {
         token,
-        email: resetEmail,
+        target_user_id: targetUserId,
         newpassword: newPassword,
+        admin_user_id: Number(localStorage.getItem("user_id")),
+        session_version: localStorage.getItem("session_version"),
       };
 
-      const res = await axios.post(SET_PASSWORD_URL, payload, {
+      const res = await axios.post(PORTAL_RESET_PASSWORD_URL, payload, {
         headers: API_HEADERS,
       });
 
@@ -741,26 +760,26 @@ const ParentListLayer = ({ useApi = true }) => {
       prev.map((r) =>
         r.id === updated.userid || r.id === updated.id
           ? {
-              ...r,
-              parentName:
-                `${updated.firstname || ''} ${updated.lastname || ''}`.trim() || r.parentName,
-              email: updated.email || r.email,
-              phonenumber: updated.phonenumber || r.phonenumber,
-              nationalityid: updated.nationalityid ? String(updated.nationalityid) : r.nationalityid,
-              nationalityName: updated.nationality_name || r.nationalityName,
-              dob: updated.dob || r.dob,
-              street: updated.street ?? r.street,
-              area: updated.area ?? r.area,
-              city: updated.city ?? r.city,
-              postcode: updated.postcode ?? r.postcode,
-              address:
-                [updated.street, updated.area, updated.city, updated.postcode]
-                  .filter(Boolean)
-                  .join(', ') || r.address,
-              avatar: updated.imagepath ? updated.imagepath : r.avatar,
-              rawImage: updated.imagepath ? updated.imagepath : r.rawImage,
-              isProfileComplete: true,
-            }
+            ...r,
+            parentName:
+              `${updated.firstname || ''} ${updated.lastname || ''}`.trim() || r.parentName,
+            email: updated.email || r.email,
+            phonenumber: updated.phonenumber || r.phonenumber,
+            nationalityid: updated.nationalityid ? String(updated.nationalityid) : r.nationalityid,
+            nationalityName: updated.nationality_name || r.nationalityName,
+            dob: updated.dob || r.dob,
+            street: updated.street ?? r.street,
+            area: updated.area ?? r.area,
+            city: updated.city ?? r.city,
+            postcode: updated.postcode ?? r.postcode,
+            address:
+              [updated.street, updated.area, updated.city, updated.postcode]
+                .filter(Boolean)
+                .join(', ') || r.address,
+            avatar: updated.imagepath ? updated.imagepath : r.avatar,
+            rawImage: updated.imagepath ? updated.imagepath : r.rawImage,
+            isProfileComplete: true,
+          }
           : r
       )
     );

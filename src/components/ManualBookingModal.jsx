@@ -1594,22 +1594,7 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
       };
     }
 
-    const durationMinutes = getSlotDurationMinutes(
-      dateStr,
-      start,
-      end,
-      bookingTz
-    );
-
-    if (
-      normalizeSessionType(sessionType) === "Online" &&
-      durationMinutes !== 60
-    ) {
-      return {
-        error:
-          "Online custom slot duration must be exactly 1 hour.",
-      };
-    }
+       // Online and In-Person sessions can use any valid custom duration.
 
     const hasConflict = (bookedUtcIntervals || []).some((b) =>
       overlaps(
@@ -2297,13 +2282,7 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
     return m.isValid() ? m.format("HH:mm:ss") : "";
   };
 
-  useEffect(() => {
-    if (normalizeSessionType(sessionType) !== "Online") {
-      return;
-    }
-
-    const start = toHHMM(customSlotStart);
-
+    useEffect(() => {
     setSelectedSlot((previous) =>
       previous?.kind === "custom"
         ? null
@@ -2312,25 +2291,10 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
 
     setCustomSlotError("");
 
-    if (!start) {
+    if (!toHHMM(customSlotStart)) {
       setCustomSlotEnd("");
-      return;
     }
-
-    const automaticEndTime = moment(
-      start,
-      "HH:mm",
-      true
-    )
-      .clone()
-      .add(1, "hour")
-      .format("HH:mm");
-
-    setCustomSlotEnd(automaticEndTime);
-  }, [
-    sessionType,
-    customSlotStart,
-  ]);
+  }, [customSlotStart]);
 
   const normalizeSessionType = (v) => {
     const s = String(v || "").toLowerCase().trim();
@@ -3751,14 +3715,7 @@ const ManualBookingModal = ({ isOpen, title = "Manual Booking", onClose }) => {
                       type="time"
                       className="form-control mbmControl"
                       value={customSlotEnd}
-                      disabled={
-                        normalizeSessionType(sessionType) === "Online"
-                      }
-                      title={
-                        normalizeSessionType(sessionType) === "Online"
-                          ? "End time is automatically set to 1 hour after the start time."
-                          : "Select end time"
-                      }
+                                            title="Select end time"
                       onChange={(e) => {
                         setCustomSlotError("");
                         setCustomSlotEnd(e.target.value);
